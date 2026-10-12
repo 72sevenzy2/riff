@@ -294,6 +294,10 @@ function runGUI() {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
     });
 
+    ipcMain.on('open-external', (e, u) => {
+      if (/^https:\/\/accounts\.spotify\.com\//.test(String(u))) shell.openExternal(u);
+    });
+
       ipcMain.handle('get-server-port', () => serverPort);
       ipcMain.handle('get-gpu-compositing', () => { try { return String(app.getGPUFeatureStatus().gpu_compositing || ''); } catch (e) { return ''; } });
       ipcMain.handle('launcher-info', () => getLauncherInfo());

@@ -69,4 +69,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   disableAllThemes: () => ipcRenderer.send('themes-disable-all'),
   removeTheme: (id) => ipcRenderer.send('themes-remove', id),
   getAppCss: () => ipcRenderer.invoke('read-app-css'),
+  openExternal: (u) => ipcRenderer.send('open-external', u),
 });
