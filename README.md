@@ -3,7 +3,6 @@
 </p>
 
 <h1 align="center">Riff</h1>
-
 <p align="center">
   <a href="https://github.com/rootscripts/riff/commits/main">
     <img src="https://img.shields.io/github/last-commit/rootscripts/riff?style=for-the-badge&labelColor=16191C&color=94C9FF" alt="Last Commit">
@@ -16,6 +15,9 @@
   </a>
   <a href="https://github.com/rootscripts/riff/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/rootscripts/riff?style=for-the-badge&labelColor=16191C&color=8EEDD8" alt="License">
+  </a>
+  <a href="https://ko-fi.com/rootlesszen">
+    <img src="https://img.shields.io/badge/Ko--fi-rootlesszen?style=for-the-badge&logo=kofi&logoColor=white&labelColor=16191C&color=FF5E5B" alt="Support on Ko-fi">
   </a>
 </p>
 
