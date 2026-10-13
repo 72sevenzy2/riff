@@ -37,6 +37,14 @@ Riff can download audio from:
 
 Downloaded tracks can be added to the local library and played without an internet connection
 
+# Android & iOS
+Android & iOS Riff forks are unofficial and are not made by rootless.
+All Riff Android & iOS FORKS:
+### Muriel
+https://github.com/cloverscripts/riff-muriel/tags
+Muriel (Riff Android & iOS & Windows) by cloverscripts
+### Other phone apps coming soon
+
 # macOS warning
 
 macOS support is still in beta and some functions may not work.
