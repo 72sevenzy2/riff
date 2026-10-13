@@ -137,7 +137,7 @@ Riff does not need a subscription or paid Premium.
 
 Riff is designed to stay relatively light, comfortable and fast for a desktop music player.
 
-On a typical system, it uses around **~200 MB of RAM**, although actual usage depends on the number of tracks loaded, the current features being used, and the system itself.
+On a typical system, it uses around **~180 MB of RAM**, although actual usage depends on the number of tracks loaded, the current features being used, and the system itself. We fix RAM issues only if it's really big (500+ MB instead of 180 mb)
 
 ## Requirements
 
