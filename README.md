@@ -130,7 +130,8 @@ The exact build output depends on the current project configuration.
 
 ## Memory usage
 
-Riff uses roughly **180 MB of RAM** on a typical system. Real usage depends on how many tracks are loaded, which features you're using, and your machine. We only treat RAM as a bug when it gets really high (500+ MB).
+Riff (1 electron proccess) uses roughly **180 MB of RAM** on a typical system. Real usage depends on how many tracks are loaded, which features you're using, and your machine. 
+### We only treat RAM leak as a bug when it gets really high (600+ MB).
 
 ## Mobile versions
 
