@@ -4,7 +4,7 @@
 
 <h1 align="center">Riff</h1>
 
-<p align="center"><b>A free, open-source desktop music player for YouTube Music and SoundCloud. No ads, no account, no telemetry.</b></p>
+<p align="center"><b>A free, opensource desktop music player for YouTube Music and SoundCloud. No ads, no account and no telemetry </b></p>
 
 <p align="center">
   <a href="https://github.com/rootscripts/riff/commits/main">
