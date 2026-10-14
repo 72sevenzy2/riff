@@ -2,7 +2,7 @@
   <img src="banner.png" alt="Riff Banner" width="100%">
 </p>
 
-<h1 align="center">Riff</h1>
+# Riff
 <p align="center">
   <a href="https://github.com/rootscripts/riff/commits/main">
     <img src="https://img.shields.io/github/last-commit/rootscripts/riff?style=for-the-badge&labelColor=16191C&color=94C9FF" alt="Last Commit">
@@ -21,9 +21,16 @@
   </a>
 </p>
 
-<p align="center">
-  <b>Riff</b> is a free forever, best and freshly updating desktop music player for Windows, Linux, and macOS. It is made for playing music, managing a music library, and downloading tracks for offline listening.
-</p>
+A clean, fast desktop music player that streams YouTube Music and SoundCloud directly to your PC without ads or paid plans. Built with Material 3 Expressive for Windows, Linux, and macOS.
+
+### Highlights
+
+- Clean YouTube Music and SoundCloud playback with zero ads
+- Easy audio controls: quick presets, 10-band equalizer, tempo adjustments, and local FLAC support
+- Import public Spotify playlists with more than 100 tracks
+- Fast native desktop app that stays light on RAM and launches instantly
+- Full visual personalization: dynamic Material 3 colors, custom banners, and built-in CSS editing
+- Works out of the box without logins, accounts, or telemetry
 
 ## Features
 
