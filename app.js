@@ -2294,8 +2294,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         const dt = scrubLastTime === 0 ? 0.016 : Math.min((timestamp - scrubLastTime) / 1000, 0.1);
         scrubLastTime = timestamp;
 
-        const dur = el.nativeAudio && el.nativeAudio.duration ? el.nativeAudio.duration : (state.currentTrack ? state.currentTrack.duration : 0);
-        let cur = el.nativeAudio ? el.nativeAudio.currentTime : 0;
+        const dur = (el.nativeAudio && Number.isFinite(el.nativeAudio.duration) && el.nativeAudio.duration > 0)
+          ? el.nativeAudio.duration
+          : (state.currentTrack && Number.isFinite(state.currentTrack.duration) ? state.currentTrack.duration : 0);
+        let cur = (el.nativeAudio && Number.isFinite(el.nativeAudio.currentTime)) ? el.nativeAudio.currentTime : 0;
 
         if (isDraggingScrubber && state.scrubberDragTargetTime !== undefined) {
           cur = state.scrubberDragTargetTime;
@@ -2307,6 +2309,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             lastDisplayedSec = roundedSec;
             const t = formatDuration(cur);
             if (el.timeCurrent && el.timeCurrent.textContent !== t) el.timeCurrent.textContent = t;
+          }
+          if (dur > 0 && el.timeDuration) {
+            const d = formatDuration(dur);
+            if (el.timeDuration.textContent !== d) el.timeDuration.textContent = d;
           }
           if (dur > 0 && cur / dur > 0.5 && !state.nextTrackPrefetched) {
             state.nextTrackPrefetched = true;
@@ -2624,6 +2630,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (el.rightPanelArtist) el.rightPanelArtist.textContent = track.artist || 'Unknown artist';
 
     if (el.btnPlaybarMore) el.btnPlaybarMore.style.display = track.platform === 'local' ? 'none' : '';
+    if (el.timeDuration && track && track.duration) el.timeDuration.textContent = formatDuration(track.duration);
 
     updateRightPanelBanner(thumb);
     refreshMeshCover();
@@ -2875,6 +2882,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     state.forceSnapLyrics = true;
 
     if (el.timeCurrent) el.timeCurrent.textContent = '0:00';
+    if (el.timeDuration) el.timeDuration.textContent = formatDuration(track.duration || 0);
     scrubPrevKnobX = null;
     scrubProgress = 0;
 
@@ -5270,8 +5278,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     el.nativeAudio.addEventListener('durationchange', () => {
       const audio = el.nativeAudio;
       if (state.currentTrack && Number.isFinite(audio.duration) && audio.duration > 1) {
+        const newDur = Math.round(audio.duration);
         if (Math.abs(audio.duration - (state.currentTrack.duration || 0)) > 1.5) {
-          const newDur = Math.round(audio.duration);
           state.currentTrack.duration = newDur;
           const tid = state.currentTrack.id;
           if (Array.isArray(state.queue)) {
@@ -5284,8 +5292,8 @@ document.addEventListener('DOMContentLoaded', async () => {
               }
             });
           }
-          if (el.timeDuration) el.timeDuration.textContent = formatDuration(newDur);
         }
+        if (el.timeDuration) el.timeDuration.textContent = formatDuration(newDur);
       }
       updateMediaPositionState();
     });
@@ -5302,8 +5310,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     let lastTimeupdateSec = -1;
     el.nativeAudio.addEventListener('timeupdate', () => {
-      const cur = el.nativeAudio.currentTime || 0;
-      const dur = el.nativeAudio.duration || (state.currentTrack ? state.currentTrack.duration : 0);
+      const cur = (el.nativeAudio && Number.isFinite(el.nativeAudio.currentTime)) ? el.nativeAudio.currentTime : 0;
+      const dur = (el.nativeAudio && Number.isFinite(el.nativeAudio.duration) && el.nativeAudio.duration > 0)
+        ? el.nativeAudio.duration
+        : (state.currentTrack && Number.isFinite(state.currentTrack.duration) ? state.currentTrack.duration : 0);
 
       const X = parseInt(localStorage.getItem('riff_crossfade') || '0', 10);
       if (X > 0 && !crossfadeTriggered && !state.isRepeat && dur > X && cur >= dur - X && (!audioEngine || !audioEngine.isLiveStream(el.nativeAudio))) {
@@ -5348,7 +5358,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const trackWidth = rect.width - 2 * padLeft;
     let pos = trackWidth > 0 ? (e.clientX - rect.left - padLeft) / trackWidth : 0;
     pos = Math.max(0, Math.min(1, pos));
-    const dur = (el.nativeAudio && el.nativeAudio.duration) ? el.nativeAudio.duration : (state.currentTrack ? state.currentTrack.duration : 0);
+    const dur = (el.nativeAudio && Number.isFinite(el.nativeAudio.duration) && el.nativeAudio.duration > 0)
+      ? el.nativeAudio.duration
+      : (state.currentTrack && Number.isFinite(state.currentTrack.duration) ? state.currentTrack.duration : 0);
     const targetTime = pos * dur;
 
     state.scrubberDragTargetTime = targetTime;
@@ -12553,40 +12565,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     openModal(el.downloadModal);
   }
 
-  const playlistFormatDropdown = document.getElementById('playlist-format-dropdown');
-  const playlistFormatTrigger = document.getElementById('playlist-format-trigger');
-  const playlistFormatLabel = document.getElementById('playlist-format-label');
-  const playlistFormatMenu = document.getElementById('playlist-format-menu');
-
   function setDownloadFormat(fmt) {
     selectedFormat = fmt || 'mp3';
     localStorage.setItem('riff_download_format', selectedFormat);
-    if (playlistFormatLabel) playlistFormatLabel.textContent = selectedFormat.toUpperCase();
-    if (playlistFormatMenu) {
-      playlistFormatMenu.querySelectorAll('.m3-dropdown-option').forEach(o => {
-        o.classList.toggle('selected', o.dataset.value === selectedFormat);
-      });
-    }
     document.querySelectorAll('.format-chip').forEach(c => {
       c.classList.toggle('active', c.dataset.format === selectedFormat);
     });
     updateDownloadBtnLabel();
     updateLosslessQualityState();
-  }
-
-  if (playlistFormatDropdown && playlistFormatTrigger && playlistFormatMenu) {
-    playlistFormatTrigger.addEventListener('click', (e) => {
-      e.stopPropagation();
-      playlistFormatDropdown.classList.toggle('open');
-    });
-
-    playlistFormatMenu.querySelectorAll('.m3-dropdown-option').forEach(opt => {
-      opt.addEventListener('click', (e) => {
-        e.stopPropagation();
-        setDownloadFormat(opt.dataset.value);
-        playlistFormatDropdown.classList.remove('open');
-      });
-    });
   }
 
   document.querySelectorAll('.format-chip').forEach(chip => {
