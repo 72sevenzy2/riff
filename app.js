@@ -10906,7 +10906,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (typeof onProgress === 'function') onProgress(0, total);
 
     async function searchCandidates(q) {
-      const sRes = await fetch(`http://127.0.0.1:${state.serverPort}/api/search?q=${encodeURIComponent(q)}&platform=ytmusic&limit=8`);
+      const plat = state.platform || 'youtube';
+      const sRes = await fetch(`http://127.0.0.1:${state.serverPort}/api/search?q=${encodeURIComponent(q)}&platform=${plat}&limit=8`);
       const sData = await sRes.json();
       if (sData && sData.success && Array.isArray(sData.tracks)) {
         return sData.tracks.slice(0, 8);
@@ -12379,6 +12380,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     if (btnCancelLinkImport) btnCancelLinkImport.disabled = true;
 
+    if (url.includes('soundcloud.com')) setPlatform('soundcloud', false);
+    else if (url.includes('music.youtube.com')) setPlatform('ytmusic', false);
+    else if (url.includes('youtube.com') || url.includes('youtu.be')) setPlatform('youtube', false);
+
     const hasBusy = typeof beginBusy === 'function';
     if (hasBusy) beginBusy('import');
     try {
@@ -12417,6 +12422,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const linkImportBtns = document.querySelectorAll('.btn-open-link-import, #btn-open-link-import');
   linkImportBtns.forEach(btn => {
     btn.addEventListener('click', () => {
+      if (btn.dataset.platform) setPlatform(btn.dataset.platform, false);
       openLinkImportModal(btn.dataset.platform || '');
     });
   });

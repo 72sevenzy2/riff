@@ -3257,7 +3257,58 @@ async function handlePlaylistImport(req, res, inputUrl) {
     return res.end(JSON.stringify({ success: false, error: 'Unsupported link' }));
   }
 
-  const platform = isSoundCloud ? 'soundcloud' : 'youtube';
+  const platform = isSoundCloud ? 'soundcloud' : (host === 'music.youtube.com' ? 'ytmusic' : 'youtube');
+
+  if (isSoundCloud && inputUrl.includes('/sets/')) {
+    try {
+      const page = await fetch(inputUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }).then(r => r.text());
+      const hyd = page.match(/window\.__sc_hydration\s*=\s*(\[[\s\S]*?\]);\s*<\/script>/);
+      if (hyd) {
+        const list = JSON.parse(hyd[1]);
+        const pl = list.find(x => x.hydratable === 'playlist')?.data;
+        if (pl && Array.isArray(pl.tracks)) {
+          let cid = 'tHVbSbDP4TaoMbPppngv6Tdry83vNbMQ';
+          const scripts = [...page.matchAll(/src="(https:\/\/a-v2\.sndcdn\.com\/assets\/[^"]+\.js)"/g)].map(x => x[1]);
+          for (const s of scripts) {
+            try {
+              const code = await fetch(s).then(r => r.text());
+              const cm = code.match(/client_id[:=]["']([a-zA-Z0-9]{32})["']/);
+              if (cm) { cid = cm[1]; break; }
+            } catch (_) {}
+          }
+          const full = pl.tracks.filter(t => t && t.title);
+          const missing = pl.tracks.filter(t => t && !t.title).map(t => t.id);
+          for (let i = 0; i < missing.length; i += 50) {
+            const chunk = missing.slice(i, i + 50);
+            try {
+              const u = `https://api-v2.soundcloud.com/tracks?ids=${chunk.join(',')}&client_id=${cid}`;
+              const items = await fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0' } }).then(r => r.json());
+              if (Array.isArray(items)) full.push(...items);
+            } catch (_) {}
+          }
+          const tracks = full.map(t => ({
+            id: String(t.id),
+            title: t.title || 'untitled',
+            artist: (t.user && (t.user.username || t.user.name)) || 'unknown artist',
+            duration: Math.round((t.duration || t.full_duration || 0) / 1000),
+            thumbnail: t.artwork_url || (t.user && t.user.avatar_url) || '',
+            url: t.permalink_url || '',
+            platform: 'soundcloud',
+            isCached: false
+          }));
+          if (tracks.length > 0) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({
+              success: true,
+              name: pl.title || 'SoundCloud Playlist',
+              cover: pl.artwork_url || '',
+              tracks
+            }));
+          }
+        }
+      }
+    } catch (_) {}
+  }
   const args = [
     '--dump-single-json',
     '--no-warnings',
