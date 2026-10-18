@@ -3110,6 +3110,33 @@ function fetchHtmlWithRedirects(targetUrl, maxRedirects = 5, timeoutMs = 15000) 
 }
 
 async function handleAppleImport(req, res, inputUrl) {
+  const albumMatch = (inputUrl || '').match(/music\.apple\.com\/(?:[a-z]{2}\/)?album\/(?:[^/]+\/)?(\d+)/i);
+  if (albumMatch) {
+    try {
+      const data = await fetchItunesJson(`https://itunes.apple.com/lookup?id=${albumMatch[1]}&entity=song`);
+      const results = (data && Array.isArray(data.results)) ? data.results : [];
+      const albumItem = results.find(r => r && r.wrapperType === 'collection');
+      if (albumItem) {
+        const tracks = results
+          .filter(r => r && r.wrapperType === 'track')
+          .map(item => ({
+            title: item.trackName || '',
+            artist: item.artistName || albumItem.artistName || '',
+            duration: item.trackTimeMillis ? Math.round(item.trackTimeMillis / 1000) : 0
+          }));
+        if (tracks.length > 0) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({
+            success: true,
+            name: albumItem.collectionName || 'Album',
+            cover: (albumItem.artworkUrl100 || '').replace('100x100', '600x600'),
+            tracks
+          }));
+        }
+      }
+    } catch (_) {}
+  }
+
   const m = (inputUrl || '').match(/music\.apple\.com\/.*?(pl\.(?:u-)?[a-zA-Z0-9_-]+)/i);
   if (!m) {
     res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -3739,9 +3766,47 @@ async function handleAlbumSearch(req, res, parsedUrl) {
   }
 
   try {
-    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=album&media=music&limit=25`;
-    const data = await fetchItunesJson(url);
-    const results = (data && Array.isArray(data.results)) ? data.results : [];
+    const albumUrlMatch = q.match(/music\.apple\.com\/(?:[a-z]{2}\/)?album\/(?:[^/]+\/)?(\d+)/i);
+    if (albumUrlMatch) {
+      const data = await fetchItunesJson(`https://itunes.apple.com/lookup?id=${albumUrlMatch[1]}&entity=album`);
+      const results = (data && Array.isArray(data.results)) ? data.results : [];
+      const item = results.find(r => r && r.wrapperType === 'collection');
+      if (item) {
+        const responseData = {
+          success: true,
+          albums: [{
+            id: String(item.collectionId),
+            title: item.collectionName || '',
+            artist: item.artistName || '',
+            year: item.releaseDate ? item.releaseDate.slice(0, 4) : '',
+            trackCount: item.trackCount || 0,
+            cover: (item.artworkUrl100 || '').replace('100x100', '600x600')
+          }]
+        };
+        setAlbumCache(cacheKey, responseData);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify(responseData));
+      }
+    }
+
+    const cleanQ = q.replace(/\s+-\s+/g, ' ').replace(/\bby\b/gi, ' ').replace(/\s+/g, ' ').trim();
+    const urls = [
+      `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=album&media=music&limit=25`,
+      `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=25`
+    ];
+    if (cleanQ && cleanQ.toLowerCase() !== q.toLowerCase()) {
+      urls.push(`https://itunes.apple.com/search?term=${encodeURIComponent(cleanQ)}&entity=album&media=music&limit=25`);
+      urls.push(`https://itunes.apple.com/search?term=${encodeURIComponent(cleanQ)}&media=music&limit=25`);
+    }
+
+    const responses = await Promise.all(urls.map(u => fetchItunesJson(u).catch(() => null)));
+    const results = [];
+    for (const data of responses) {
+      if (data && Array.isArray(data.results)) {
+        results.push(...data.results);
+      }
+    }
+
     const albums = [];
     const seen = new Set();
     const normalize = (s) => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
@@ -3765,10 +3830,25 @@ async function handleAlbumSearch(req, res, parsedUrl) {
         trackCount: trackCount,
         cover: (item.artworkUrl100 || '').replace('100x100', '600x600')
       });
-
-      if (albums.length >= 12) break;
     }
-    const responseData = { success: true, albums };
+
+    const words = cleanQ.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(w => w.length > 1);
+    const scoreAlbum = (album) => {
+      const title = (album.title || '').toLowerCase();
+      const artist = (album.artist || '').toLowerCase();
+      const full = title + ' ' + artist;
+      let score = 0;
+      for (const w of words) {
+        if (title.includes(w)) score += 15;
+        else if (artist.includes(w)) score += 10;
+      }
+      if (title === cleanQ.toLowerCase() || full === cleanQ.toLowerCase()) score += 50;
+      else if (full.includes(cleanQ.toLowerCase()) || cleanQ.toLowerCase().includes(title)) score += 25;
+      return score;
+    };
+
+    albums.sort((a, b) => scoreAlbum(b) - scoreAlbum(a));
+    const responseData = { success: true, albums: albums.slice(0, 12) };
     setAlbumCache(cacheKey, responseData);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(responseData));
