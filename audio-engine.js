@@ -33,6 +33,10 @@
 
       this.masterGain = null;
       this.analyserNode = null;
+      this.normGain = null;
+      this.normLimiter = null;
+      this.levelAnalyser = null;
+      this.levelBuf = null;
       this.fadeGain = null;
       this.bus = null;
       this._analyserConnected = false;
@@ -192,6 +196,17 @@
           this.analyserNode.fftSize = 128;
           this.analyserNode.smoothingTimeConstant = 0.8;
 
+          this.normGain = this.ctx.createGain();
+          this.normLimiter = this.ctx.createDynamicsCompressor();
+          this.normLimiter.threshold.value = -2;
+          this.normLimiter.knee.value = 0;
+          this.normLimiter.ratio.value = 20;
+          this.normLimiter.attack.value = 0.003;
+          this.normLimiter.release.value = 0.1;
+          this.levelAnalyser = this.ctx.createAnalyser();
+          this.levelAnalyser.fftSize = 2048;
+          this.levelBuf = new Float32Array(this.levelAnalyser.fftSize);
+
           this.eqLow = this.ctx.createBiquadFilter();
           this.eqLow.type = 'lowshelf';
           this.eqLow.frequency.value = 200;
@@ -222,8 +237,12 @@
           this.bus = this.ctx.createGain();
           this.fadeGain = this.ctx.createGain();
           this.fadeGain.gain.value = 1.0;
-          this.masterGain.connect(this.fadeGain);
+          this.masterGain.connect(this.normGain);
+          this.normGain.connect(this.normLimiter);
+          this.normLimiter.connect(this.analyserNode);
+          this.analyserNode.connect(this.fadeGain);
           this.fadeGain.connect(this.ctx.destination);
+          this.eqHigh.connect(this.levelAnalyser);
 
           this.graphInitialized = true;
           this._updateRouting();
@@ -532,22 +551,7 @@
     }
 
     setAnalyserEnabled(enabled) {
-      const active = !!enabled;
-      if (this._analyserConnected === active) return;
-      this._analyserConnected = active;
-      if (!this.masterGain || !this.analyserNode || !this.ctx) return;
-      try {
-        if (active) {
-          this.masterGain.connect(this.analyserNode);
-        } else {
-          try {
-            this.masterGain.disconnect(this.analyserNode);
-          } catch (e) {
-            this.masterGain.disconnect();
-            this.masterGain.connect(this.fadeGain || this.ctx.destination);
-          }
-        }
-      } catch (e) {}
+      this._analyserConnected = !!enabled;
     }
 
     suspendAudioContextDebounced(delayMs = 5000) {
@@ -585,6 +589,20 @@
     getTimeDomainData(buffer) {
       if (!this._analyserConnected) this.setAnalyserEnabled(true);
       if (this.analyserNode) this.analyserNode.getByteTimeDomainData(buffer);
+    }
+
+    getLevelDb() {
+      if (!this.levelAnalyser) return -120;
+      this.levelAnalyser.getFloatTimeDomainData(this.levelBuf);
+      let sum = 0;
+      for (let i = 0; i < this.levelBuf.length; i++) sum += this.levelBuf[i] * this.levelBuf[i];
+      const rms = Math.sqrt(sum / this.levelBuf.length);
+      return rms > 0 ? 20 * Math.log10(rms) : -120;
+    }
+
+    setNormalizeGainDb(db) {
+      if (!this.normGain || !this.ctx) return;
+      this.normGain.gain.setTargetAtTime(Math.pow(10, db / 20), this.ctx.currentTime, 0.8);
     }
 
 

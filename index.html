@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body class="no-nav-transition">
+  <div id="fx-root"></div>
 
   <div class="m3-organic-bg">
     <div class="shape shape-pill"></div>
@@ -20,6 +21,7 @@
   <div id="bg-mesh-a" class="bg-mesh-layer"></div>
   <div id="bg-mesh-b" class="bg-mesh-layer"></div>
   <div id="custom-bg"></div>
+  <div id="cover-bg"><div class="cover-bg-layer"></div><div class="cover-bg-layer"></div></div>
 
   <svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
     <defs id="m3-dynamic-defs">
@@ -183,7 +185,7 @@
       </div>
 
       <div class="rail-drawer hidden" id="rail-drawer">
-        <div class="rail-drawer-header liquid-content-stagger">
+        <div class="rail-drawer-header">
           <span class="rail-drawer-title" id="rail-drawer-title">Playlists</span>
           <div class="rail-drawer-header-actions">
             <button class="btn-icon-pill" id="btn-save-preset-dialog" title="Save preset" aria-label="Save preset" style="display: none;">
@@ -198,11 +200,11 @@
           </div>
         </div>
 
-        <div class="rail-drawer-section liquid-content-stagger" id="drawer-section-presets">
+        <div class="rail-drawer-section" id="drawer-section-presets">
           <div class="presets-chips-container" id="presets-container"></div>
         </div>
 
-        <div class="rail-drawer-section liquid-content-stagger" id="drawer-section-playlists">
+        <div class="rail-drawer-section" id="drawer-section-playlists">
           <div class="playlists-list" id="playlists-list"></div>
         </div>
       </div>
@@ -210,62 +212,61 @@
 
     <main class="main-content" id="main-content">
       <section class="content-view active" id="view-discover">
+        <div class="home-ambient" id="home-ambient"><div class="home-ambient-layer"></div><div class="home-ambient-layer"></div></div>
         <div class="discover-content" id="discover-empty">
-          <div class="section-block">
-            <div class="suggestion-chips" id="suggestion-chips">
-              <button class="chip-btn active" data-home="1">All</button>
-              <button class="chip-btn" data-query="Relaxing music">Relax</button>
-              <button class="chip-btn" data-query="Workout hip hop">Workout</button>
-              <button class="chip-btn" data-query="Electronic dance">Electronic</button>
-              <button class="chip-btn" data-query="Deftones rock">Rock</button>
-              <button class="chip-btn" data-query="Phonk drift">Phonk</button>
-              <button class="chip-btn" data-query="Synthwave chill">Synthwave</button>
-              <button class="chip-btn" data-query="Slowed reverb">Slowed + reverb</button>
-            </div>
-          </div>
 
+          <div class="home-hero" id="home-hero">
+            <div class="home-hero-track" id="home-hero-track">
 
-          <div class="section-block">
-            <div class="section-header-inline">
-              <h3 class="section-title">Jump back in</h3>
-              <span class="section-hint">Recently played</span>
-            </div>
-            <div class="quick-play-row" id="home-quick-play-row"></div>
-          </div>
-
-          <div class="section-block" id="section-my-wave">
-            <div class="my-wave-hero-card">
-              <div class="my-wave-badge-row">
-                <div class="my-wave-icon-wrap">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 10v4M6 6v12M10 3v18M14 8v8M18 5v14M22 10v4"/></svg>
+              <div class="section-block home-pane" id="section-my-wave">
+                <div class="home-pane-header">
+                  <span class="home-pane-label my-wave-title">My Wave</span>
+                  <div class="my-wave-actions">
+                    <button class="btn-icon-pill" id="btn-refresh-vibe" title="Refresh wave">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                    </button>
+                    <button class="btn-pill-primary" id="btn-play-my-wave">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                      <span>Play wave</span>
+                    </button>
+                  </div>
                 </div>
-                <h3 class="my-wave-title">My Wave</h3>
-              </div>
-              <div class="my-wave-actions">
-                <button class="btn-icon-pill" id="btn-refresh-vibe" title="Refresh wave">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                </button>
-                <button class="btn-pill-primary" id="btn-play-my-wave">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                  <span>Play wave</span>
-                </button>
-              </div>
-            </div>
 
-            <div class="my-wave-focused-meta" id="my-wave-focused-meta">
-              <div class="my-wave-focused-title" id="my-wave-focused-title"></div>
-              <div class="my-wave-focused-artist" id="my-wave-focused-artist"></div>
-            </div>
+                <div class="my-wave-carousel-wrapper">
+                  <div class="my-wave-ambient-light" id="my-wave-ambient-light"></div>
+                  <div class="my-wave-tracks-row" id="home-vibe-grid"></div>
+                </div>
 
-            <div class="my-wave-carousel-wrapper">
-              <div class="my-wave-ambient-light" id="my-wave-ambient-light"></div>
-              <div class="my-wave-tracks-row" id="home-vibe-grid"></div>
+                <div class="my-wave-focused-meta" id="my-wave-focused-meta">
+                  <div class="my-wave-focused-title" id="my-wave-focused-title"></div>
+                  <div class="my-wave-focused-artist" id="my-wave-focused-artist"></div>
+                </div>
+              </div>
+
+              <div class="section-block home-pane" id="section-jump-back">
+                <div class="home-pane-header">
+                  <span class="home-pane-label">Jump back in</span>
+                </div>
+
+                <div class="my-wave-carousel-wrapper">
+                  <div class="my-wave-ambient-light" id="jump-ambient-light"></div>
+                  <div class="my-wave-tracks-row" id="home-quick-play-row"></div>
+                </div>
+
+                <div class="my-wave-focused-meta" id="jump-focused-meta">
+                  <div class="my-wave-focused-title" id="jump-focused-title"></div>
+                  <div class="my-wave-focused-artist" id="jump-focused-artist"></div>
+                </div>
+              </div>
+
             </div>
+            <div class="home-hero-dots" id="home-hero-dots"></div>
           </div>
         </div>
 
         <div class="search-results-container hidden" id="search-results-container">
           <div id="search-artist-card-container"></div>
+          <div id="search-albums-container"></div>
           <div class="tracks-list" id="search-tracks-list"></div>
         </div>
       </section>
@@ -337,19 +338,30 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
         </button>
         <div class="playlist-detail-header">
+          <div class="hero-fx" id="playlist-hero-fx"></div>
           <div class="playlist-cover-wrapper" id="playlist-detail-cover"></div>
           <div class="playlist-meta">
             <span class="playlist-type-badge">Playlist</span>
             <h2 id="playlist-detail-title">Playlist title</h2>
             <span class="view-subtitle" id="playlist-detail-count">0 tracks</span>
             <div class="action-bar playlist-actions">
-              <button class="btn-pill-primary" id="btn-play-playlist" title="Play playlist" aria-label="Play playlist">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-              </button>
               <button class="btn-outline-pill" id="btn-download-playlist" title="Download all songs" aria-label="Download all songs">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                 <span id="btn-download-playlist-label">Download all</span>
               </button>
+              <div class="m3-dropdown" id="playlist-format-dropdown" style="width: auto;">
+                <button class="m3-dropdown-trigger" id="playlist-format-trigger" type="button" style="height: 38px; padding: 0 12px; gap: 6px; border-radius: 9999px;">
+                  <span id="playlist-format-label">MP3</span>
+                  <svg class="m3-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                <div class="m3-dropdown-menu" id="playlist-format-menu">
+                  <button class="m3-dropdown-option selected" data-value="mp3" type="button">MP3</button>
+                  <button class="m3-dropdown-option" data-value="flac" type="button">FLAC</button>
+                  <button class="m3-dropdown-option" data-value="m4a" type="button">M4A</button>
+                  <button class="m3-dropdown-option" data-value="opus" type="button">Opus</button>
+                  <button class="m3-dropdown-option" data-value="wav" type="button">WAV</button>
+                </div>
+              </div>
               <button class="btn-icon-pill delete-btn" id="btn-delete-playlist" title="Delete playlist" aria-label="Delete playlist">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
               </button>
@@ -363,9 +375,27 @@
         <div class="tracks-list" id="playlist-tracks-list"></div>
       </section>
 
+      <section class="content-view" id="view-album">
+        <div class="hero-fx" id="album-hero-fx"></div>
+        <button class="btn-icon-pill" id="btn-back-album" title="Back" style="margin-bottom: 16px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+        </button>
+        <div class="album-layout">
+          <aside class="album-side">
+            <div class="album-cover-wrapper" id="album-detail-cover"></div>
+            <h2 id="album-detail-title">Album title</h2>
+            <button class="album-artist-btn" id="album-detail-artist" type="button"></button>
+            <div class="album-meta-line" id="album-detail-count">0 tracks</div>
+          </aside>
+          <div class="album-tracks-col">
+            <div class="tracks-list" id="album-tracks-list"></div>
+          </div>
+        </div>
+      </section>
+
       <section class="content-view" id="view-artist">
         <div class="artist-hero-card">
-          <div class="artist-hero-backdrop hidden" id="artist-hero-backdrop"></div>
+          <div class="artist-hero-backdrop hero-fx" id="artist-hero-backdrop"></div>
           <button class="btn-icon-pill btn-back-artist" id="btn-back-artist" title="Back">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
           </button>
@@ -383,12 +413,6 @@
               </div>
               <h1 class="artist-title" id="artist-profile-name">Artist</h1>
               <p class="artist-bio-snippet hidden" id="artist-profile-bio"></p>
-              <div class="artist-actions-bar">
-                <button class="btn-pill-primary" id="btn-play-artist-tracks">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                  <span>Play all tracks</span>
-                </button>
-              </div>
             </div>
           </div>
         </div>
@@ -486,6 +510,10 @@
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.7-.8 1.7-1.7 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.9.8-1.7 1.7-1.7H16c3.3 0 6-2.7 6-6 0-4.9-4.5-8.4-10-8.4z"/></svg>
                 <span>Custom themes</span>
               </button>
+              <button class="settings-nav-btn" data-cat="plugins">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7 1.49 0 2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/></svg>
+                <span>Plugins</span>
+              </button>
             </nav>
             <div class="settings-pane">
               <div class="settings-section" data-cat="interface">
@@ -495,8 +523,8 @@
                 <span class="setting-name">UI scale</span>
                 <span class="setting-value" id="settings-val-scale">100%</span>
               </div>
-              <input type="range" class="pill-range" id="settings-slider-scale" min="90" max="140" step="5" value="100">
-              <div class="setting-hints"><span>Compact</span><span>100%</span><span>Large</span></div>
+              <input type="range" class="pill-range" id="settings-slider-scale" min="80" max="130" step="5" value="100">
+              <div class="setting-hints"><span>Compact</span><span>Default</span><span>Large</span></div>
             </div>
 
             <div class="setting-item">
@@ -505,7 +533,19 @@
                 <span class="setting-value" id="val-font-scale">100%</span>
               </div>
               <input type="range" class="pill-range" id="slider-font-scale" min="80" max="130" step="5" value="100">
-              <div class="setting-hints"><span>Small</span><span>100%</span><span>Large</span></div>
+              <div class="setting-hints"><span>Small</span><span>Default</span><span>Large</span></div>
+            </div>
+
+            <div class="setting-item" id="setting-interface-font">
+              <div class="setting-item-top">
+                <span class="setting-name">Interface font</span>
+              </div>
+              <div class="theme-mode-toggle" id="font-toggle">
+                <button type="button" class="theme-mode-btn active" id="font-opt-google" data-font="google">Google Sans</button>
+                <button type="button" class="theme-mode-btn" id="font-opt-sf" data-font="sf">SF Pro</button>
+                <button type="button" class="theme-mode-btn" id="font-opt-system" data-font="system">System</button>
+              </div>
+              <div style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline); margin-top: 6px;">SF Pro is loaded from fonts.cdnfonts.com when selected</div>
             </div>
 
             <div class="setting-item" id="setting-search-pos-row">
@@ -625,6 +665,69 @@
             <div class="setting-item">
               <div class="setting-item-top" style="align-items: center;">
                 <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name">Shaped cover in the bottom bar</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Morphing Material 3 shape with a wavy progress ring around the cover</span>
+                </div>
+                <button class="effect-switch-btn active" id="toggle-m3-cover"><span class="thumb"></span></button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name">Visualizer in full karaoke mode</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Show wave visualizer when track has no lyrics</span>
+                </div>
+                <button class="effect-switch-btn active" id="btn-tvk-visualizer-setting"><span class="thumb"></span></button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name">Visualizer with lyrics</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Show wave visualizer at the bottom even when track has lyrics</span>
+                </div>
+                <button class="effect-switch-btn" id="btn-tvk-visualizer-lyrics-setting"><span class="thumb"></span></button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name">Visualizer opacity</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Adjust transparency of the TV karaoke visualizer</span>
+                </div>
+                <span class="setting-val" id="val-tvk-vis-opacity-setting" style="font-size: calc(13px * var(--font-scale, 1)); font-weight: 500; min-width: 42px; text-align: right;">85%</span>
+              </div>
+              <input type="range" class="pill-range" id="slider-tvk-vis-opacity-setting" min="10" max="100" step="5" value="85" style="width: 100%; margin-top: 8px;">
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name">Visualizer smoothness</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Higher = calmer, slower bars</span>
+                </div>
+                <span class="setting-val" id="val-viz-smooth" style="font-size: calc(13px * var(--font-scale, 1)); font-weight: 500; min-width: 42px; text-align: right;">70%</span>
+              </div>
+              <input type="range" class="pill-range" id="slider-viz-smooth" min="0" max="95" step="1" value="70" style="width: 100%; margin-top: 8px;">
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name">Visualizer sensitivity</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Higher = taller bars</span>
+                </div>
+                <span class="setting-val" id="val-viz-sens" style="font-size: calc(13px * var(--font-scale, 1)); font-weight: 500; min-width: 42px; text-align: right;">100%</span>
+              </div>
+              <input type="range" class="pill-range" id="slider-viz-sens" min="30" max="300" step="5" value="100" style="width: 100%; margin-top: 8px;">
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
                   <span class="setting-name">Performance mode</span>
                   <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Disables visualizers, animated gradient and blur effects, limits animations to 30 FPS</span>
                 </div>
@@ -647,6 +750,11 @@
                   <button class="btn-pill-primary" id="btn-add-theme">Add</button>
                 </div>
                 <div class="ct-list m3-group" id="custom-themes-list"></div>
+              </div>
+
+              <div class="settings-section" data-cat="plugins">
+                <div class="ct-head"><div><div class="settings-section-title">Plugins</div><div class="setting-hint"><span class="plugins-warn">Plugins are JavaScript files with full access to Riff.</span> Only add plugins you trust. They live in the plugins folder: delete a file and the plugin is gone. Ctrl+Shift+R turns every plugin off.</div></div><div class="ct-actions"><button class="btn-outline-pill" id="btn-plugins-folder">Open folder</button><button class="btn-outline-pill" id="btn-plugins-reload">Reload list</button><button class="btn-pill-primary" id="btn-add-plugin">Add</button></div></div>
+                <div class="ct-list m3-group" id="plugins-list"></div>
               </div>
 
               <div class="settings-section" data-cat="theme">
@@ -866,6 +974,25 @@
               <input type="range" class="pill-range" id="slider-bg-blur" min="0" max="40" step="1" value="0">
               <div class="setting-hints"><span>0px</span><span>20px</span><span>40px</span></div>
             </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name">Cover background</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Uses a blurred version of the current cover as the background</span>
+                </div>
+                <button class="effect-switch-btn active" data-adv="cover_bg"><span class="thumb"></span></button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top">
+                <span class="setting-name">Cover background brightness</span>
+                <span class="setting-value" id="val-cover-bg-brightness">45%</span>
+              </div>
+              <input type="range" class="pill-range" id="slider-cover-bg-brightness" min="5" max="100" step="5" value="45">
+              <div class="setting-hints"><span>5%</span><span>50%</span><span>100%</span></div>
+            </div>
                 </div>
               </div>
 
@@ -910,6 +1037,23 @@
             </div>
 
             <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <span class="setting-name">Progress bar knob</span>
+                <button class="effect-switch-btn active" id="btn-progress-knob"><span class="thumb"></span></button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name">Progress bar background</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Show the uncompleted track rail in the playbar</span>
+                </div>
+                <button class="effect-switch-btn active" id="btn-progress-bg"><span class="thumb"></span></button>
+              </div>
+            </div>
+
+            <div class="setting-item">
               <div class="setting-item-top">
                 <span class="setting-name">Crossfade</span>
                 <span class="setting-value" id="val-crossfade">Off</span>
@@ -942,19 +1086,14 @@
               </select>
               <div class="m3-dropdown" id="tr-lang-dropdown">
                 <button class="m3-dropdown-trigger" id="tr-lang-trigger" type="button">
-                  <span id="tr-lang-label">English (en)</span>
+                  <span id="tr-lang-label">🇺🇸 English (en)</span>
                   <svg class="m3-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
                 </button>
                 <div class="m3-dropdown-menu" id="tr-lang-menu">
-                  <button class="m3-dropdown-option selected" data-value="en" type="button">English (en)</button>
-                  <button class="m3-dropdown-option" data-value="ru" type="button">Russian (ru)</button>
-                  <button class="m3-dropdown-option" data-value="es" type="button">Spanish (es)</button>
-                  <button class="m3-dropdown-option" data-value="de" type="button">German (de)</button>
-                  <button class="m3-dropdown-option" data-value="fr" type="button">French (fr)</button>
-                  <button class="m3-dropdown-option" data-value="pt" type="button">Portuguese (pt)</button>
-                  <button class="m3-dropdown-option" data-value="ja" type="button">Japanese (ja)</button>
-                  <button class="m3-dropdown-option" data-value="ko" type="button">Korean (ko)</button>
-                  <button class="m3-dropdown-option" data-value="zh-CN" type="button">Chinese (zh-CN)</button>
+                  <div class="m3-dropdown-search-wrap">
+                    <input type="text" class="m3-dropdown-search" id="tr-lang-search" placeholder="Search language..." autocomplete="off">
+                  </div>
+                  <div class="m3-dropdown-list" id="tr-lang-list"></div>
                 </div>
               </div>
             </div>
@@ -964,6 +1103,67 @@
                 <span class="setting-name">Auto-translate</span>
                 <button class="effect-switch-btn" id="btn-tr-auto"><span class="thumb"></span></button>
               </div>
+            </div>
+
+            <div class="setting-item" id="setting-lyrics-ease-row">
+              <div class="setting-item-top">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name">Lyrics animation</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">How the active line moves</span>
+                </div>
+              </div>
+              <div class="m3-dropdown" id="lyrics-ease-dropdown">
+                <button class="m3-dropdown-trigger" id="lyrics-ease-trigger" type="button">
+                  <span id="lyrics-ease-label">Ease in-out</span>
+                  <svg class="m3-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                <div class="m3-dropdown-menu" id="lyrics-ease-menu">
+                  <button class="m3-dropdown-option selected" data-value="inout" type="button">Ease in-out (Cubic)</button>
+                  <button class="m3-dropdown-option" data-value="quad" type="button">Smooth (Quad)</button>
+                  <button class="m3-dropdown-option" data-value="sine" type="button">Gentle (Sine)</button>
+                  <button class="m3-dropdown-option" data-value="out" type="button">Ease out (Quart)</button>
+                  <button class="m3-dropdown-option" data-value="outsine" type="button">Soft ease out</button>
+                  <button class="m3-dropdown-option" data-value="expo" type="button">Snappy (Expo)</button>
+                  <button class="m3-dropdown-option" data-value="linear" type="button">Linear</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="setting-item" id="setting-lyrics-speed-row">
+              <div class="setting-item-top">
+                <span class="setting-name">Lyrics animation speed</span>
+                <span class="setting-value" id="val-lyrics-speed">1.0x</span>
+              </div>
+              <input type="range" class="pill-range" id="slider-lyrics-speed" min="5" max="25" step="1" value="10">
+              <div class="setting-hints"><span>0.5x (Slow)</span><span>1.0x (Normal)</span><span>2.5x (Fast)</span></div>
+            </div>
+
+            <div class="setting-item" id="setting-lyrics-wordstyle-row">
+              <div class="setting-item-top">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name">Word mode style</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">How the active line is highlighted in Word mode</span>
+                </div>
+              </div>
+              <div class="m3-dropdown" id="lyrics-wordstyle-dropdown">
+                <button class="m3-dropdown-trigger" id="lyrics-wordstyle-trigger" type="button">
+                  <span id="lyrics-wordstyle-label">Gradient</span>
+                  <svg class="m3-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                <div class="m3-dropdown-menu" id="lyrics-wordstyle-menu">
+                  <button class="m3-dropdown-option selected" data-value="gradient" type="button">Gradient</button>
+                  <button class="m3-dropdown-option" data-value="words" type="button">Words</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="setting-item" id="setting-lyrics-tightness-row">
+              <div class="setting-item-top">
+                <span class="setting-name">Gradient tightness</span>
+                <span class="setting-value" id="val-lyrics-tightness">2%</span>
+              </div>
+              <input type="range" class="pill-range" id="slider-lyrics-tightness" min="2" max="24" step="2" value="2">
+              <div class="setting-hints"><span>2% (Sharp)</span><span>Default</span><span>24% (Soft)</span></div>
             </div>
                 </div>
               </div>
@@ -1227,7 +1427,57 @@
                   <div class="setting-item">
                     <div class="setting-item-top" style="align-items: center;">
                       <div style="display: flex; flex-direction: column; gap: 2px;">
-                        <span class="setting-name">Ambient light on My Wave</span>
+                        <span class="setting-name">Mesh follows theme intensity</span>
+                        <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Low intensity makes the gradient colors grayer</span>
+                      </div>
+                      <button class="effect-switch-btn active" data-adv="mesh_follow_intensity"><span class="thumb"></span></button>
+                    </div>
+                  </div>
+
+                  <div class="setting-item">
+                    <div class="setting-item-top" style="align-items: center;">
+                      <div style="display: flex; flex-direction: column; gap: 2px;">
+                        <span class="setting-name">Mesh color from current cover</span>
+                        <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Off: uses the accent color of the theme</span>
+                      </div>
+                      <button class="effect-switch-btn" data-adv="mesh_cover_color"><span class="thumb"></span></button>
+                    </div>
+                  </div>
+
+                  <div class="setting-item">
+                    <div class="setting-item-top" style="align-items: center;">
+                      <div style="display: flex; flex-direction: column; gap: 2px;">
+                        <span class="setting-name">Lower interface opacity for backgrounds</span>
+                        <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Sets interface opacity to 50% when you add a background. You can change it afterwards.</span>
+                      </div>
+                      <button class="effect-switch-btn active" data-adv="ui_alpha_auto"><span class="thumb"></span></button>
+                    </div>
+                  </div>
+
+                  <div class="setting-item">
+                    <div class="setting-item-top" style="align-items: center;">
+                      <div style="display: flex; flex-direction: column; gap: 2px;">
+                        <span class="setting-name">Clip effects to panels</span>
+                        <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Off: blur and gradients can spread outside their panel</span>
+                      </div>
+                      <button class="effect-switch-btn active" data-adv="clip_fx"><span class="thumb"></span></button>
+                    </div>
+                  </div>
+
+                  <div class="setting-item">
+                    <div class="setting-item-top" style="align-items: center;">
+                      <div style="display: flex; flex-direction: column; gap: 2px;">
+                        <span class="setting-name">Albums</span>
+                        <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Shows albums in search results</span>
+                      </div>
+                      <button class="effect-switch-btn active" data-adv="albums"><span class="thumb"></span></button>
+                    </div>
+                  </div>
+
+                  <div class="setting-item">
+                    <div class="setting-item-top" style="align-items: center;">
+                      <div style="display: flex; flex-direction: column; gap: 2px;">
+                        <span class="setting-name">Ambient light on home page</span>
                         <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Display colored glow behind the recommendation card</span>
                       </div>
                       <button class="effect-switch-btn active" data-adv="my_wave_ambient"><span class="thumb"></span></button>
@@ -1241,6 +1491,16 @@
                         <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Show personal recommendations on the home page</span>
                       </div>
                       <button class="effect-switch-btn active" data-adv="my_wave"><span class="thumb"></span></button>
+                    </div>
+                  </div>
+
+                  <div class="setting-item">
+                    <div class="setting-item-top" style="align-items: center;">
+                      <div style="display: flex; flex-direction: column; gap: 2px;">
+                        <span class="setting-name">Jump back in</span>
+                        <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Recently played tracks on the home page</span>
+                      </div>
+                      <button class="effect-switch-btn active" data-adv="jump_back"><span class="thumb"></span></button>
                     </div>
                   </div>
 
@@ -1280,7 +1540,7 @@
                   </div>
                   <div style="display: flex; flex-direction: column;">
                     <span class="setting-name">Riff</span>
-                    <span id="about-version" style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Version 42.2.0</span>
+                    <span id="about-version" style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Version 42.3.0</span>
                   </div>
                 </div>
                 <button class="btn-pill-primary" id="btn-check-updates" style="padding: 6px 14px; font-size: calc(12px * var(--font-scale, 1));">Check for updates</button>
@@ -1293,6 +1553,20 @@
                 <button class="btn-outline-pill" id="btn-open-shortcuts" style="padding: 6px 14px; font-size: calc(12px * var(--font-scale, 1));">Keyboard shortcuts</button>
               </div>
             </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
+                <span class="setting-name">Diagnostics</span>
+                <button class="btn-outline-pill" id="btn-copy-diagnostics" style="padding: 6px 14px; font-size: calc(12px * var(--font-scale, 1));">Copy diagnostics</button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
+                <span class="setting-name">Logs</span>
+                <button class="btn-outline-pill" id="btn-open-logs" style="padding: 6px 14px; font-size: calc(12px * var(--font-scale, 1));">Open logs folder</button>
+              </div>
+            </div>
             </div>
           </div>
 
@@ -1303,7 +1577,7 @@
               </svg>
               Riff made by rootless, support me: <a href="https://t.me/riffplayer" target="_blank" rel="noopener">t.me/riffplayer</a>
             </span>
-            <span class="settings-version-tag">v42.2.0</span>
+            <span class="settings-version-tag">v42.3.0</span>
           </div>
             </div>
           </div>
@@ -1317,7 +1591,7 @@
       <div class="right-panel-header">
         <div class="right-panel-header-actions">
           <button class="lyrics-mode-btn" id="btn-lyrics-mode" title="Toggle line mode">
-            <span>Line</span>
+            <span>Word</span>
           </button>
           <button class="btn-icon-pill" id="btn-close-right-panel" title="Close panel">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -1371,7 +1645,10 @@
   <footer class="playbar" id="playbar">
     <div class="playbar-left">
       <div class="artwork-wrapper" id="playbar-artwork-wrapper">
-        <img src="" alt="" class="track-artwork" id="playbar-artwork">
+        <div class="m3c-wrap" id="m3c-wrap">
+          <img src="" alt="" class="track-artwork" id="playbar-artwork">
+          <canvas class="m3c-canvas" id="m3c-canvas"></canvas>
+        </div>
         <div class="artwork-fallback" id="artwork-fallback">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
         </div>
@@ -1604,6 +1881,16 @@
                 </div>
 
               </div>
+            </div>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-item-top" style="align-items: center;">
+              <div style="display: flex; flex-direction: column; gap: 2px;">
+                <span class="setting-name">Normalize volume</span>
+                <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Keeps loudness similar between tracks (adjusts live, up to 9 dB)</span>
+              </div>
+              <button class="effect-switch-btn" id="toggle-normalize"><span class="thumb"></span></button>
             </div>
           </div>
         </div>
@@ -2265,6 +2552,7 @@
         <button class="btn-text-error hidden" id="btn-delete-offline-track">Delete offline file</button>
         <div class="download-actions-right">
           <button class="btn-outline-pill" id="btn-cancel-download">Cancel</button>
+          <div id="download-spinner"></div>
           <button class="btn-pill-primary" id="btn-confirm-download">
             <span id="download-btn-text">Download MP3</span>
           </button>
@@ -2332,13 +2620,141 @@
   </div>
 
   <div class="tv-karaoke hidden" id="tv-karaoke">
-    <div class="tv-bg" id="tv-bg"></div>
+    <div class="tv-bg" id="tv-bg">
+      <div class="tv-bg-layer active" id="tv-bg-layer-a"></div>
+      <div class="tv-bg-layer" id="tv-bg-layer-b"></div>
+    </div>
+    <button class="tv-karaoke-close" id="btn-tvk-settings" title="Customize lyrics" aria-label="Customize lyrics">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+    </button>
     <button class="tv-karaoke-close" id="btn-close-tv-karaoke" title="Close (Esc)" aria-label="Close">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <line x1="18" y1="6" x2="6" y2="18"></line>
         <line x1="6" y1="6" x2="18" y2="18"></line>
       </svg>
     </button>
+    <div class="tvk-panel" id="tvk-panel">
+      <div class="tvk-row">
+        <label class="tvk-label">Font</label>
+        <select class="pill-select" id="tvk-font" style="display:none">
+          <option value="inherit">Default</option>
+          <option value="-apple-system, BlinkMacSystemFont, &quot;SF Pro Display&quot;, &quot;SF Pro Text&quot;, &quot;Helvetica Neue&quot;, sans-serif">SF Pro</option>
+          <option value="Georgia, 'Times New Roman', serif">Serif</option>
+          <option value="ui-rounded, 'Nunito', system-ui, sans-serif">Rounded</option>
+          <option value="ui-monospace, 'JetBrains Mono', monospace">Mono</option>
+          <option value="'Arial Narrow', 'Roboto Condensed', sans-serif">Condensed</option>
+        </select>
+        <div class="m3-dropdown" id="tvk-font-dropdown">
+          <button class="m3-dropdown-trigger" id="tvk-font-trigger" type="button">
+            <span class="m3-dropdown-label" id="tvk-font-label">Default</span>
+            <svg class="m3-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </button>
+          <div class="m3-dropdown-menu" id="tvk-font-menu">
+            <button class="m3-dropdown-option selected" data-value="inherit" type="button">Default</button>
+            <button class="m3-dropdown-option" data-value="-apple-system, BlinkMacSystemFont, &quot;SF Pro Display&quot;, &quot;SF Pro Text&quot;, &quot;Helvetica Neue&quot;, sans-serif" type="button">SF Pro</button>
+            <button class="m3-dropdown-option" data-value="Georgia, 'Times New Roman', serif" type="button">Serif</button>
+            <button class="m3-dropdown-option" data-value="ui-rounded, 'Nunito', system-ui, sans-serif" type="button">Rounded</button>
+            <button class="m3-dropdown-option" data-value="ui-monospace, 'JetBrains Mono', monospace" type="button">Mono</button>
+            <button class="m3-dropdown-option" data-value="'Arial Narrow', 'Roboto Condensed', sans-serif" type="button">Condensed</button>
+          </div>
+        </div>
+      </div>
+      <div class="tvk-row">
+        <span class="tvk-label">Alignment</span>
+        <div class="tvk-pill-group" id="tvk-align-group">
+          <button type="button" class="tvk-pill-btn" data-value="left" title="Align left" aria-label="Align left">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="17" y1="10" x2="3" y2="10"></line>
+              <line x1="21" y1="6" x2="3" y2="6"></line>
+              <line x1="21" y1="14" x2="3" y2="14"></line>
+              <line x1="17" y1="18" x2="3" y2="18"></line>
+            </svg>
+          </button>
+          <button type="button" class="tvk-pill-btn active" data-value="center" title="Align center" aria-label="Align center">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="10" x2="6" y2="10"></line>
+              <line x1="21" y1="6" x2="3" y2="6"></line>
+              <line x1="21" y1="14" x2="3" y2="14"></line>
+              <line x1="18" y1="18" x2="6" y2="18"></line>
+            </svg>
+          </button>
+          <button type="button" class="tvk-pill-btn" data-value="right" title="Align right" aria-label="Align right">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="21" y1="10" x2="7" y2="10"></line>
+              <line x1="21" y1="6" x2="3" y2="6"></line>
+              <line x1="21" y1="14" x2="3" y2="14"></line>
+              <line x1="21" y1="18" x2="7" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="tvk-row">
+        <div class="tvk-row-header">
+          <span class="tvk-label">Size</span>
+          <span class="tvk-val" id="val-tvk-size">100%</span>
+        </div>
+        <input type="range" class="pill-range" id="tvk-size" min="60" max="160" step="5" value="100">
+      </div>
+      <div class="tvk-row">
+        <div class="tvk-row-header">
+          <span class="tvk-label">Weight</span>
+          <span class="tvk-val" id="val-tvk-weight">700</span>
+        </div>
+        <input type="range" class="pill-range" id="tvk-weight" min="400" max="900" step="100" value="700">
+      </div>
+      <div class="tvk-row">
+        <div class="tvk-row-header">
+          <span class="tvk-label">Line spacing</span>
+          <span class="tvk-val" id="val-tvk-gap">16px</span>
+        </div>
+        <input type="range" class="pill-range" id="tvk-gap" min="4" max="40" step="1" value="16">
+      </div>
+      <div class="tvk-row">
+        <span class="tvk-label">Animation</span>
+        <select class="pill-select" id="tvk-anim" style="display:none">
+          <option value="smooth">Smooth</option>
+          <option value="slide">Slide</option>
+          <option value="fade">Fade</option>
+          <option value="pop">Pop</option>
+          <option value="none">None</option>
+        </select>
+        <div class="tvk-pill-group" id="tvk-anim-group">
+          <button type="button" class="tvk-pill-btn" data-value="smooth">Smooth</button>
+          <button type="button" class="tvk-pill-btn active" data-value="slide">Slide</button>
+          <button type="button" class="tvk-pill-btn" data-value="fade">Fade</button>
+          <button type="button" class="tvk-pill-btn" data-value="pop">Pop</button>
+          <button type="button" class="tvk-pill-btn" data-value="none">None</button>
+        </div>
+      </div>
+      <div class="tvk-row">
+        <div class="tvk-row-header">
+          <span class="tvk-label">Animation speed</span>
+          <span class="tvk-val" id="val-tvk-speed">900ms</span>
+        </div>
+        <input type="range" class="pill-range" id="tvk-speed" min="150" max="900" step="25" value="900">
+      </div>
+      <div class="tvk-row tvk-row-toggle">
+        <span class="tvk-label">No-lyrics visualizer</span>
+        <button type="button" class="effect-switch-btn active" id="btn-tvk-visualizer"><span class="thumb"></span></button>
+      </div>
+      <div class="tvk-row tvk-row-toggle">
+        <span class="tvk-label">Visualizer with lyrics</span>
+        <button type="button" class="effect-switch-btn" id="btn-tvk-visualizer-lyrics"><span class="thumb"></span></button>
+      </div>
+      <div class="tvk-row">
+        <div class="tvk-row-header">
+          <span class="tvk-label">Visualizer opacity</span>
+          <span class="tvk-val" id="val-tvk-vis-opacity">85%</span>
+        </div>
+        <input type="range" class="pill-range" id="tvk-vis-opacity" min="10" max="100" step="5" value="85">
+      </div>
+      <div class="tvk-actions">
+        <button type="button" id="btn-tvk-reset">Reset</button>
+      </div>
+    </div>
     <div class="tv-karaoke-layout">
       <div class="tv-side">
         <img class="tv-cover" id="tv-cover" src="" alt="">
@@ -2346,23 +2762,38 @@
           <div class="tv-karaoke-title" id="tv-karaoke-title"></div>
           <div class="tv-karaoke-artist" id="tv-karaoke-artist"></div>
         </div>
-        <div class="tv-controls">
-          <div class="tv-progress"><span class="tv-cur">0:00</span><div class="tv-bar"><i></i></div><span class="tv-dur">0:00</span></div>
-          <div class="tv-buttons">
-            <button id="btn-tv-prev" title="Previous" aria-label="Previous">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="19 20 9 12 19 4 19 20"></polygon><line x1="5" y1="19" x2="5" y2="5" stroke="currentColor" stroke-width="2.5"></line></svg>
-            </button>
-            <button id="btn-tv-play" title="Play or pause" aria-label="Play or pause">
-              <svg id="tv-play-icon" width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><polygon points="8 5 19 12 8 19"></polygon></svg>
-              <svg id="tv-pause-icon" class="hidden" width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg>
-            </button>
-            <button id="btn-tv-next" title="Next" aria-label="Next">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2.5"></line></svg>
+        <div class="tvk-output" id="tvk-output" title="Audio output device">
+          <svg class="tvk-headset-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
+          <span id="tvk-output-name">Default</span>
+          <div class="tvk-battery hidden" id="tvk-battery" title="Battery level">
+            <svg class="tvk-battery-icon" width="13" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="1.5" width="6" height="2" rx="1" fill="currentColor" stroke="none"></rect>
+              <rect x="5" y="4" width="14" height="18" rx="2.5" fill="none"></rect>
+              <rect id="tvk-battery-level" x="8" y="7" width="8" height="12" rx="1" fill="currentColor" stroke="none"></rect>
+            </svg>
+            <span id="tvk-battery-pct">100%</span>
+          </div>
+        </div>
+        <div class="tvk-controls" id="tvk-controls">
+          <button class="control-btn" id="btn-tvk-prev" title="Previous" aria-label="Previous">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="19 20 9 12 19 4 19 20"></polygon><line x1="5" y1="19" x2="5" y2="5" stroke="currentColor" stroke-width="2.5"></line></svg>
+          </button>
+          <div class="play-pause-wrapper">
+            <button class="btn-play-pause" id="btn-tvk-play" title="Play or pause" aria-label="Play or pause">
+              <svg id="tvk-play-icon" class="play-icon" width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><polygon points="8 5 19 12 8 19"></polygon></svg>
+              <svg id="tvk-pause-icon" class="pause-icon" width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg>
+              <svg id="tvk-play-spinner" class="play-spinner hidden m3-circular-progress" viewBox="0 0 48 48" style="width: 26px; height: 26px; position: absolute; margin: auto; inset: 0;"><circle class="m3-spinner-track" cx="24" cy="24" r="18" fill="none" stroke-width="4"></circle><circle class="m3-spinner-head" cx="24" cy="24" r="18" fill="none" stroke-width="4"></circle></svg>
             </button>
           </div>
+          <button class="control-btn" id="btn-tvk-next" title="Next" aria-label="Next">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2.5"></line></svg>
+          </button>
         </div>
       </div>
       <div class="tv-karaoke-content" id="tv-karaoke-content"></div>
+    </div>
+    <div class="tvk-visualizer" id="tvk-visualizer">
+      <canvas id="tvk-visualizer-canvas"></canvas>
     </div>
   </div>
 
@@ -2383,6 +2814,7 @@
 
   <script src="assets/hls.min.js"></script>
   <script src="audio-engine.js"></script>
+  <script src="m3shapes.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
