@@ -478,6 +478,26 @@ document.addEventListener('DOMContentLoaded', async () => {
                           riffFont: localStorage.getItem('riff_font') || 'google'
   };
 
+  function migrateAddedAt() {
+    const favorites = backfillAddedAt(state.favorites, true);
+    if (favorites !== state.favorites) {
+      state.favorites = favorites;
+      localStorage.setItem('devsize_favorites', JSON.stringify(state.favorites));
+    }
+    let playlistsChanged = false;
+    for (const pl of state.playlists) {
+      if (!pl || !Array.isArray(pl.tracks)) continue;
+      const tracks = backfillAddedAt(pl.tracks, false);
+      if (tracks !== pl.tracks) {
+        pl.tracks = tracks;
+        playlistsChanged = true;
+      }
+    }
+    if (playlistsChanged) localStorage.setItem('devsize_playlists', JSON.stringify(state.playlists));
+  }
+
+  migrateAddedAt();
+
   applyFont(state.riffFont);
 
   if (window.electronAPI && window.electronAPI.getServerPort) {
@@ -1467,7 +1487,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                           favoritesTracksList: document.getElementById('favorites-tracks-list'),
                           favoritesSearchInput: document.getElementById('favorites-search-input'),
+                          favoritesSort: document.getElementById('favorites-sort'),
                           playlistSearchInput: document.getElementById('playlist-search-input'),
+                          playlistSort: document.getElementById('playlist-sort'),
                           favoritesSubtitle: document.getElementById('favorites-subtitle'),
                           localTracksList: document.getElementById('local-tracks-list'),
                           localSearchInput: document.getElementById('local-search-input'),
@@ -3213,6 +3235,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const div = document.createElement('div');
       div.className = 'lyric-line';
       div.id = `lyric-line-${index}`;
+      if (isRtlText(line.text)) div.classList.add('rtl');
 
       if (isGradientMode()) {
         const fill = document.createElement('span');
@@ -3234,6 +3257,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (state.trActive && state.currentTranslations && state.currentTranslations[index]) {
         const trDiv = document.createElement('div');
         trDiv.className = 'lyric-translation';
+        trDiv.dir = 'auto';
         trDiv.textContent = state.currentTranslations[index];
         div.appendChild(trDiv);
       }
@@ -6129,13 +6153,13 @@ document.addEventListener('DOMContentLoaded', async () => {
           let clickIndex = idx;
           let currentList = tracks;
           if (context === 'favorites') {
-            currentList = state.favorites;
-            clickIndex = state.favorites.findIndex(t => isSameTrack(t, track));
+            currentList = sortTracksFor('favorites', state.favorites);
+            clickIndex = currentList.findIndex(t => isSameTrack(t, track));
           } else if (context === 'playlist') {
             const pl = state.playlists.find(p => p.id === state.currentPlaylistId);
             if (pl && pl.tracks) {
-              currentList = pl.tracks;
-              clickIndex = pl.tracks.findIndex(t => isSameTrack(t, track));
+              currentList = sortTracksFor('playlist', pl.tracks);
+              clickIndex = currentList.findIndex(t => isSameTrack(t, track));
             }
           } else if (context === 'artist') {
             const artistTracks = (state.currentArtistData && state.currentArtistData.tracks) || tracks;
@@ -6509,7 +6533,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (exists) {
       state.favorites = state.favorites.filter(f => !isSameTrack(f, track));
     } else {
-      state.favorites.unshift(track);
+      state.favorites.unshift(stampAddedAt(track));
     }
     
     localStorage.setItem('devsize_favorites', JSON.stringify(state.favorites));
@@ -6532,6 +6556,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (el.favoritesCount) el.favoritesCount.textContent = state.favorites.length;
   }
 
+  const TRACK_SORT_KEYS = { favorites: 'riff_favorites_sort', playlist: 'riff_playlist_sort' };
+
+  function getTrackSortMode(kind) {
+    const stored = localStorage.getItem(TRACK_SORT_KEYS[kind]);
+    return TRACK_SORT_MODES.includes(stored) ? stored : 'manual';
+  }
+
+  function setTrackSortMode(kind, mode) {
+    localStorage.setItem(TRACK_SORT_KEYS[kind], TRACK_SORT_MODES.includes(mode) ? mode : 'manual');
+  }
+
+  function sortTracksFor(kind, tracks) {
+    return sortTracks(tracks, getTrackSortMode(kind));
+  }
+
+  function stampAddedAt(track) {
+    return { ...track, addedAt: Date.now() };
+  }
+
   function renderFavoritesView() {
     const query = el.favoritesSearchInput ? el.favoritesSearchInput.value.trim().toLowerCase() : '';
     let filtered = state.favorites;
@@ -6541,12 +6584,21 @@ document.addEventListener('DOMContentLoaded', async () => {
       (t.artist && t.artist.toLowerCase().includes(query))
       );
     }
+    filtered = sortTracksFor('favorites', filtered);
+    if (el.favoritesSort) el.favoritesSort.value = getTrackSortMode('favorites');
     if (el.favoritesSubtitle) el.favoritesSubtitle.textContent = query ? `${filtered.length} of ${state.favorites.length} tracks` : `${state.favorites.length} tracks saved`;
     if (el.favoritesTracksList) renderTracks(el.favoritesTracksList, filtered, 'favorites');
   }
 
   if (el.favoritesSearchInput) {
     el.favoritesSearchInput.addEventListener('input', () => renderFavoritesView());
+  }
+
+  if (el.favoritesSort) {
+    el.favoritesSort.addEventListener('change', () => {
+      setTrackSortMode('favorites', el.favoritesSort.value);
+      renderFavoritesView();
+    });
   }
 
   function renderHistoryView() {
@@ -7033,7 +7085,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initListReordering({
     container: el.favoritesTracksList,
     itemSelector: '.track-row',
-    isFilterActive: () => Boolean(el.favoritesSearchInput && el.favoritesSearchInput.value.trim()),
+    isFilterActive: () => Boolean(el.favoritesSearchInput && el.favoritesSearchInput.value.trim()) || getTrackSortMode('favorites') !== 'manual',
     setOrder: (fromIdx, toIdx) => {
       const [moved] = state.favorites.splice(fromIdx, 1);
       state.favorites.splice(toIdx, 0, moved);
@@ -7047,7 +7099,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initListReordering({
     container: el.playlistTracksList,
     itemSelector: '.track-row',
-    isFilterActive: () => Boolean(el.playlistSearchInput && el.playlistSearchInput.value.trim()),
+    isFilterActive: () => Boolean(el.playlistSearchInput && el.playlistSearchInput.value.trim()) || getTrackSortMode('playlist') !== 'manual',
     setOrder: (fromIdx, toIdx) => {
       const pl = state.playlists.find(p => p.id === state.currentPlaylistId);
       if (!pl || !pl.tracks) return;
@@ -7062,7 +7114,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const newPl = {
       id: 'pl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
       name: name.trim(),
-      tracks: Array.isArray(initialTracks) ? initialTracks : []
+      tracks: Array.isArray(initialTracks)
+        ? initialTracks.map(t => (t && typeof t.addedAt === 'number') ? t : stampAddedAt(t))
+        : []
     };
     if (cover && typeof cover === 'string' && cover.trim()) {
       newPl.cover = cover.trim();
@@ -7086,6 +7140,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       (t.artist && t.artist.toLowerCase().includes(query))
       );
     }
+    filtered = sortTracksFor('playlist', filtered);
+    if (el.playlistSort) el.playlistSort.value = getTrackSortMode('playlist');
     const totalSec = (pl.tracks || []).reduce((acc, t) => acc + (t.duration || 0), 0);
     const durStr = totalSec > 0 ? ` • ${formatDuration(totalSec)}` : '';
     if (el.playlistDetailCount) el.playlistDetailCount.textContent = (query ? `${filtered.length} of ${pl.tracks.length} tracks` : `${pl.tracks.length} tracks`) + durStr;
@@ -7113,6 +7169,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (el.playlistTracksList) renderTracks(el.playlistTracksList, filtered, 'playlist');
     switchView('playlist-detail');
     renderPlaylistsList();
+  }
+
+  if (el.playlistSort) {
+    el.playlistSort.addEventListener('change', () => {
+      setTrackSortMode('playlist', el.playlistSort.value);
+      if (state.currentPlaylistId) openPlaylistDetail(state.currentPlaylistId);
+    });
   }
 
   function removeTrackFromCurrentPlaylist(trackId) {
@@ -7248,7 +7311,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         item.addEventListener('click', () => {
           if (track) {
             if (!pl.tracks.some(t => t.id === track.id)) {
-              pl.tracks.push(track);
+              pl.tracks.push(stampAddedAt(track));
               localStorage.setItem('devsize_playlists', JSON.stringify(state.playlists));
               renderPlaylistsList();
               showToast(`Added to "${pl.name}"`, 'success');
@@ -11475,7 +11538,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         let addedFav = false;
         for (const track of foundLikes) {
           if (!state.favorites.some(f => isSameTrack(f, track))) {
-            state.favorites.push(track);
+            state.favorites.push(stampAddedAt(track));
             addedFav = true;
           }
         }
@@ -11716,7 +11779,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (!pl.cover && data.cover) pl.cover = data.cover;
           const existingIds = new Set(pl.tracks.map(t => t.id));
           const newTracks = foundTracks.filter(t => !existingIds.has(t.id));
-          pl.tracks.push(...newTracks);
+          pl.tracks.push(...newTracks.map(stampAddedAt));
           localStorage.setItem('devsize_playlists', JSON.stringify(state.playlists));
           renderPlaylistsList();
         }
@@ -12162,7 +12225,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           let addedFav = false;
           for (const track of foundLikes) {
             if (!state.favorites.some(f => isSameTrack(f, track))) {
-              state.favorites.push(track);
+              state.favorites.push(stampAddedAt(track));
               addedFav = true;
             }
           }
@@ -12281,7 +12344,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (!pl.cover && data.cover) pl.cover = data.cover;
           const existingIds = new Set(pl.tracks.map(t => t.id));
           const newTracks = foundTracks.filter(t => !existingIds.has(t.id));
-          pl.tracks.push(...newTracks);
+          pl.tracks.push(...newTracks.map(stampAddedAt));
           localStorage.setItem('devsize_playlists', JSON.stringify(state.playlists));
           renderPlaylistsList();
         }

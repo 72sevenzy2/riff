@@ -6699,9 +6699,13 @@ body.perf .home-out, body.perf .home-in {
 .lyric-line { line-height: 1.45; padding-block: 8px; overflow: visible; transform-origin: left center; }
 .lyric-line .lyric-word { padding-block: 0.1em; }
 
+.lyric-line.rtl { direction: rtl; text-align: right; transform-origin: right center; }
+.lyric-line.rtl .lyric-word { margin-right: 0; margin-left: 4px; }
+.lyric-line.rtl.gradient-line .lyric-fill { --lyric-sweep: 270deg; }
+
 .lyric-line.gradient-line .lyric-fill {
   --k: 0;
-  background-image: linear-gradient(90deg, var(--lyric-sung, var(--md-sys-color-on-surface)) calc(var(--k) * (100% + var(--lyric-fw, 2%)) - var(--lyric-fw, 2%)), var(--lyric-unsung, color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent)) calc(var(--k) * (100% + var(--lyric-fw, 2%))));
+  background-image: linear-gradient(var(--lyric-sweep, 90deg), var(--lyric-sung, var(--md-sys-color-on-surface)) calc(var(--k) * (100% + var(--lyric-fw, 2%)) - var(--lyric-fw, 2%)), var(--lyric-unsung, color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent)) calc(var(--k) * (100% + var(--lyric-fw, 2%))));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
