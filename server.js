@@ -4509,9 +4509,11 @@ function startServer(port = PORT) {
   }
   return new Promise((resolve, reject) => {
     server.listen(port, '127.0.0.1', () => {
-      console.log(`devsize internal server running on http://127.0.0.1:${port}`);
+      const address = server.address();
+      const bound = address && typeof address === 'object' ? address.port : port;
+      console.log(`devsize internal server running on http://127.0.0.1:${bound}`);
       require('./tools').updateYtDlpIfManaged().catch(() => {});
-      resolve(port);
+      resolve(bound);
     }).on('error', (err) => {
       if (err.code === 'EADDRINUSE') {
         server.listen(0, '127.0.0.1', () => {
@@ -4527,7 +4529,15 @@ function startServer(port = PORT) {
   });
 }
 
-module.exports = { startServer, PORT, getServerToken };
+function stopServer() {
+  return new Promise((resolve) => {
+    if (!server.listening) return resolve();
+    server.close(() => resolve());
+    if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+  });
+}
+
+module.exports = { startServer, stopServer, PORT, getServerToken };
 
 if (require.main === module) {
   startServer();

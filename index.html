@@ -281,6 +281,9 @@
             <option value="manual">Manual order</option>
             <option value="added-desc">Date added (newest)</option>
             <option value="added-asc">Date added (oldest)</option>
+            <option value="title-asc">Title (A-Z)</option>
+            <option value="artist-asc">Artist (A-Z)</option>
+            <option value="duration-asc">Duration (shortest)</option>
           </select>
         </div>
         <div class="view-search-box" id="favorites-search-box">
@@ -350,10 +353,17 @@
             <h2 id="playlist-detail-title">Playlist title</h2>
             <span class="view-subtitle" id="playlist-detail-count">0 tracks</span>
             <div class="action-bar playlist-actions">
+              <button class="btn-outline-pill hidden" id="btn-dedupe-playlist" title="Remove duplicate tracks">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <span id="btn-dedupe-playlist-label">Remove duplicates</span>
+              </button>
               <select class="pill-select" id="playlist-sort" title="Sort playlist" aria-label="Sort playlist">
                 <option value="manual">Manual order</option>
                 <option value="added-desc">Date added (newest)</option>
                 <option value="added-asc">Date added (oldest)</option>
+                <option value="title-asc">Title (A-Z)</option>
+                <option value="artist-asc">Artist (A-Z)</option>
+                <option value="duration-asc">Duration (shortest)</option>
               </select>
               <button class="btn-outline-pill" id="btn-download-playlist" title="Download all songs" aria-label="Download all songs">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
@@ -1816,9 +1826,30 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
             <span>Equalizer</span>
           </button>
+          <button type="button" class="audio-tab" data-audio-tab="sleep">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            <span>Sleep</span>
+          </button>
         </nav>
 
         <div class="settings-body audio-settings-body">
+          <div class="audio-panel" data-audio-panel="sleep">
+            <div class="setting-item">
+              <div class="setting-item-top">
+                <span class="setting-name">Sleep timer</span>
+                <span class="setting-value" id="sleep-timer-status">Off</span>
+              </div>
+              <div class="sleep-timer-options">
+                <button class="btn-outline-pill" type="button" data-sleep-minutes="15">15 min</button>
+                <button class="btn-outline-pill" type="button" data-sleep-minutes="30">30 min</button>
+                <button class="btn-outline-pill" type="button" data-sleep-minutes="45">45 min</button>
+                <button class="btn-outline-pill" type="button" data-sleep-minutes="60">60 min</button>
+                <button class="btn-outline-pill" type="button" data-sleep-minutes="end">End of track</button>
+                <button class="btn-outline-pill" type="button" data-sleep-minutes="off">Turn off</button>
+              </div>
+              <span class="sleep-timer-hint">Fades out and pauses when the timer runs out.</span>
+            </div>
+          </div>
           <div class="audio-panel" data-audio-panel="enhance">
           <div class="setting-item hq-enhancer-card">
             <div class="setting-item-top">
@@ -2809,11 +2840,24 @@
     <div id="css-editor-host" class="css-editor-host"></div>
   </div>
 
+  <div class="modal-backdrop hidden" id="command-palette">
+    <div class="settings-card command-palette-card">
+      <div class="command-palette-field">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line></svg>
+        <input type="text" id="command-palette-input" placeholder="Search tracks, playlists, actions" autocomplete="off" spellcheck="false">
+        <kbd class="command-palette-key">Esc</kbd>
+      </div>
+      <div class="command-palette-results" id="command-palette-results"></div>
+    </div>
+  </div>
+
   <script src="assets/hls.min.js"></script>
   <script src="audio-engine.js"></script>
   <script src="m3shapes.js"></script>
   <script src="lyrics-rtl.js"></script>
   <script src="track-sort.js"></script>
+  <script src="search-text.js"></script>
+  <script src="library-tools.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

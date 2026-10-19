@@ -1576,6 +1576,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                           audioSettingsModal: document.getElementById('audio-settings-modal'),
                           btnCloseSettings: document.getElementById('btn-close-settings'),
+                          sleepTimerStatus: document.getElementById('sleep-timer-status'),
+                          commandPalette: document.getElementById('command-palette'),
+                          commandPaletteInput: document.getElementById('command-palette-input'),
+                          commandPaletteResults: document.getElementById('command-palette-results'),
+                          btnDedupePlaylist: document.getElementById('btn-dedupe-playlist'),
+                          btnDedupePlaylistLabel: document.getElementById('btn-dedupe-playlist-label'),
 
                           btnToggleHqAudio: document.getElementById('toggle-hq-audio'),
                           hqEnhancerCard: document.querySelector('.hq-enhancer-card'),
@@ -2820,6 +2826,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   function isSameTrack(a, b) {
     if (!a || !b) return false;
     return getTrackCanonicalId(a) === getTrackCanonicalId(b);
+  }
+
+  function matchesTrackQuery(track, query) {
+    if (!query) return true;
+    return normalizeSearch(track && track.title).includes(query) || normalizeSearch(track && track.artist).includes(query);
   }
 
   function getTrackArt(t) {
@@ -5098,6 +5109,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     if (state.isPlaying) {
       pauseSmooth();
+      saveQueueState();
+    } else if (el.nativeAudio && !el.nativeAudio.src && state.currentTrack) {
+      const resumeAt = state.queueRestorePosition || 0;
+      state.queueRestorePosition = 0;
+      playTrack(state.currentTrack, state.queue, state.queueIndex);
+      if (resumeAt > 3) {
+        const seekOnce = () => {
+          el.nativeAudio.removeEventListener('loadedmetadata', seekOnce);
+          if (!el.nativeAudio.duration || resumeAt < el.nativeAudio.duration - 5) el.nativeAudio.currentTime = resumeAt;
+        };
+        el.nativeAudio.addEventListener('loadedmetadata', seekOnce);
+      }
     } else {
       playSmooth();
     }
@@ -5282,6 +5305,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     el.nativeAudio.addEventListener('ended', () => {
       updatePlayPauseButton(false, false);
+      if (state.sleepTimer && state.sleepTimer.mode === 'end') {
+        state.sleepTimer = null;
+        updateSleepTimerUI();
+        return;
+      }
       if (audioEngine) {
         if (audioEngine.suspendAudioContextDebounced) audioEngine.suspendAudioContextDebounced(5000);
         if (audioEngine.setAnalyserEnabled) audioEngine.setAnalyserEnabled(false);
@@ -6576,13 +6604,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function renderFavoritesView() {
-    const query = el.favoritesSearchInput ? el.favoritesSearchInput.value.trim().toLowerCase() : '';
+    const query = el.favoritesSearchInput ? normalizeSearch(el.favoritesSearchInput.value) : '';
     let filtered = state.favorites;
     if (query) {
-      filtered = state.favorites.filter(t =>
-      (t.title && t.title.toLowerCase().includes(query)) ||
-      (t.artist && t.artist.toLowerCase().includes(query))
-      );
+      filtered = filtered.filter(t => matchesTrackQuery(t, query));
     }
     filtered = sortTracksFor('favorites', filtered);
     if (el.favoritesSort) el.favoritesSort.value = getTrackSortMode('favorites');
@@ -6607,6 +6632,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function updateQueueBadge() {
     if (el.queueCount) el.queueCount.textContent = state.queue.length;
+    scheduleQueueSave();
   }
 
   function renderQueueView() {
@@ -6627,13 +6653,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
     updateLocalBadge();
-    const query = el.localSearchInput ? el.localSearchInput.value.trim().toLowerCase() : '';
+    const query = el.localSearchInput ? normalizeSearch(el.localSearchInput.value) : '';
     let filtered = state.localTracks || [];
     if (query) {
-      filtered = filtered.filter(t =>
-        (t.title && t.title.toLowerCase().includes(query)) ||
-        (t.artist && t.artist.toLowerCase().includes(query))
-      );
+      filtered = filtered.filter(t => matchesTrackQuery(t, query));
     }
     if (el.localSubtitle) {
       el.localSubtitle.textContent = query
@@ -7132,16 +7155,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!pl) return;
     state.currentPlaylistId = playlistId;
     if (el.playlistDetailTitle) el.playlistDetailTitle.textContent = pl.name;
-    const query = el.playlistSearchInput ? el.playlistSearchInput.value.trim().toLowerCase() : '';
+    const query = el.playlistSearchInput ? normalizeSearch(el.playlistSearchInput.value) : '';
     let filtered = pl.tracks;
     if (query) {
-      filtered = pl.tracks.filter(t =>
-      (t.title && t.title.toLowerCase().includes(query)) ||
-      (t.artist && t.artist.toLowerCase().includes(query))
-      );
+      filtered = pl.tracks.filter(t => matchesTrackQuery(t, query));
     }
     filtered = sortTracksFor('playlist', filtered);
     if (el.playlistSort) el.playlistSort.value = getTrackSortMode('playlist');
+    renderPlaylistDuplicateButton(pl);
     const totalSec = (pl.tracks || []).reduce((acc, t) => acc + (t.duration || 0), 0);
     const durStr = totalSec > 0 ? ` • ${formatDuration(totalSec)}` : '';
     if (el.playlistDetailCount) el.playlistDetailCount.textContent = (query ? `${filtered.length} of ${pl.tracks.length} tracks` : `${pl.tracks.length} tracks`) + durStr;
@@ -15073,6 +15094,359 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }).catch(() => {});
   }
+
+  let sleepTimerInterval = null;
+
+  function syncSleepTimerButtons(value) {
+    if (!el.sleepTimerStatus) return;
+    const panel = el.sleepTimerStatus.closest('.audio-panel');
+    if (!panel) return;
+    panel.querySelectorAll('[data-sleep-minutes]').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.sleepMinutes === value);
+    });
+  }
+
+  function updateSleepTimerUI() {
+    if (!el.sleepTimerStatus) return;
+    if (!state.sleepTimer) {
+      el.sleepTimerStatus.textContent = 'Off';
+      el.sleepTimerStatus.classList.remove('active');
+      syncSleepTimerButtons(null);
+      return;
+    }
+    el.sleepTimerStatus.classList.add('active');
+    if (state.sleepTimer.mode === 'end') {
+      el.sleepTimerStatus.textContent = 'End of track';
+      syncSleepTimerButtons('end');
+      return;
+    }
+    syncSleepTimerButtons(String(state.sleepTimer.minutes));
+    const left = Math.max(0, state.sleepTimer.endsAt - Date.now());
+    const mins = Math.floor(left / 60000);
+    const secs = Math.floor((left % 60000) / 1000);
+    el.sleepTimerStatus.textContent = `${mins}:${String(secs).padStart(2, '0')}`;
+  }
+
+  function fadeOutAndPause() {
+    const from = state.isMuted ? 0 : state.volume;
+    if (!from || !audioEngine || !audioEngine.setVolume) {
+      pauseSmooth();
+      return;
+    }
+    const started = Date.now();
+    const step = () => {
+      const k = Math.min(1, (Date.now() - started) / 4000);
+      audioEngine.setVolume(from * (1 - k), false);
+      if (k < 1) {
+        requestAnimationFrame(step);
+        return;
+      }
+      pauseSmooth();
+      audioEngine.setVolume(state.volume, state.isMuted);
+    };
+    step();
+  }
+
+  function setSleepTimer(value) {
+    if (sleepTimerInterval) {
+      clearInterval(sleepTimerInterval);
+      sleepTimerInterval = null;
+    }
+    if (value === 'off') {
+      state.sleepTimer = null;
+      updateSleepTimerUI();
+      return;
+    }
+    if (value === 'end') {
+      state.sleepTimer = { mode: 'end' };
+      updateSleepTimerUI();
+      showToast('Sleep timer: end of track');
+      return;
+    }
+    const minutes = Number(value);
+    if (!Number.isFinite(minutes) || minutes <= 0) return;
+    state.sleepTimer = { mode: 'minutes', minutes, endsAt: Date.now() + minutes * 60000 };
+    updateSleepTimerUI();
+    showToast(`Sleep timer: ${minutes} min`);
+    sleepTimerInterval = setInterval(() => {
+      if (!state.sleepTimer || state.sleepTimer.mode !== 'minutes') return;
+      if (state.sleepTimer.endsAt > Date.now()) {
+        updateSleepTimerUI();
+        return;
+      }
+      clearInterval(sleepTimerInterval);
+      sleepTimerInterval = null;
+      state.sleepTimer = null;
+      updateSleepTimerUI();
+      fadeOutAndPause();
+    }, 1000);
+  }
+
+  if (el.sleepTimerStatus) {
+    const sleepPanel = el.sleepTimerStatus.closest('.audio-panel');
+    if (sleepPanel) {
+      sleepPanel.querySelectorAll('[data-sleep-minutes]').forEach((btn) => {
+        btn.addEventListener('click', () => setSleepTimer(btn.dataset.sleepMinutes));
+      });
+    }
+  }
+
+  let queueSaveTimer = null;
+
+  function saveQueueState() {
+    if (!state._queueRestored) return;
+    try {
+      const position = el.nativeAudio && Number.isFinite(el.nativeAudio.currentTime) ? el.nativeAudio.currentTime : 0;
+      localStorage.setItem('riff_queue_state', JSON.stringify({
+        queue: state.queue,
+        queueIndex: state.queueIndex,
+        currentTrack: state.currentTrack,
+        position
+      }));
+    } catch (e) {}
+  }
+
+  function scheduleQueueSave() {
+    clearTimeout(queueSaveTimer);
+    queueSaveTimer = setTimeout(saveQueueState, 600);
+  }
+
+  function restoreQueueState() {
+    state._queueRestored = true;
+    let saved = null;
+    try {
+      saved = JSON.parse(localStorage.getItem('riff_queue_state') || 'null');
+    } catch (e) {}
+    if (!saved || !Array.isArray(saved.queue) || saved.queue.length === 0) return;
+    if (state.currentTrack) return;
+    state.queue = saved.queue;
+    state.queueIndex = Number.isInteger(saved.queueIndex) && saved.queueIndex >= 0 && saved.queueIndex < saved.queue.length
+      ? saved.queueIndex
+      : 0;
+    state.queueHistory = [state.queueIndex];
+    const track = saved.currentTrack && typeof saved.currentTrack === 'object' ? saved.currentTrack : state.queue[state.queueIndex];
+    state.queueRestorePosition = Number(saved.position) || 0;
+    state.currentTrack = track || null;
+    if (state.currentTrack) updateNowPlayingUI(state.currentTrack);
+    updateQueueBadge();
+    if (el.queueCount) {
+      el.queueCount.classList.remove('restored');
+      void el.queueCount.offsetWidth;
+      el.queueCount.classList.add('restored');
+    }
+    renderQueueView();
+  }
+
+  window.addEventListener('beforeunload', saveQueueState);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) saveQueueState();
+  });
+
+  function openAudioTab(name) {
+    const tab = document.querySelector(`.audio-tab[data-audio-tab="${name}"]`);
+    if (tab) tab.click();
+    if (el.audioSettingsModal) openModal(el.audioSettingsModal);
+    refreshStacks();
+  }
+
+  function paletteActions() {
+    return [
+      { label: 'Open favorites', hint: 'View', run: () => switchView('favorites') },
+      { label: 'Open local library', hint: 'View', run: () => switchView('local') },
+      { label: 'Open queue', hint: 'View', run: () => switchView('queue') },
+      { label: 'Open history', hint: 'View', run: () => switchView('history') },
+      { label: 'Open discover', hint: 'View', run: () => switchView('discover') },
+      { label: 'Open settings', hint: 'View', run: () => switchView('settings') },
+      { label: 'Audio settings', hint: 'Audio', run: () => openAudioTab('tempo') },
+      { label: 'Sleep timer', hint: 'Audio', run: () => openAudioTab('sleep') }
+    ];
+  }
+
+  function buildCommandPaletteRows(query) {
+    const q = normalizeSearch(query);
+    const rows = [];
+    const actions = paletteActions().filter(a => !q || normalizeSearch(a.label).includes(q));
+    for (const action of actions) rows.push({ group: 'Actions', label: action.label, hint: action.hint, run: action.run });
+    if (state.playlists.length) {
+      const playlists = state.playlists
+        .filter(p => p && typeof p.name === 'string' && (!q || normalizeSearch(p.name).includes(q)))
+        .slice(0, q ? 5 : 3);
+      for (const pl of playlists) {
+        rows.push({ group: 'Playlists', label: pl.name, hint: `${(pl.tracks || []).length} tracks`, run: () => openPlaylistDetail(pl.id) });
+      }
+    }
+    const seen = new Set();
+    const playlistTracks = [];
+    for (const pl of state.playlists) {
+      if (pl && Array.isArray(pl.tracks)) playlistTracks.push(...pl.tracks);
+    }
+    const sources = [
+      { group: 'Favorites', tracks: state.favorites },
+      { group: 'In playlists', tracks: playlistTracks },
+      { group: 'Queue', tracks: state.queue },
+      { group: 'History', tracks: state.history },
+      { group: 'Library', tracks: state.localTracks }
+    ];
+    for (const source of sources) {
+      if (!Array.isArray(source.tracks)) continue;
+      for (const track of source.tracks) {
+        if (!track) continue;
+        if (q && !matchesTrackQuery(track, q)) continue;
+        const id = getTrackCanonicalId(track) || track.id;
+        if (id && seen.has(id)) continue;
+        if (id) seen.add(id);
+        rows.push({ group: source.group, label: track.title || 'Untitled', hint: track.artist || '', run: () => playTrack(track) });
+        if (rows.length >= 24) break;
+      }
+      if (rows.length >= 24) break;
+    }
+    const trimmed = query.trim();
+    if (trimmed) {
+      rows.push({
+        group: 'Online',
+        label: `Search for "${trimmed}"`,
+        hint: 'Discover',
+        run: () => {
+          if (el.searchInput) el.searchInput.value = trimmed;
+          performSearch(trimmed);
+        }
+      });
+    }
+    return rows;
+  }
+
+  function setPaletteIndex(index) {
+    const rows = state.paletteRows || [];
+    if (!rows.length) return;
+    state.paletteIndex = Math.max(0, Math.min(rows.length - 1, index));
+    const buttons = el.commandPaletteResults.querySelectorAll('.command-palette-row');
+    buttons.forEach((btn, i) => btn.classList.toggle('active', i === state.paletteIndex));
+    const active = buttons[state.paletteIndex];
+    if (active) active.scrollIntoView({ block: 'nearest' });
+  }
+
+  function runPaletteRow(index) {
+    const rows = state.paletteRows || [];
+    const row = rows[index];
+    if (!row) return;
+    closeModal(el.commandPalette);
+    if (typeof row.run === 'function') row.run();
+  }
+
+  function renderCommandPalette(query) {
+    if (!el.commandPaletteResults) return;
+    const rows = buildCommandPaletteRows(query);
+    state.paletteRows = rows;
+    state.paletteIndex = 0;
+    if (!rows.length) {
+      el.commandPaletteResults.innerHTML = '<div class="command-palette-empty">No results</div>';
+      return;
+    }
+    let html = '';
+    let group = '';
+    rows.forEach((row, i) => {
+      const delay = Math.min(i, 10);
+      if (row.group !== group) {
+        group = row.group;
+        html += `<div class="command-palette-group" style="--row-i:${delay}">${escapeHtml(group)}</div>`;
+      }
+      html += `<button type="button" class="command-palette-row${i === 0 ? ' active' : ''}" data-palette-index="${i}" style="--row-i:${delay}">
+        <span class="command-palette-label">${escapeHtml(row.label)}</span>
+        <span class="command-palette-hint">${escapeHtml(row.hint || '')}</span>
+      </button>`;
+    });
+    el.commandPaletteResults.innerHTML = html;
+    el.commandPaletteResults.querySelectorAll('[data-palette-index]').forEach((btn) => {
+      btn.addEventListener('click', () => runPaletteRow(Number(btn.dataset.paletteIndex)));
+      btn.addEventListener('mousemove', () => setPaletteIndex(Number(btn.dataset.paletteIndex)));
+    });
+  }
+
+  async function loadPaletteLibrary() {
+    if (Array.isArray(state.localTracks) && state.localTracks.length) return;
+    try {
+      const res = await fetch(`http://127.0.0.1:${state.serverPort}/api/library`);
+      const tracks = await res.json();
+      if (!Array.isArray(tracks)) return;
+      state.localTracks = tracks;
+      updateLocalBadge();
+    } catch (e) {}
+  }
+
+  function openCommandPalette() {
+    if (!el.commandPalette) return;
+    el.commandPaletteInput.value = '';
+    if (el.commandPaletteResults) el.commandPaletteResults.classList.add('entering');
+    renderCommandPalette('');
+    openModal(el.commandPalette);
+    setTimeout(() => el.commandPaletteInput.focus(), 30);
+    setTimeout(() => {
+      if (el.commandPaletteResults) el.commandPaletteResults.classList.remove('entering');
+    }, 420);
+    loadPaletteLibrary().then(() => {
+      if (el.commandPalette.classList.contains('visible')) renderCommandPalette(el.commandPaletteInput.value);
+    });
+  }
+
+  if (el.commandPaletteInput) {
+    el.commandPaletteInput.addEventListener('input', () => renderCommandPalette(el.commandPaletteInput.value));
+    el.commandPaletteInput.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setPaletteIndex((state.paletteIndex || 0) + 1);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setPaletteIndex((state.paletteIndex || 0) - 1);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        runPaletteRow(state.paletteIndex || 0);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeModal(el.commandPalette);
+      }
+    });
+  }
+
+  if (el.commandPalette) {
+    el.commandPalette.addEventListener('mousedown', (e) => {
+      if (e.target === el.commandPalette) closeModal(el.commandPalette);
+    });
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.code === 'KeyK') {
+      e.preventDefault();
+      if (el.commandPalette && el.commandPalette.classList.contains('visible')) closeModal(el.commandPalette);
+      else openCommandPalette();
+    }
+  }, true);
+
+  function renderPlaylistDuplicateButton(pl) {
+    if (!el.btnDedupePlaylist || !pl) return;
+    const duplicates = pl.tracks.length - dedupeTracks(pl.tracks, isSameTrack).length;
+    el.btnDedupePlaylist.classList.toggle('hidden', duplicates === 0);
+    if (el.btnDedupePlaylistLabel) {
+      el.btnDedupePlaylistLabel.textContent = duplicates === 1 ? 'Remove 1 duplicate' : `Remove ${duplicates} duplicates`;
+    }
+  }
+
+  function removePlaylistDuplicates() {
+    const pl = state.playlists.find(p => p.id === state.currentPlaylistId);
+    if (!pl) return;
+    const before = pl.tracks.length;
+    pl.tracks = dedupeTracks(pl.tracks, isSameTrack);
+    const removed = before - pl.tracks.length;
+    if (!removed) return;
+    localStorage.setItem('devsize_playlists', JSON.stringify(state.playlists));
+    openPlaylistDetail(pl.id);
+    renderPlaylistsList();
+    showToast(`Removed ${removed} duplicate${removed === 1 ? '' : 's'}`);
+  }
+
+  if (el.btnDedupePlaylist) el.btnDedupePlaylist.addEventListener('click', removePlaylistDuplicates);
+
+  restoreQueueState();
+
   emitPluginEvent('ready');
 });
 

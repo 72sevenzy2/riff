@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { sortTracks, backfillAddedAt } = require('../track-sort');
+const { TRACK_SORT_MODES, sortTracks, backfillAddedAt } = require('../track-sort');
 
 function track(id, addedAt) {
   return addedAt === undefined ? { id } : { id, addedAt };
@@ -66,4 +66,47 @@ test('backfill does not mutate the input list', () => {
   const list = [track('a')];
   backfillAddedAt(list, true);
   assert.strictEqual(list[0].addedAt, undefined);
+});
+
+function detail(id, title, artist, duration) {
+  return { id, title, artist, duration };
+}
+
+test('title sort is alphabetical and ignores case', () => {
+  const list = [
+    detail('1', 'beta', 'x', 10),
+    detail('2', 'Alpha', 'x', 10),
+    detail('3', 'gamma', 'x', 10)
+  ];
+  assert.deepStrictEqual(sortTracks(list, 'title-asc').map((t) => t.id), ['2', '1', '3']);
+});
+
+test('title sort puts tracks without a title last', () => {
+  const list = [detail('1', '', 'x', 10), detail('2', 'alpha', 'x', 10)];
+  assert.deepStrictEqual(sortTracks(list, 'title-asc').map((t) => t.id), ['2', '1']);
+});
+
+test('artist sort is alphabetical and keeps ties stable', () => {
+  const list = [
+    detail('1', 'a', 'Zed', 10),
+    detail('2', 'b', 'amy', 10),
+    detail('3', 'c', 'amy', 10)
+  ];
+  assert.deepStrictEqual(sortTracks(list, 'artist-asc').map((t) => t.id), ['2', '3', '1']);
+});
+
+test('duration sort runs shortest first and puts unknown lengths last', () => {
+  const list = [
+    detail('1', 'a', 'x', 240),
+    detail('2', 'b', 'x', 0),
+    detail('3', 'c', 'x', 95)
+  ];
+  assert.deepStrictEqual(sortTracks(list, 'duration-asc').map((t) => t.id), ['3', '1', '2']);
+});
+
+test('every declared sort mode is available to the picker', () => {
+  assert.deepStrictEqual(TRACK_SORT_MODES.slice(0, 3), ['manual', 'added-desc', 'added-asc']);
+  assert.ok(TRACK_SORT_MODES.includes('title-asc'));
+  assert.ok(TRACK_SORT_MODES.includes('artist-asc'));
+  assert.ok(TRACK_SORT_MODES.includes('duration-asc'));
 });
