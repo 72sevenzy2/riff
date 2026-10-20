@@ -1,7 +1,6 @@
 <p align="center">
-  <img src="banner.png" alt="Riff - desktop music player and audio suite for YouTube Music, SoundCloud, and local files" width="100%">
+  <img src="banner.png?v=2" alt="Riff - desktop music player and audio suite for YouTube Music, SoundCloud, and local files" width="100%">
 </p>
-
 <div align="center">
 
 | | |
