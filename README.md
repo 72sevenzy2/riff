@@ -2,12 +2,16 @@
   <img src="banner.png?v=2" alt="Riff - desktop music player and audio suite for YouTube Music, SoundCloud, and local files" width="100%">
 </p>
 <div align="center">
-
-| | |
-|:---:|:---|
-| <img src="github/readme/emoji.gif" width="48" height="48" alt="emoji"> | <h1 style="margin: 0; border: none;">Riff</h1> |
-
-</div>
+<table border="0">
+  <tr>
+    <td valign="middle" align="center">
+      <img src="github/readme/emoji.gif" width="64" height="64" alt="emoji">
+    </td>
+    <td valign="middle">
+      <h1>Riff</h1>
+    </td>
+  </tr>
+</table>
 <p align="center"><b>A free, open-source desktop music player for YouTube Music, SoundCloud, and local files. Built with Material Design 3, no tracking, and no account needed.</b></p>
 <img src="github/readme/emj.gif" width="20" height="20" align="absmiddle" alt="emoji">
 <p align="center">
