@@ -65,7 +65,7 @@
 
 ## What is Riff?
 
-Riff is an open-source, telemetry-free desktop audio hub and player for **Windows, Linux, and macOS**. It unifies playback across **YouTube Music**, **YouTube**, **SoundCloud**, and offline local media into a single high-performance interface without ads, subscriptions, or login constraints.
+Riff is an open-source, telemetry-free desktop music app and player for **Windows, Linux, and macOS**. It unifies playback across **YouTube Music**, **YouTube**, **SoundCloud**, and offline local media into a single high-performance interface without ads, subscriptions, or login constraints. Provides very fancy UI and layout.
 
 Built with **Electron**, **Vanilla JavaScript**, and **WebGL**, Riff provides responsive UI interactions and hardware-accelerated audio visualization without runtime framework overhead. The project is distributed under the **MIT license** and enforces strict privacy: all configuration, cached streams, and playback history remain strictly on the local machine.
 
@@ -80,7 +80,9 @@ Built with **Electron**, **Vanilla JavaScript**, and **WebGL**, Riff provides re
 - **Discord Rich Presence**: Real-time playback status reporting track metadata, artist info, and elapsed time to Discord.
 - **Zero Telemetry**: No tracking identifiers, analytics pings, or background data collection.
 - **Fullscreen mode** with fancy lyrics animation.
-
+- **Albums** - see all of your favorite artist albums.
+- **Customization** - built in theme editor, configure everything, and a CSS editor, with animated backgrounds and interface opacity sliders.
+- **Plugins** - built-in plugin feature where you can add a plugin to edit how Riff works with something or add a new function.
 ## Built-in Audio Suite
 
 Riff includes an integrated audio engineering toolkit accessible directly within the player interface:
