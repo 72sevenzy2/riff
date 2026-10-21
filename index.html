@@ -277,6 +277,9 @@
             <h2>Favorites</h2>
             <span class="view-subtitle" id="favorites-subtitle">0 tracks saved</span>
           </div>
+          <button class="btn-outline-pill" id="btn-select-favorites" title="Select tracks" aria-label="Select tracks">
+            <span>Select</span>
+          </button>
           <select class="pill-select" id="favorites-sort" title="Sort favorites" aria-label="Sort favorites">
             <option value="manual">Manual order</option>
             <option value="added-desc">Date added (newest)</option>
@@ -365,6 +368,9 @@
                 <option value="artist-asc">Artist (A-Z)</option>
                 <option value="duration-asc">Duration (shortest)</option>
               </select>
+              <button class="btn-outline-pill" id="btn-select-playlist" title="Select tracks" aria-label="Select tracks">
+                <span>Select</span>
+              </button>
               <button class="btn-outline-pill" id="btn-download-playlist" title="Download all songs" aria-label="Download all songs">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                 <span id="btn-download-playlist-label">Download all</span>
@@ -2866,6 +2872,15 @@
       </div>
       <div class="command-palette-results" id="command-palette-results"></div>
     </div>
+  </div>
+
+  <div class="multi-select-bar hidden" id="multi-select-bar" role="toolbar" aria-label="Selected tracks">
+    <span class="multi-select-count" id="multi-select-count">0 selected</span>
+    <button type="button" class="btn-outline-pill" id="multi-select-all">Select all</button>
+    <button type="button" class="btn-outline-pill" id="multi-select-fav">Favorite</button>
+    <button type="button" class="btn-outline-pill" id="multi-select-add">Add to playlist</button>
+    <button type="button" class="btn-outline-pill" id="multi-select-remove">Remove</button>
+    <button type="button" class="btn-pill-primary" id="multi-select-done">Done</button>
   </div>
 
   <script src="assets/hls.min.js"></script>

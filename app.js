@@ -6150,6 +6150,59 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
 
+  const multiSel = { active: false, context: '', tracks: new Map() };
+
+  function updateMultiSelectBar() {
+    const bar = document.getElementById('multi-select-bar');
+    if (!bar) return;
+    bar.classList.toggle('hidden', !multiSel.active);
+    const count = document.getElementById('multi-select-count');
+    if (count) count.textContent = `${multiSel.tracks.size} selected`;
+    const hasSel = multiSel.tracks.size > 0;
+    ['multi-select-fav', 'multi-select-add', 'multi-select-remove'].forEach(id => {
+      const b = document.getElementById(id);
+      if (b) b.disabled = !hasSel;
+    });
+  }
+
+  function rerenderMultiSelectView() {
+    if (multiSel.context === 'playlist' && state.currentPlaylistId) openPlaylistDetail(state.currentPlaylistId);
+    else if (multiSel.context === 'favorites') renderFavoritesView();
+  }
+
+  function exitMultiSelect(rerender = true) {
+    if (!multiSel.active) return;
+    multiSel.active = false;
+    multiSel.tracks.clear();
+    document.body.classList.remove('multi-select-on');
+    updateMultiSelectBar();
+    if (rerender) rerenderMultiSelectView();
+  }
+
+  function startMultiSelect(context) {
+    if (multiSel.active) return exitMultiSelect();
+    multiSel.active = true;
+    multiSel.context = context;
+    multiSel.tracks.clear();
+    document.body.classList.add('multi-select-on');
+    updateMultiSelectBar();
+    rerenderMultiSelectView();
+  }
+
+  function toggleTrackSelection(track, row) {
+    const key = getTrackCanonicalId(track);
+    if (multiSel.tracks.has(key)) multiSel.tracks.delete(key);
+    else multiSel.tracks.set(key, track);
+    if (row) row.classList.toggle('selected', multiSel.tracks.has(key));
+    updateMultiSelectBar();
+  }
+
+  function multiSelectSourceTracks() {
+    if (multiSel.context === 'favorites') return state.favorites;
+    const pl = state.playlists.find(p => p.id === state.currentPlaylistId);
+    return pl ? (pl.tracks || []) : [];
+  }
+
   function createTrackRow(track, idx, currentCanonicalId, context, tracks, container) {
       const row = document.createElement('div');
       row.className = 'track-row';
@@ -6223,6 +6276,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         </div>
         `;
 
+        if (multiSel.active && multiSel.context === context) {
+          const chk = document.createElement('span');
+          chk.className = 'track-row-check';
+          chk.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+          row.insertBefore(chk, row.firstChild);
+          row.classList.add('selectable');
+          if (multiSel.tracks.has(canonicalId)) row.classList.add('selected');
+        }
+
         let prefetchTimer = null;
         row.addEventListener('mouseenter', () => {
           if (track.url && track.platform !== 'local') {
@@ -6240,6 +6302,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         row.addEventListener('click', (e) => {
           if (e.target.closest('.track-row-actions')) return;
+          if (multiSel.active && multiSel.context === context) {
+            toggleTrackSelection(track, row);
+            return;
+          }
           if (e.target.classList.contains('track-row-artist')) {
             e.stopPropagation();
             openArtistProfile(track.artist);
@@ -7470,6 +7536,55 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   })();
 
+  (function setupMultiSelectControls() {
+    const on = (id, fn) => { const b = document.getElementById(id); if (b) b.addEventListener('click', fn); };
+    on('btn-select-playlist', () => startMultiSelect('playlist'));
+    on('btn-select-favorites', () => startMultiSelect('favorites'));
+    on('multi-select-done', () => exitMultiSelect());
+    on('multi-select-all', () => {
+      const all = multiSelectSourceTracks();
+      const allSelected = all.length > 0 && all.every(t => multiSel.tracks.has(getTrackCanonicalId(t)));
+      multiSel.tracks.clear();
+      if (!allSelected) all.forEach(t => multiSel.tracks.set(getTrackCanonicalId(t), t));
+      updateMultiSelectBar();
+      rerenderMultiSelectView();
+    });
+    on('multi-select-fav', () => {
+      let added = 0;
+      multiSel.tracks.forEach(t => {
+        if (!state.favorites.some(f => isSameTrack(f, t))) { state.favorites.unshift(t); added++; }
+      });
+      localStorage.setItem('devsize_favorites', JSON.stringify(state.favorites));
+      updateFavoritesBadge();
+      updateFavoriteIcon();
+      showToast(added ? `Added ${added} track${added === 1 ? '' : 's'} to favorites` : 'Already in favorites', added ? 'success' : 'info');
+    });
+    on('multi-select-add', () => {
+      const picked = Array.from(multiSel.tracks.values());
+      if (picked.length) openAddToPlaylistModal(null, picked);
+    });
+    on('multi-select-remove', () => {
+      const n = multiSel.tracks.size;
+      if (!n || !window.confirm(`Remove ${n} track${n === 1 ? '' : 's'}?`)) return;
+      if (multiSel.context === 'favorites') {
+        state.favorites = state.favorites.filter(f => !multiSel.tracks.has(getTrackCanonicalId(f)));
+        localStorage.setItem('devsize_favorites', JSON.stringify(state.favorites));
+        updateFavoritesBadge();
+        updateFavoriteIcon();
+      } else {
+        const pl = state.playlists.find(p => p.id === state.currentPlaylistId);
+        if (pl) {
+          pl.tracks = pl.tracks.filter(t => !multiSel.tracks.has(getTrackCanonicalId(t)));
+          localStorage.setItem('devsize_playlists', JSON.stringify(state.playlists));
+          renderPlaylistsList();
+        }
+      }
+      multiSel.tracks.clear();
+      updateMultiSelectBar();
+      rerenderMultiSelectView();
+    });
+  })();
+
   function removeTrackFromCurrentPlaylist(trackId) {
     const pl = state.playlists.find(p => p.id === state.currentPlaylistId);
     if (!pl) return;
@@ -7488,7 +7603,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   let trackToAddToPlaylist = null;
-  function openAddToPlaylistModal(track) {
+  function openAddToPlaylistModal(track, many = null) {
     trackToAddToPlaylist = track;
     if (!el.playlistPickList) return;
 
@@ -7551,7 +7666,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         item.className = 'playlist-pick-item';
         item.style.animationDelay = `${idx * 25}ms`;
 
-        const isAlreadyAdded = track && (pl.tracks || []).some(t => t.id === track.id);
+        const isAlreadyAdded = many
+          ? many.length > 0 && many.every(m => (pl.tracks || []).some(t => t.id === m.id))
+          : track && (pl.tracks || []).some(t => t.id === track.id);
         if (isAlreadyAdded) item.classList.add('already-added');
 
         const thumbEl = document.createElement('div');
@@ -7601,7 +7718,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         item.appendChild(actionEl);
 
         item.addEventListener('click', () => {
-          if (track) {
+          if (many) {
+            const fresh = many.filter(m => !pl.tracks.some(t => t.id === m.id));
+            fresh.forEach(m => pl.tracks.push(stampAddedAt(m)));
+            if (fresh.length) {
+              localStorage.setItem('devsize_playlists', JSON.stringify(state.playlists));
+              renderPlaylistsList();
+            }
+            showToast(fresh.length ? `Added ${fresh.length} track${fresh.length === 1 ? '' : 's'} to "${pl.name}"` : `Already in "${pl.name}"`, fresh.length ? 'success' : 'info');
+          } else if (track) {
             if (!pl.tracks.some(t => t.id === track.id)) {
               pl.tracks.push(stampAddedAt(track));
               localStorage.setItem('devsize_playlists', JSON.stringify(state.playlists));
@@ -7622,6 +7747,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function switchView(viewName) {
     state.currentView = viewName;
+    if (multiSel.active) {
+      const keep = (viewName === 'playlist-detail' && multiSel.context === 'playlist') || (viewName === 'favorites' && multiSel.context === 'favorites');
+      if (!keep) exitMultiSelect(false);
+    }
 
     requestAnimationFrame(() => {
       document.querySelectorAll('.no-enter-anim').forEach(c => c.classList.remove('no-enter-anim'));
