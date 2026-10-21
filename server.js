@@ -146,6 +146,7 @@ const vibeCache = new Map();
 const ytArtistCache = new Map();
 const downloadingSet = new Set();
 const prefetchingSet = new Set();
+const downloadInFlight = new Map();
 
 let currentAppState = {};
 const sseClients = new Set();
@@ -1777,6 +1778,11 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
   const cacheKey = (cleanId || trackUrl || `${artist}_${title}`).toLowerCase();
   if (cacheKey && (streamUrlCache.has(cacheKey) || (cleanId && streamUrlCache.has(cleanId)))) {
     const cached = streamUrlCache.get(cacheKey) || (cleanId ? streamUrlCache.get(cleanId) : null);
+    if (cached?.promise) {
+      const outcome = await cached.promise;
+      res.writeHead(outcome.success ? 200 : 500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(outcome));
+    }
     if (cached && (Date.now() - cached.timestamp < 1800000)) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       if (cleanId) setTimeout(() => downloadTrackToDisk(trackUrl, cleanId, platform, meta), 10000);
@@ -1784,6 +1790,12 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
     }
   }
 
+  let resolveLookup;
+  const lookupPromise = new Promise(resolve => { resolveLookup = resolve; });
+  const inFlightEntry = { promise: lookupPromise };
+  if (cacheKey) streamUrlCache.set(cacheKey, inFlightEntry);
+
+  try {
   if (platform === 'youtube' && (!trackUrl || !trackUrl.startsWith('http')) && cleanId) {
     trackUrl = `https://www.youtube.com/watch?v=${cleanId}`;
   }
@@ -1819,8 +1831,13 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
 
   if (!streamUrl) {
     try { logger.error('Stream resolve failed: ' + (title || trackUrl)); } catch (_) {}
+    const failure = { success: false, error: 'could not extract audio stream' };
+    resolveLookup(failure);
+    if (cacheKey && streamUrlCache.get(cacheKey) === inFlightEntry) {
+      streamUrlCache.delete(cacheKey);
+    }
     res.writeHead(500, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ success: false, error: 'could not extract audio stream' }));
+    return res.end(JSON.stringify(failure));
   }
 
   const isHls = streamUrl.includes('.m3u8');
@@ -1832,12 +1849,22 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
     proxyUrl: `http://127.0.0.1:${PORT}/api/audio-proxy?url=${encodeURIComponent(streamUrl)}`
   };
 
+  resolveLookup(data);
   if (cacheKey) streamUrlCache.set(cacheKey, { timestamp: Date.now(), data });
   if (cleanId && cleanId !== cacheKey) streamUrlCache.set(cleanId, { timestamp: Date.now(), data });
   if (cleanId) setTimeout(() => downloadTrackToDisk(trackUrl, cleanId, platform, meta), 10000);
 
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(data));
+  } catch (error) {
+    const failure = { success: false, error: error.message };
+    resolveLookup(failure);
+    if (cacheKey && streamUrlCache.get(cacheKey) === inFlightEntry) {
+      streamUrlCache.delete(cacheKey);
+    }
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(failure));
+  }
 }
 
 async function fetchArtistInfo(artistName) {
@@ -2296,6 +2323,27 @@ async function handleDownload(req, res, trackUrl, title, artist, format = 'mp3',
     if (vidMatch) cleanId = cleanTrackId(vidMatch[1]);
   }
 
+  const downloadKey = !isRaw ? JSON.stringify([cleanId || targetUrl, cleanArtist, cleanTitle, ext, safeQuality, start, end]) : null;
+  if (downloadKey && downloadInFlight.has(downloadKey)) {
+    const outcome = await downloadInFlight.get(downloadKey);
+    res.writeHead(outcome.status, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(outcome.body));
+  }
+
+  let resolveDownload;
+  const downloadPromise = downloadKey ? new Promise(resolve => { resolveDownload = resolve; }) : null;
+  if (downloadKey) downloadInFlight.set(downloadKey, downloadPromise);
+  let downloadOutcome = null;
+  const sendDownloadResponse = (status, body) => {
+    downloadOutcome = { status, body };
+    if (resolveDownload) resolveDownload(downloadOutcome);
+    if (!res.writableEnded) {
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(body));
+    }
+  };
+
+  try {
   const cachedFile = cleanId ? await findCachedFile(cleanId) : null;
   if (cachedFile) {
     const ffmpegBin = resolveBinary('ffmpeg');
@@ -2331,18 +2379,14 @@ async function handleDownload(req, res, trackUrl, title, artist, format = 'mp3',
           ffmpegProc.on('error', reject);
         });
         downloadsIndex = null;
-        if (!res.writableEnded) {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify(isRaw ? {
-            success: true,
-            tempName: tempName
-          } : {
-            success: true,
-            filename: outFilename,
-            directory: downloadsDir
-          }));
-        }
-        return;
+        return sendDownloadResponse(200, isRaw ? {
+          success: true,
+          tempName: tempName
+        } : {
+          success: true,
+          filename: outFilename,
+          directory: downloadsDir
+        });
       } catch (cachedErr) {
         try { await fs.promises.unlink(outPath); } catch (_) {}
       }
@@ -2412,20 +2456,20 @@ async function handleDownload(req, res, trackUrl, title, artist, format = 'mp3',
       await cleanupDownloadArtifacts(downloadsDir, beforeFiles, baseName, videoId, ext, true);
       downloadsIndex = null;
     }
-    if (!res.writableEnded) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(isRaw ? {
-        success: true,
-        tempName: tempName
-      } : {
-        success: true,
-        filename: outFilename,
-        directory: downloadsDir
-      }));
-    }
+    sendDownloadResponse(200, isRaw ? {
+      success: true,
+      tempName: tempName
+    } : {
+      success: true,
+      filename: outFilename,
+      directory: downloadsDir
+    });
   } catch (err) {
     try { logger.error('Download primary failed: ' + (title || trackUrl), err); } catch (_) {}
-    if (res.writableEnded) return;
+    if (res.writableEnded) {
+      sendDownloadResponse(500, { success: false, error: err.message });
+      return;
+    }
     try {
       const fallbackArgs = [
         '--no-playlist',
@@ -2450,17 +2494,14 @@ async function handleDownload(req, res, trackUrl, title, artist, format = 'mp3',
         await cleanupDownloadArtifacts(downloadsDir, beforeFiles, baseName, videoId, ext, true);
         downloadsIndex = null;
       }
-      if (!res.writableEnded) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(isRaw ? {
-          success: true,
-          tempName: tempName
-        } : {
-          success: true,
-          filename: outFilename,
-          directory: downloadsDir
-        }));
-      }
+      sendDownloadResponse(200, isRaw ? {
+        success: true,
+        tempName: tempName
+      } : {
+        success: true,
+        filename: outFilename,
+        directory: downloadsDir
+      });
     } catch (e2) {
       if (!isRaw) {
         await cleanupDownloadArtifacts(downloadsDir, beforeFiles, baseName, videoId, ext, false);
@@ -2468,10 +2509,15 @@ async function handleDownload(req, res, trackUrl, title, artist, format = 'mp3',
         await cleanupPartial();
       }
       try { logger.error('Download failure: ' + (title || trackUrl) + ' (' + (e2.message || err.message) + ')', e2); } catch (_) {}
-      if (!res.writableEnded) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, error: e2.message || err.message }));
-      }
+      sendDownloadResponse(500, { success: false, error: e2.message || err.message });
+    }
+  }
+  } finally {
+    if (downloadKey && downloadInFlight.get(downloadKey) === downloadPromise) {
+      downloadInFlight.delete(downloadKey);
+    }
+    if (resolveDownload && !downloadOutcome) {
+      resolveDownload({ status: 500, body: { success: false, error: 'Download ended without a result' } });
     }
   }
 }
