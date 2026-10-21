@@ -3973,6 +3973,16 @@ function setAlbumCache(key, data) {
   albumCache.set(key, { data, expires: Date.now() + 15 * 60 * 1000 });
 }
 
+// iTunes serves a different catalog per storefront; use the user's region when known.
+function itunesCountryParam() {
+  try {
+    const code = process.versions.electron ? require('electron').app.getLocaleCountryCode() : '';
+    return /^[A-Za-z]{2}$/.test(code) ? `&country=${code.toUpperCase()}` : '';
+  } catch (e) {
+    return '';
+  }
+}
+
 function fetchItunesJson(url) {
   return new Promise((resolve, reject) => {
     const req = https.get(url, {
@@ -4038,7 +4048,7 @@ async function handleAlbumSearch(req, res, parsedUrl) {
   try {
     const albumUrlMatch = q.match(/music\.apple\.com\/(?:[a-z]{2}\/)?album\/(?:[^/]+\/)?(\d+)/i);
     if (albumUrlMatch) {
-      const data = await fetchItunesJson(`https://itunes.apple.com/lookup?id=${albumUrlMatch[1]}&entity=album`);
+      const data = await fetchItunesJson(`https://itunes.apple.com/lookup?id=${albumUrlMatch[1]}&entity=album${itunesCountryParam()}`);
       const results = (data && Array.isArray(data.results)) ? data.results : [];
       const item = results.find(r => r && r.wrapperType === 'collection');
       if (item) {
@@ -4060,12 +4070,12 @@ async function handleAlbumSearch(req, res, parsedUrl) {
 
     const cleanQ = q.replace(/\s+-\s+/g, ' ').replace(/\bby\b/gi, ' ').replace(/\s+/g, ' ').trim();
     const urls = [
-      `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=album&media=music&limit=25`,
-      `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=25`
+      `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=album&media=music&limit=25${itunesCountryParam()}`,
+      `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=25${itunesCountryParam()}`
     ];
     if (cleanQ && cleanQ.toLowerCase() !== q.toLowerCase()) {
-      urls.push(`https://itunes.apple.com/search?term=${encodeURIComponent(cleanQ)}&entity=album&media=music&limit=25`);
-      urls.push(`https://itunes.apple.com/search?term=${encodeURIComponent(cleanQ)}&media=music&limit=25`);
+      urls.push(`https://itunes.apple.com/search?term=${encodeURIComponent(cleanQ)}&entity=album&media=music&limit=25${itunesCountryParam()}`);
+      urls.push(`https://itunes.apple.com/search?term=${encodeURIComponent(cleanQ)}&media=music&limit=25${itunesCountryParam()}`);
     }
 
     const responses = await Promise.all(urls.map(u => fetchItunesJson(u).catch(() => null)));
@@ -4148,7 +4158,7 @@ async function handleArtistAlbums(req, res, parsedUrl) {
   try {
     const normalize = (s) => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
     const target = normalize(name);
-    const artistSearch = await fetchItunesJson(`https://itunes.apple.com/search?term=${encodeURIComponent(name)}&entity=musicArtist&limit=10`);
+    const artistSearch = await fetchItunesJson(`https://itunes.apple.com/search?term=${encodeURIComponent(name)}&entity=musicArtist&limit=10${itunesCountryParam()}`);
     const artists = (artistSearch && Array.isArray(artistSearch.results)) ? artistSearch.results : [];
     const best = artists.find(a => normalize(a.artistName) === target) || artists.find(a => normalize(a.artistName).includes(target) || target.includes(normalize(a.artistName))) || artists[0];
     const albums = [];
@@ -4171,12 +4181,12 @@ async function handleArtistAlbums(req, res, parsedUrl) {
       });
     };
     if (best && best.artistId != null) {
-      const lookup = await fetchItunesJson(`https://itunes.apple.com/lookup?id=${best.artistId}&entity=album&limit=200`);
+      const lookup = await fetchItunesJson(`https://itunes.apple.com/lookup?id=${best.artistId}&entity=album&limit=200${itunesCountryParam()}`);
       const items = (lookup && Array.isArray(lookup.results)) ? lookup.results : [];
       items.filter(r => r && r.wrapperType === 'collection').forEach(addAlbum);
     }
     if (albums.length === 0) {
-      const fallback = await fetchItunesJson(`https://itunes.apple.com/search?term=${encodeURIComponent(name)}&entity=album&attribute=artistTerm&limit=200`);
+      const fallback = await fetchItunesJson(`https://itunes.apple.com/search?term=${encodeURIComponent(name)}&entity=album&attribute=artistTerm&limit=200${itunesCountryParam()}`);
       const items = (fallback && Array.isArray(fallback.results)) ? fallback.results : [];
       items.filter(r => r && normalize(r.artistName).includes(target)).forEach(addAlbum);
     }
@@ -4225,7 +4235,7 @@ async function handleAlbumTracks(req, res, parsedUrl) {
   };
 
   try {
-    const url = `https://itunes.apple.com/lookup?id=${id}&entity=song`;
+    const url = `https://itunes.apple.com/lookup?id=${id}&entity=song${itunesCountryParam()}`;
     const data = await fetchItunesJson(url);
     const results = (data && Array.isArray(data.results)) ? data.results : [];
     const albumItem = results.find(r => r && r.wrapperType === 'collection');
