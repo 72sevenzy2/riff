@@ -147,10 +147,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   injectM3Shapes();
 
   const toastQueue = [];
+  const MAX_QUEUED_TOASTS = 10;
   let isToastActive = false;
 
   function showToast(message, type = 'info', duration = null) {
     if (!message) return;
+    if (toastQueue.length >= MAX_QUEUED_TOASTS) {
+      toastQueue.shift();
+    }
     toastQueue.push({ message, type, duration });
     if (!isToastActive) {
       processToastQueue();
@@ -163,12 +167,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
     isToastActive = true;
-    const { message, type, duration } = toastQueue.shift();
     const container = document.getElementById('toast-container');
     if (!container) {
+      toastQueue.length = 0;
       isToastActive = false;
       return;
     }
+    const { message, type, duration } = toastQueue.shift();
 
     const toast = document.createElement('div');
     toast.className = `riff-toast ${type}${duration ? ' wide' : ''}`;
@@ -15471,5 +15476,4 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
-
 
