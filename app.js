@@ -5702,11 +5702,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       const data = await res.json();
       const results = (data && Array.isArray(data.tracks)) ? data.tracks.slice(0, 5) : [];
       if (results.length > 0) {
-        const normAlbumTitle = normalizeMatchText(t.title);
+        const normAlbumTitle = normalizeMatchText((t.title || '').replace(/\(.*?\)|\[.*?\]/g, '').replace(/\b(feat|ft)\b.*$/i, ''));
+        const targetSec = t.durationMs ? t.durationMs / 1000 : null;
         const matching = normAlbumTitle
           ? results.filter(cand => normalizeMatchText(cand.title).includes(normAlbumTitle))
-          : results;
-        const targetSec = t.durationMs ? t.durationMs / 1000 : null;
+          : [];
 
         if (matching.length > 0) {
           if (targetSec != null) {
@@ -5717,8 +5717,6 @@ document.addEventListener('DOMContentLoaded', async () => {
           } else {
             picked = matching[0];
           }
-        } else {
-          picked = results[0];
         }
       }
     } catch (err) {
@@ -5731,6 +5729,47 @@ document.addEventListener('DOMContentLoaded', async () => {
     return picked;
   }
 
+  function isEpisodeAlbum(tracks) {
+    if (!tracks || tracks.length < 4) return false;
+    const chapterLike = tracks.filter(t => /^(kapitel|inhaltsangabe|titelmusik|teil|chapter)\b|\((teil|kapitel|part|chapter)\s*\d+\)/i.test((t.title || '').trim())).length;
+    return chapterLike / tracks.length >= 0.6;
+  }
+
+  async function playEpisodeAlbum(album, tracks, runId) {
+    const totalSec = tracks.reduce((a, t) => a + (t.durationMs || 0), 0) / 1000;
+    const platform = state.platform || 'youtube';
+    const queries = [
+      `${album.artist || ''} ${album.title || ''} ganzes Hörspiel`.trim(),
+      `${album.artist || ''} ${album.title || ''}`.trim()
+    ];
+    let picked = null;
+    for (const query of queries) {
+      try {
+        const res = await fetch(`http://127.0.0.1:${state.serverPort}/api/search?q=${encodeURIComponent(query)}&platform=${platform}&limit=8`);
+        const data = await res.json();
+        const results = (data && Array.isArray(data.tracks)) ? data.tracks : [];
+        const epTitle = normalizeMatchText((album.title || '').replace(/^\s*folge\s*\d+\s*[:\-]?\s*/i, '').replace(/\(.*?\)/g, ''));
+        const epNum = ((album.title || '').match(/folge\s*(\d+)/i) || [])[1];
+        const long = results.filter(c => {
+          if (toSeconds(c.duration) < 600) return false;
+          const ct = normalizeMatchText(c.title);
+          if (epTitle && ct.includes(epTitle)) return true;
+          return !!epNum && new RegExp('folge\\s*' + epNum + '(\\D|$)').test(ct);
+        });
+        if (long.length) {
+          picked = long.slice().sort((a, b) => Math.abs(toSeconds(a.duration) - totalSec) - Math.abs(toSeconds(b.duration) - totalSec))[0];
+          break;
+        }
+      } catch (e) {}
+    }
+    if (currentAlbumPlayRunId !== runId) return;
+    if (!picked) {
+      showToast('This album does not exist', 'warning');
+      return;
+    }
+    playTrack(picked, [picked], 0, 'album');
+  }
+
   async function playAlbumFrom(album, tracks, startIndex = 0) {
     if (!album || !tracks || !tracks.length) return;
     const runId = ++currentAlbumPlayRunId;
@@ -5739,6 +5778,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       showToast('Finding tracks…', 'info');
     }, 800);
 
+    if (isEpisodeAlbum(tracks)) {
+      await playEpisodeAlbum(album, tracks, runId);
+      clearTimeout(toastTimer);
+      return;
+    }
+
     const startIdx = Math.max(0, Math.min(startIndex, tracks.length - 1));
     const firstResolved = await resolveAlbumTrack(album, tracks[startIdx]);
     clearTimeout(toastTimer);
@@ -5746,7 +5791,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (currentAlbumPlayRunId !== runId) return;
 
     if (!firstResolved) {
-      showToast('Track not found', 'warning');
+      showToast('This album does not exist', 'warning');
       return;
     }
 
@@ -5846,6 +5891,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.documentElement.style.removeProperty('--playlist-accent-color');
     }
 
+    const playAlbumBtnInit = document.getElementById('btn-play-album');
+    if (playAlbumBtnInit) {
+      playAlbumBtnInit.disabled = true;
+      playAlbumBtnInit.onclick = null;
+    }
+
     const listEl = document.getElementById('album-tracks-list');
     if (listEl) {
       listEl.innerHTML = `<div class="m3-loader-container" style="display: flex; justify-content: center; align-items: center; padding: 64px 0; width: 100%;">
@@ -5880,6 +5931,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       album._tracks = tracks;
+
+      const playAlbumBtn = document.getElementById('btn-play-album');
+      if (playAlbumBtn) {
+        playAlbumBtn.disabled = false;
+        playAlbumBtn.onclick = () => playAlbumFrom(album, tracks, 0);
+      }
 
       if (listEl) {
         listEl.innerHTML = '';
@@ -6402,12 +6459,55 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const artistBioCache = new Map();
 
+  async function loadArtistAlbums(name) {
+    const section = document.getElementById('artist-albums-section');
+    const grid = document.getElementById('artist-albums-grid');
+    const countEl = document.getElementById('artist-albums-count');
+    if (!section || !grid) return;
+    const token = (state.artistAlbumsToken || 0) + 1;
+    state.artistAlbumsToken = token;
+    section.style.display = 'none';
+    grid.innerHTML = '';
+    try {
+      const res = await fetch(`http://127.0.0.1:${state.serverPort}/api/artist-albums?name=${encodeURIComponent(name)}`);
+      const data = await res.json();
+      if (state.artistAlbumsToken !== token) return;
+      if (!data || !data.success || !Array.isArray(data.albums) || data.albums.length === 0) return;
+      const albums = data.albums;
+      grid.innerHTML = albums.map(album => {
+        const sub = album.year ? escapeHtml(album.year) : '';
+        return `
+          <div class="search-album-card" role="button" tabindex="0">
+            <img class="search-album-cover" src="${escapeHtml(album.cover || '')}" alt="${escapeHtml(album.title)}" loading="lazy" />
+            <div class="search-album-info">
+              <span class="search-album-title" title="${escapeHtml(album.title)}">${escapeHtml(album.title)}</span>
+              <span class="search-album-sub">${sub}</span>
+            </div>
+          </div>`;
+      }).join('');
+      grid.querySelectorAll('.search-album-card').forEach((card, idx) => {
+        const album = albums[idx];
+        if (!album) return;
+        card.addEventListener('click', () => openAlbum(album));
+        card.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openAlbum(album);
+          }
+        });
+      });
+      if (countEl) countEl.textContent = `${albums.length} albums`;
+      section.style.display = '';
+    } catch (e) {}
+  }
+
   async function openArtistProfile(artistName) {
     if (!artistName || !artistName.trim()) return;
     const cleanName = artistName.replace(/ - Topic|VEVO|Official|Records/gi, '').trim();
 
     state.previousView = state.currentView;
     switchView('artist');
+    loadArtistAlbums(cleanName);
 
     const heroCard = document.querySelector('.artist-hero-card');
     if (heroCard) {
@@ -7203,6 +7303,65 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (state.currentPlaylistId) openPlaylistDetail(state.currentPlaylistId);
     });
   }
+  (function setupFavAllPlaylist() {
+    const btn = document.getElementById('btn-fav-all-playlist');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const pl = state.playlists.find(p => p.id === state.currentPlaylistId);
+      if (!pl || !pl.tracks) return;
+      let added = 0;
+      for (let i = pl.tracks.length - 1; i >= 0; i--) {
+        const track = pl.tracks[i];
+        if (!state.favorites.some(f => isSameTrack(f, track))) {
+          state.favorites.unshift(track);
+          added++;
+        }
+      }
+      localStorage.setItem('devsize_favorites', JSON.stringify(state.favorites));
+      updateFavoritesBadge();
+      updateFavoriteIcon();
+      btn.title = added + ' added to favorites';
+      const old = btn.style.color;
+      btn.style.color = '#ff6b8a';
+      setTimeout(() => { btn.style.color = old; btn.title = 'Add all to favorites'; }, 2500);
+    });
+  })();
+
+  (function setupPlaylistRename() {
+    const btn = document.getElementById('btn-rename-playlist');
+    const titleEl = document.getElementById('playlist-detail-title');
+    if (!btn || !titleEl) return;
+    btn.addEventListener('click', () => {
+      const pl = state.playlists.find(p => p.id === state.currentPlaylistId);
+      if (!pl || titleEl.querySelector('input')) return;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = pl.name || '';
+      input.style.cssText = 'font:inherit;color:inherit;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.4);border-radius:12px;padding:2px 12px;width:100%;max-width:600px;outline:none;';
+      titleEl.textContent = '';
+      titleEl.appendChild(input);
+      input.focus();
+      input.select();
+      let done = false;
+      const finish = (save) => {
+        if (done) return;
+        done = true;
+        const newName = input.value.trim();
+        if (save && newName) {
+          pl.name = newName;
+          localStorage.setItem('devsize_playlists', JSON.stringify(state.playlists));
+        }
+        titleEl.textContent = pl.name;
+        renderPlaylistsList();
+      };
+      input.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') finish(true);
+        else if (e.key === 'Escape') finish(false);
+      });
+      input.addEventListener('blur', () => finish(true));
+    });
+  })();
 
   function removeTrackFromCurrentPlaylist(trackId) {
     const pl = state.playlists.find(p => p.id === state.currentPlaylistId);

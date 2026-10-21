@@ -4133,6 +4133,64 @@ async function handleAlbumSearch(req, res, parsedUrl) {
   }
 }
 
+async function handleArtistAlbums(req, res, parsedUrl) {
+  const name = (parsedUrl.query.name || '').trim();
+  if (!name) {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ success: true, albums: [] }));
+  }
+  const cacheKey = `artist-albums:${name.toLowerCase()}`;
+  const cached = getAlbumCache(cacheKey);
+  if (cached) {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(cached));
+  }
+  try {
+    const normalize = (s) => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+    const target = normalize(name);
+    const artistSearch = await fetchItunesJson(`https://itunes.apple.com/search?term=${encodeURIComponent(name)}&entity=musicArtist&limit=10`);
+    const artists = (artistSearch && Array.isArray(artistSearch.results)) ? artistSearch.results : [];
+    const best = artists.find(a => normalize(a.artistName) === target) || artists.find(a => normalize(a.artistName).includes(target) || target.includes(normalize(a.artistName))) || artists[0];
+    const albums = [];
+    const seen = new Set();
+    const addAlbum = (item) => {
+      if (!item || item.collectionId == null) return;
+      const title = item.collectionName || '';
+      if (/\s-\s*Single$/i.test(title)) return;
+      const normKey = normalize(title.replace(/\(.*?\)|\[.*?\]/g, ''));
+      if (seen.has(normKey)) return;
+      seen.add(normKey);
+      albums.push({
+        id: String(item.collectionId),
+        title,
+        artist: item.artistName || name,
+        year: item.releaseDate ? item.releaseDate.slice(0, 4) : '',
+        trackCount: item.trackCount || 0,
+        cover: (item.artworkUrl100 || '').replace('100x100', '600x600'),
+        date: item.releaseDate || ''
+      });
+    };
+    if (best && best.artistId != null) {
+      const lookup = await fetchItunesJson(`https://itunes.apple.com/lookup?id=${best.artistId}&entity=album&limit=200`);
+      const items = (lookup && Array.isArray(lookup.results)) ? lookup.results : [];
+      items.filter(r => r && r.wrapperType === 'collection').forEach(addAlbum);
+    }
+    if (albums.length === 0) {
+      const fallback = await fetchItunesJson(`https://itunes.apple.com/search?term=${encodeURIComponent(name)}&entity=album&attribute=artistTerm&limit=200`);
+      const items = (fallback && Array.isArray(fallback.results)) ? fallback.results : [];
+      items.filter(r => r && normalize(r.artistName).includes(target)).forEach(addAlbum);
+    }
+    albums.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const responseData = { success: true, albums };
+    setAlbumCache(cacheKey, responseData);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(responseData));
+  } catch (err) {
+    res.writeHead(502, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ success: false, error: 'Album service unavailable' }));
+  }
+}
+
 async function handleAlbumTracks(req, res, parsedUrl) {
   const id = (parsedUrl.query.id || '').trim();
   if (!/^\d+$/.test(id)) {
@@ -4437,6 +4495,10 @@ const server = http.createServer(async (req, res) => {
 
   if (parsedUrl.pathname === '/api/albums/search') {
     return handleAlbumSearch(req, res, parsedUrl);
+  }
+
+  if (parsedUrl.pathname === '/api/artist-albums') {
+    return handleArtistAlbums(req, res, parsedUrl);
   }
 
   if (parsedUrl.pathname === '/api/albums/tracks') {

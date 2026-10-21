@@ -7577,3 +7577,29 @@ body.m3-cover-on .m3c-wrap > img { visibility: hidden; }
 body.m3-cover-on .m3c-canvas { display: block; }
 body.m3-cover-on .artwork-wrapper { overflow: visible !important; background: transparent !important; }
 body.m3-cover-on .artwork-fallback { display: none !important; }
+
+.playlist-actions #btn-fav-all-playlist,
+.playlist-actions #btn-rename-playlist {
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px !important;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  border: none;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.playlist-actions #btn-fav-all-playlist:hover,
+.playlist-actions #btn-rename-playlist:hover {
+  background: var(--md-sys-color-surface-container-highest);
+}
+
+.playlist-actions #btn-fav-all-playlist:active,
+.playlist-actions #btn-rename-playlist:active {
+  transform: scale(0.92);
+}
