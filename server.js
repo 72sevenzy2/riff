@@ -350,48 +350,57 @@ async function searchSoundcloud(query, limit = 14) {
     return searchCache.get(cacheKey);
   }
 
-  const args = [
-    `scsearch${limit}:${query}`,
-    '--dump-single-json',
-    '--flat-playlist',
-    '--skip-download',
-    '--no-warnings',
-    '--no-check-certificates'
-  ];
-  try {
-    const raw = await executeYtDlp(args, 18000);
-    const data = JSON.parse(raw);
-    const entries = (data.entries || []).map((item) => {
-      let thumbnail = '';
-      if (item.thumbnails && item.thumbnails.length > 0) {
-        thumbnail = item.thumbnails[item.thumbnails.length - 1].url;
-      } else if (item.thumbnail) {
-        thumbnail = item.thumbnail;
+  const searchPromise = (async () => {
+    const args = [
+      `scsearch${limit}:${query}`,
+      '--dump-single-json',
+      '--flat-playlist',
+      '--skip-download',
+      '--no-warnings',
+      '--no-check-certificates'
+    ];
+    try {
+      const raw = await executeYtDlp(args, 18000);
+      const data = JSON.parse(raw);
+      const entries = (data.entries || []).map((item) => {
+        let thumbnail = '';
+        if (item.thumbnails && item.thumbnails.length > 0) {
+          thumbnail = item.thumbnails[item.thumbnails.length - 1].url;
+        } else if (item.thumbnail) {
+          thumbnail = item.thumbnail;
+        }
+
+        const cleanTitle = (item.title || 'untitled');
+        const cleanArtist = (item.uploader || item.channel || item.artist || 'unknown artist');
+        const trackUrl = item.webpage_url || item.url || '';
+
+        return {
+          id: String(item.id || Math.random().toString(36).substring(2)),
+          title: cleanTitle,
+          artist: cleanArtist,
+          duration: item.duration || 0,
+          thumbnail: thumbnail,
+          url: trackUrl,
+          platform: 'soundcloud'
+        };
+      });
+
+      if (entries.length > 0) {
+        searchCache.set(cacheKey, entries);
+        setTimeout(() => { searchCache.delete(cacheKey); }, 300000);
+      } else if (searchCache.get(cacheKey) === searchPromise) {
+        searchCache.delete(cacheKey);
       }
-
-      const cleanTitle = (item.title || 'untitled');
-      const cleanArtist = (item.uploader || item.channel || item.artist || 'unknown artist');
-      const trackUrl = item.webpage_url || item.url || '';
-
-      return {
-        id: String(item.id || Math.random().toString(36).substring(2)),
-        title: cleanTitle,
-        artist: cleanArtist,
-        duration: item.duration || 0,
-        thumbnail: thumbnail,
-        url: trackUrl,
-        platform: 'soundcloud'
-      };
-    });
-
-    if (entries.length > 0) {
-      searchCache.set(cacheKey, entries);
-      setTimeout(() => { searchCache.delete(cacheKey); }, 300000);
+      return entries;
+    } catch (err) {
+      if (searchCache.get(cacheKey) === searchPromise) {
+        searchCache.delete(cacheKey);
+      }
+      return [];
     }
-    return entries;
-  } catch (err) {
-    return [];
-  }
+  })();
+  searchCache.set(cacheKey, searchPromise);
+  return searchPromise;
 }
 
 function buildDiscoveryQueries(profile) {
