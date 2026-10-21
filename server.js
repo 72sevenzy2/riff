@@ -523,15 +523,26 @@ async function dzArtistId(name) {
   if (cached && Date.now() < cached.expires) {
     return cached.id;
   }
-  try {
-    const url = `https://api.deezer.com/search/artist?q=${encodeURIComponent(name.trim())}&limit=1`;
-    const data = await httpGetJson(url, 6000);
-    const id = data?.data?.[0]?.id ? String(data.data[0].id) : null;
-    dzArtistIdCache.set(clean, { id, expires: Date.now() + 24 * 3600 * 1000 });
-    return id;
-  } catch (_) {
-    return null;
+  if (cached?.promise) {
+    return cached.promise;
   }
+
+  const lookupPromise = (async () => {
+    try {
+      const url = `https://api.deezer.com/search/artist?q=${encodeURIComponent(name.trim())}&limit=1`;
+      const data = await httpGetJson(url, 6000);
+      const id = data?.data?.[0]?.id ? String(data.data[0].id) : null;
+      dzArtistIdCache.set(clean, { id, expires: Date.now() + 24 * 3600 * 1000 });
+      return id;
+    } catch (_) {
+      if (dzArtistIdCache.get(clean)?.promise === lookupPromise) {
+        dzArtistIdCache.delete(clean);
+      }
+      return null;
+    }
+  })();
+  dzArtistIdCache.set(clean, { promise: lookupPromise, expires: 0 });
+  return lookupPromise;
 }
 
 async function dzRelatedTracks(artist) {
