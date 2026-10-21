@@ -66,9 +66,6 @@
 <p align="center">
   <img src="https://img.shields.io/static/v1?label=NOTICE&message=Pull%20requests%20are%20temporarily%20closed&color=f2b8b5&labelColor=241618&style=for-the-badge&logo=github&logoColor=f2b8b5" alt="Pull requests are temporarily closed">
 </p>
-<p align="center">
-  <sub>Reopening soon</sub>
-</p>
 
 ## What is Riff?
 
