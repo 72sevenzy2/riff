@@ -6168,6 +6168,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
 
+      row.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        openTrackContextMenu(e.clientX, e.clientY, track, context, row);
+      });
+
       const isMatch = currentCanonicalId && canonicalId === currentCanonicalId;
       if (isMatch) {
         if (state.currentTrackContext === context && state.currentTrackIndexInContext >= 0) {
@@ -6342,6 +6347,79 @@ document.addEventListener('DOMContentLoaded', async () => {
         
       return row;
   }
+
+  let trackMenuEl = null;
+
+  function closeTrackContextMenu() {
+    if (trackMenuEl) {
+      trackMenuEl.remove();
+      trackMenuEl = null;
+    }
+  }
+
+  function openTrackContextMenu(x, y, track, context, row) {
+    closeTrackContextMenu();
+    const isFav = state.favorites.some(f => isSameTrack(f, track));
+    const items = [
+      { label: 'Play', run: () => row.click() },
+      { label: 'Play next', run: () => {
+        if (!state.queue.length || state.queueIndex < 0) { playTrack(track); return; }
+        state.queue = state.queue.filter((t, i) => i <= state.queueIndex || !isSameTrack(t, track));
+        state.queue.splice(state.queueIndex + 1, 0, track);
+        updateQueueBadge();
+        showToast('Playing next', 'success');
+      } },
+      { label: 'Add to queue', run: () => {
+        if (!state.queue.some(t => isSameTrack(t, track))) state.queue.push(track);
+        updateQueueBadge();
+        showToast('Added to queue', 'success');
+      } },
+      { label: 'Add to playlist…', run: () => openAddToPlaylistModal(track) },
+      { label: isFav ? 'Remove from favorites' : 'Add to favorites', run: () => {
+        toggleFavoriteTrack(track);
+        const on = state.favorites.some(f => isSameTrack(f, track));
+        const svg = row.querySelector('.btn-row-fav svg');
+        if (svg) svg.setAttribute('fill', on ? 'currentColor' : 'none');
+      } }
+    ];
+    if (track.artist && !/^unknown artist$/i.test(track.artist)) {
+      items.push({ label: 'Go to artist', run: () => openArtistProfile(track.artist) });
+    }
+    if (track.platform !== 'local') {
+      items.push({ label: 'Download…', run: () => openDownloadModal(track) });
+    }
+    if (context === 'playlist') {
+      items.push({ label: 'Remove from playlist', danger: true, run: () => removeTrackFromCurrentPlaylist(track.id) });
+    }
+
+    const menu = document.createElement('div');
+    menu.className = 'track-context-menu';
+    menu.setAttribute('role', 'menu');
+    items.forEach(item => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'track-context-item' + (item.danger ? ' danger' : '');
+      b.setAttribute('role', 'menuitem');
+      b.textContent = item.label;
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeTrackContextMenu();
+        item.run();
+      });
+      menu.appendChild(b);
+    });
+    document.body.appendChild(menu);
+    const rect = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - rect.width - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))}px`;
+    trackMenuEl = menu;
+  }
+
+  document.addEventListener('click', closeTrackContextMenu);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTrackContextMenu(); });
+  window.addEventListener('blur', closeTrackContextMenu);
+  window.addEventListener('resize', closeTrackContextMenu);
+  document.addEventListener('scroll', closeTrackContextMenu, true);
 
   function renderTracks(container, tracks, context = 'search') {
     if (!container) return;
