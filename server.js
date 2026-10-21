@@ -483,7 +483,15 @@ async function httpGetJson(url, timeoutMs = 6000) {
           return resolve(null);
         }
         let data = '';
-        res.on('data', chunk => { data += chunk; });
+        let bytesRead = 0;
+        res.on('data', chunk => {
+          bytesRead += chunk.length;
+          if (bytesRead > 1024 * 1024) {
+            res.destroy();
+            return resolve(null);
+          }
+          data += chunk;
+        });
         res.on('end', () => {
           try {
             resolve(JSON.parse(data));
