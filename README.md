@@ -63,6 +63,8 @@
   </a>
 </p>
 
+## Notice
+Pull requests are temporarily closed.
 ## What is Riff?
 
 Riff is an open-source, telemetry-free desktop music app and player for **Windows, Linux, and macOS**. It unifies playback across **YouTube Music**, **YouTube**, **SoundCloud**, and offline local media into a single high-performance interface without ads, subscriptions, or login constraints. Provides very fancy UI and layout.
