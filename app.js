@@ -6748,6 +6748,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (el.localCount) el.localCount.textContent = (state.localTracks && state.localTracks.length) || 0;
   }
 
+  // The server looks up missing covers in the background; pick them up while the library is open.
+  let localCoverRefreshTimer = null;
+  let localCoverRefreshCount = 0;
+  function scheduleLocalCoverRefresh() {
+    if (localCoverRefreshTimer) clearTimeout(localCoverRefreshTimer);
+    localCoverRefreshTimer = null;
+    const missing = (state.localTracks || []).filter(t => !t.thumbnail).length;
+    if (!missing) { localCoverRefreshCount = 0; return; }
+    if (localCoverRefreshCount >= 40) return;
+    localCoverRefreshTimer = setTimeout(async () => {
+      localCoverRefreshTimer = null;
+      if (state.currentView !== 'local') return;
+      localCoverRefreshCount++;
+      try {
+        const res = await fetch(`http://127.0.0.1:${state.serverPort}/api/library`);
+        const fresh = await res.json();
+        const before = (state.localTracks || []).filter(t => t.thumbnail).length;
+        const after = fresh.filter(t => t.thumbnail).length;
+        if (after !== before) {
+          state.localTracks = fresh;
+          renderLocalView(false);
+          return;
+        }
+      } catch (e) {}
+      scheduleLocalCoverRefresh();
+    }, 15000);
+  }
+
   async function renderLocalView(forceFetch = true) {
     if (forceFetch || !state.localTracks) {
       try {
@@ -6758,6 +6786,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
     updateLocalBadge();
+    scheduleLocalCoverRefresh();
     const query = el.localSearchInput ? normalizeSearch(el.localSearchInput.value) : '';
     let filtered = state.localTracks || [];
     if (query) {

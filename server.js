@@ -2271,6 +2271,107 @@ async function cleanupDownloadArtifacts(dir, beforeSet, baseName, videoId, chose
   } catch (_) {}
 }
 
+// ---- cover art for local library tracks: embedded picture first, then iTunes ----
+const localCoverQueued = new Set();
+const localCoverQueue = [];
+let localCoverWorking = false;
+let lastOnlineCoverLookup = 0;
+
+function localCoverPath(id) {
+  return path.join(THUMBNAILS_DIR, `localcover_${id}.jpg`);
+}
+
+function extractEmbeddedCover(src, dest) {
+  return new Promise((resolve) => {
+    const ffmpegBin = resolveBinary('ffmpeg');
+    if (!ffmpegBin || !fs.existsSync(src)) return resolve(false);
+    const tmp = `${dest}.tmp.jpg`;
+    let proc;
+    try {
+      proc = spawn(ffmpegBin, ['-y', '-v', 'error', '-i', src, '-map', '0:v:0', '-frames:v', '1', '-vf', "scale='min(600,iw)':-2", tmp], { windowsHide: true });
+    } catch (e) { return resolve(false); }
+    const timer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch (_) {} }, 20000);
+    proc.on('error', () => { clearTimeout(timer); resolve(false); });
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      try {
+        if (code === 0 && fs.existsSync(tmp) && fs.statSync(tmp).size > 500) {
+          fs.renameSync(tmp, dest);
+          return resolve(true);
+        }
+        fs.rmSync(tmp, { force: true });
+      } catch (_) {}
+      resolve(false);
+    });
+  });
+}
+
+async function fetchOnlineCover(item, dest) {
+  try {
+    const norm = (s) => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+    const title = (item.title || '').replace(/\(.*?\)|\[.*?\]/g, '').trim();
+    if (!title) return false;
+    const artist = item.artist && !/^unknown artist$/i.test(item.artist) ? item.artist : '';
+    const term = `${artist} ${title}`.trim();
+    const data = await fetchItunesJson(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&entity=song&limit=5${itunesCountryParam()}`);
+    const results = (data && Array.isArray(data.results)) ? data.results : [];
+    const hit = results.find(r => r && r.artworkUrl100 && norm(r.trackName).includes(norm(title)) && (!artist || norm(r.artistName).includes(norm(artist)) || norm(artist).includes(norm(r.artistName))));
+    if (!hit) return false;
+    const res = await fetch(hit.artworkUrl100.replace('100x100', '600x600'));
+    if (!res.ok) return false;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 500) return false;
+    await fs.promises.writeFile(dest, buf);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function processLocalCovers() {
+  if (localCoverWorking) return;
+  localCoverWorking = true;
+  try {
+    while (localCoverQueue.length) {
+      const id = localCoverQueue.shift();
+      const item = libraryIndex[id];
+      if (!item) continue;
+      const dest = localCoverPath(id);
+      if (fs.existsSync(dest)) continue;
+      let ok = await extractEmbeddedCover(path.join(LIBRARY_DIR, item.file), dest);
+      if (!ok) {
+        // iTunes allows only a few lookups per minute, so space them out
+        const wait = 4000 - (Date.now() - lastOnlineCoverLookup);
+        if (wait > 0) await new Promise(r => setTimeout(r, wait));
+        lastOnlineCoverLookup = Date.now();
+        ok = await fetchOnlineCover(item, dest);
+      }
+    }
+  } finally {
+    localCoverWorking = false;
+  }
+}
+
+function queueLocalCovers(ids) {
+  for (const id of ids) {
+    if (localCoverQueued.has(id) || fs.existsSync(localCoverPath(id))) continue;
+    localCoverQueued.add(id);
+    localCoverQueue.push(id);
+  }
+  if (localCoverQueue.length) processLocalCovers().catch(() => {});
+}
+
+function handleLocalCover(req, res, parsedUrl) {
+  const id = String(parsedUrl.query.id || '');
+  const file = /^[\w-]{1,64}$/.test(id) && libraryIndex[id] ? localCoverPath(id) : '';
+  if (!file || !fs.existsSync(file)) {
+    res.writeHead(404);
+    return res.end();
+  }
+  res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'max-age=3600' });
+  fs.createReadStream(file).pipe(res);
+}
+
 async function handleDownload(req, res, trackUrl, title, artist, format = 'mp3', quality = '0', startParam = null, endParam = null, raw = false, trackId = null, streamUrlParam = null) {
   if (!trackUrl && (!title || !artist)) {
     res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -4759,18 +4860,22 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsedUrl.pathname === '/api/library') {
-    const list = Object.values(libraryIndex)
-      .sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0))
-      .map(item => ({
+    const items = Object.values(libraryIndex).sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+    queueLocalCovers(items.map(item => item.id));
+    const list = items.map(item => ({
         id: item.id,
         platform: 'local',
         title: item.title,
         artist: item.artist,
         duration: Number(item.duration) || 0,
-        thumbnail: ''
+        thumbnail: fs.existsSync(localCoverPath(item.id)) ? `http://127.0.0.1:${PORT}/api/local-cover?id=${encodeURIComponent(item.id)}` : ''
       }));
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(list));
+  }
+
+  if (parsedUrl.pathname === '/api/local-cover') {
+    return handleLocalCover(req, res, parsedUrl);
   }
 
   if (parsedUrl.pathname === '/api/library-file') {
