@@ -2819,12 +2819,30 @@ function getFetchedLyricsPath(title, artist) {
 
 async function handleLyrics(req, res, title, artist, allowOnline = true) {
   const cacheKey = `${artist}:${title}`;
-  if (lyricsCache.has(cacheKey)) {
-    const cached = lyricsCache.get(cacheKey);
+  const cached = lyricsCache.get(cacheKey);
+  if (cached?.promise) {
+    const outcome = await cached.promise;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(outcome));
+  }
+  if (cached) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ success: true, lyrics: cached.text, isCustom: cached.isCustom || false }));
   }
 
+  let resolveLyrics;
+  const lyricsPromise = new Promise(resolve => { resolveLyrics = resolve; });
+  const inFlightEntry = { promise: lyricsPromise };
+  lyricsCache.set(cacheKey, inFlightEntry);
+  let outcome = null;
+  const sendLyrics = (lyrics, isCustom = false) => {
+    outcome = { success: true, lyrics, isCustom };
+    resolveLyrics(outcome);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(outcome));
+  };
+
+  try {
   let customPath = getCustomLyricsPath(title, artist);
   if (!fs.existsSync(customPath) && /^[\x00-\x7F]*$/.test((title || '') + (artist || ''))) {
     const legacyPath = legacyCustomLyricsPath(title, artist);
@@ -2836,9 +2854,10 @@ async function handleLyrics(req, res, title, artist, allowOnline = true) {
   if (fs.existsSync(customPath)) {
     try {
       const customLyrics = await fs.promises.readFile(customPath, 'utf-8');
-      lyricsCache.set(cacheKey, { text: customLyrics, isCustom: true });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ success: true, lyrics: customLyrics, isCustom: true }));
+      if (lyricsCache.get(cacheKey) === inFlightEntry) {
+        lyricsCache.set(cacheKey, { text: customLyrics, isCustom: true });
+      }
+      return sendLyrics(customLyrics, true);
     } catch (e) {}
   }
 
@@ -2853,15 +2872,15 @@ async function handleLyrics(req, res, title, artist, allowOnline = true) {
   if (fs.existsSync(fetchedLyricsPath)) {
     try {
       const diskLyrics = await fs.promises.readFile(fetchedLyricsPath, 'utf-8');
-      lyricsCache.set(cacheKey, { text: diskLyrics, isCustom: false });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ success: true, lyrics: diskLyrics, isCustom: false }));
+      if (lyricsCache.get(cacheKey) === inFlightEntry) {
+        lyricsCache.set(cacheKey, { text: diskLyrics, isCustom: false });
+      }
+      return sendLyrics(diskLyrics);
     } catch (e) {}
   }
 
   if (!allowOnline) {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ success: true, lyrics: '' }));
+    return sendLyrics('');
   }
 
   try {
@@ -2871,13 +2890,21 @@ async function handleLyrics(req, res, title, artist, allowOnline = true) {
         await fs.promises.writeFile(fetchedLyricsPath, rawLyrics, 'utf-8');
       } catch (e) {}
     }
-    lyricsCache.set(cacheKey, { text: rawLyrics, isCustom: false });
-
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: true, lyrics: rawLyrics }));
+    if (lyricsCache.get(cacheKey) === inFlightEntry) {
+      lyricsCache.set(cacheKey, { text: rawLyrics, isCustom: false });
+    }
+    return sendLyrics(rawLyrics);
   } catch (err) {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: true, lyrics: '' }));
+    return sendLyrics('');
+  }
+  } finally {
+    if (!outcome) {
+      outcome = { success: true, lyrics: '', isCustom: false };
+      resolveLyrics(outcome);
+    }
+    if (lyricsCache.get(cacheKey) === inFlightEntry) {
+      lyricsCache.delete(cacheKey);
+    }
   }
 }
 
@@ -3989,6 +4016,25 @@ async function handleAlbumSearch(req, res, parsedUrl) {
     return res.end(JSON.stringify(cached));
   }
 
+  const inFlight = albumCache.get(cacheKey);
+  if (inFlight?.promise) {
+    const outcome = await inFlight.promise;
+    res.writeHead(outcome.status, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(outcome.body));
+  }
+
+  let resolveSearch;
+  const searchPromise = new Promise(resolve => { resolveSearch = resolve; });
+  const inFlightEntry = { promise: searchPromise };
+  albumCache.set(cacheKey, inFlightEntry);
+  let outcome = null;
+  const sendResponse = (status, body) => {
+    outcome = { status, body };
+    resolveSearch(outcome);
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(body));
+  };
+
   try {
     const albumUrlMatch = q.match(/music\.apple\.com\/(?:[a-z]{2}\/)?album\/(?:[^/]+\/)?(\d+)/i);
     if (albumUrlMatch) {
@@ -4008,8 +4054,7 @@ async function handleAlbumSearch(req, res, parsedUrl) {
           }]
         };
         setAlbumCache(cacheKey, responseData);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify(responseData));
+        return sendResponse(200, responseData);
       }
     }
 
@@ -4074,11 +4119,17 @@ async function handleAlbumSearch(req, res, parsedUrl) {
     albums.sort((a, b) => scoreAlbum(b) - scoreAlbum(a));
     const responseData = { success: true, albums: albums.slice(0, 12) };
     setAlbumCache(cacheKey, responseData);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify(responseData));
+    return sendResponse(200, responseData);
   } catch (err) {
-    res.writeHead(502, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ success: false, error: 'Album service unavailable' }));
+    return sendResponse(502, { success: false, error: 'Album service unavailable' });
+  } finally {
+    if (!outcome) {
+      outcome = { status: 502, body: { success: false, error: 'Album service unavailable' } };
+      resolveSearch(outcome);
+    }
+    if (albumCache.get(cacheKey) === inFlightEntry) {
+      albumCache.delete(cacheKey);
+    }
   }
 }
 
@@ -4096,14 +4147,32 @@ async function handleAlbumTracks(req, res, parsedUrl) {
     return res.end(JSON.stringify(cached));
   }
 
+  const inFlight = albumCache.get(cacheKey);
+  if (inFlight?.promise) {
+    const outcome = await inFlight.promise;
+    res.writeHead(outcome.status, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(outcome.body));
+  }
+
+  let resolveLookup;
+  const lookupPromise = new Promise(resolve => { resolveLookup = resolve; });
+  const inFlightEntry = { promise: lookupPromise };
+  albumCache.set(cacheKey, inFlightEntry);
+  let outcome = null;
+  const sendResponse = (status, body) => {
+    outcome = { status, body };
+    resolveLookup(outcome);
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(body));
+  };
+
   try {
     const url = `https://itunes.apple.com/lookup?id=${id}&entity=song`;
     const data = await fetchItunesJson(url);
     const results = (data && Array.isArray(data.results)) ? data.results : [];
     const albumItem = results.find(r => r && r.wrapperType === 'collection');
     if (!albumItem) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ success: false, error: 'Album not found' }));
+      return sendResponse(404, { success: false, error: 'Album not found' });
     }
     const album = {
       id: String(albumItem.collectionId),
@@ -4126,11 +4195,17 @@ async function handleAlbumTracks(req, res, parsedUrl) {
 
     const responseData = { success: true, album, tracks };
     setAlbumCache(cacheKey, responseData);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify(responseData));
+    return sendResponse(200, responseData);
   } catch (err) {
-    res.writeHead(502, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ success: false, error: 'Album service unavailable' }));
+    return sendResponse(502, { success: false, error: 'Album service unavailable' });
+  } finally {
+    if (!outcome) {
+      outcome = { status: 502, body: { success: false, error: 'Album service unavailable' } };
+      resolveLookup(outcome);
+    }
+    if (albumCache.get(cacheKey) === inFlightEntry) {
+      albumCache.delete(cacheKey);
+    }
   }
 }
 
@@ -4138,6 +4213,16 @@ let hotPicksCache = { data: null, expires: 0 };
 
 async function handleHotPicks(req, res, parsedUrl) {
   const limit = Math.max(1, Math.min(25, parseInt(parsedUrl.query.limit || '12', 10) || 12));
+
+  if (hotPicksCache.promise) {
+    const outcome = await hotPicksCache.promise;
+    res.writeHead(outcome.status, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(outcome.body.success ? {
+      success: true,
+      title: outcome.body.title,
+      tracks: outcome.body.tracks.slice(0, limit)
+    } : outcome.body));
+  }
 
   if (hotPicksCache.data && Date.now() < hotPicksCache.expires) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -4148,16 +4233,25 @@ async function handleHotPicks(req, res, parsedUrl) {
     }));
   }
 
+  let resolveLookup;
+  const lookupPromise = new Promise(resolve => { resolveLookup = resolve; });
+  hotPicksCache = { data: null, expires: 0, promise: lookupPromise };
+  let outcome = null;
+  const sendResponse = (status, body) => {
+    outcome = { status, body };
+    resolveLookup(outcome);
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(body));
+  };
+
   try {
     const data = await fetchItunesJson('https://api.deezer.com/chart/0/tracks?limit=40');
     const rawItems = (data && Array.isArray(data.data)) ? data.data : [];
     const candidates = rawItems
       .filter(item => item && item.title && item.artist && item.artist.name)
       .map(item => ({ artist: item.artist.name, title: item.title }));
-
     if (candidates.length === 0) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ success: false }));
+      return sendResponse(200, { success: false });
     }
 
     const resolvedTracks = [];
@@ -4183,8 +4277,7 @@ async function handleHotPicks(req, res, parsedUrl) {
     await Promise.all([worker(), worker(), worker(), worker()]);
 
     if (resolvedTracks.length === 0) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ success: false }));
+      return sendResponse(200, { success: false });
     }
 
     const title = 'Hot picks ' + new Date().getFullYear();
@@ -4193,15 +4286,21 @@ async function handleHotPicks(req, res, parsedUrl) {
       expires: Date.now() + 60 * 60 * 1000
     };
 
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({
+    return sendResponse(200, {
       success: true,
       title,
-      tracks: resolvedTracks.slice(0, limit)
-    }));
+      tracks: resolvedTracks
+    });
   } catch (err) {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ success: false }));
+    return sendResponse(200, { success: false });
+  } finally {
+    if (!outcome) {
+      outcome = { status: 200, body: { success: false } };
+      resolveLookup(outcome);
+    }
+    if (hotPicksCache.promise === lookupPromise) {
+      hotPicksCache = { data: null, expires: 0 };
+    }
   }
 }
 
