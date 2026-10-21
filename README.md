@@ -1,72 +1,52 @@
 <p align="center">
   <img src="banner.png?v=2" alt="Riff - desktop music player and audio suite for YouTube Music, SoundCloud, and local files" width="100%">
 </p>
-<div align="center">
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/windows8/windows8-original.svg" width="24" height="24" align="absmiddle" alt="Windows">&nbsp;<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/apple/apple-original.svg" width="24" height="24" align="absmiddle" alt="macOS">&nbsp;<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/linux/linux-original.svg" width="24" height="24" align="absmiddle" alt="Linux">&nbsp;<img src="https://cdn.simpleicons.org/ios/9ca3af" width="24" height="24" align="absmiddle" alt="iOS">&nbsp;<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/android/android-original.svg" width="24" height="24" align="absmiddle" alt="Android">
-<p align="center"><b>A free, open-source desktop music player for YouTube Music, SoundCloud, and local files. Built with Material Design 3, no tracking, and no account needed.</b></p>
-<table border="0">
-  <tr>
-    <td valign="middle" align="center">
-      <img src="github/readme/emoj2i.gif" width="64" height="64" alt="emoji">
-    </td>
-    <td valign="middle">
-      <h1>Riff</h1>
-    </td>
-  </tr>
-</table>
-<a href="https://riff.hs.vc">
-<img src="https://img.shields.io/badge/Visit_Official_Website-6750A4?style=for-the-badge&logo=open-webui&logoColor=white" height="48" alt="Visit Website">
-</a>
-</div>
 
-<img src="github/readme/emj.gif" width="20" height="20" align="absmiddle" alt="emoji">
 <p align="center">
-  
-  <a href="https://github.com/rootscripts/riff/commits/main">
-    <img src="https://img.shields.io/github/last-commit/rootscripts/riff?style=for-the-badge&labelColor=16191C&color=94C9FF" alt="Last Commit">
-  </a>
-  <a href="https://github.com/rootscripts/riff/stargazers">
-    <img src="https://img.shields.io/github/stars/rootscripts/riff?style=for-the-badge&labelColor=16191C&color=CAD3F5" alt="Stars">
-  </a>
-  <a href="https://github.com/rootscripts/riff">
-    <img src="https://img.shields.io/github/repo-size/rootscripts/riff?style=for-the-badge&labelColor=16191C&color=D0B4EB" alt="Repo Size">
-  </a>
-  <a href="https://github.com/rootscripts/riff/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/rootscripts/riff?style=for-the-badge&labelColor=16191C&color=8EEDD8" alt="License">
-  </a>
-  <a href="https://ko-fi.com/rootlesszen">
-    <img src="https://img.shields.io/badge/Ko--fi-rootlesszen?style=for-the-badge&logo=kofi&logoColor=white&labelColor=16191C&color=FF5E5B" alt="Support on Ko-fi">
-  </a>
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/windows8/windows8-original.svg" width="22" height="22" alt="Windows">&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/apple/apple-original.svg" width="22" height="22" alt="macOS">&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/linux/linux-original.svg" width="22" height="22" alt="Linux">&nbsp;&nbsp;
+  <img src="https://cdn.simpleicons.org/ios/9ca3af" width="22" height="22" alt="iOS">&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/android/android-original.svg" width="22" height="22" alt="Android">
+</p>
+
+<h1 align="center">
+  <img src="github/readme/emoj2i.gif" width="48" height="48" align="absmiddle" alt="emoji">&nbsp;Riff
+</h1>
+
+<p align="center">
+  <b>A free, open-source desktop music player for YouTube Music, SoundCloud, and local files.</b><br>
+  Built with Material Design 3, no tracking, and no account needed.
 </p>
 
 <p align="center">
   <a href="https://github.com/rootscripts/riff/releases">
-    <img src="https://img.shields.io/badge/Download-6750A4?style=for-the-badge&logo=download&logoColor=white" alt="Download">
+    <img src="https://img.shields.io/badge/Download-6750A4?style=for-the-badge&logo=download&logoColor=white" height="40" alt="Download">
   </a>
-  <a href="#core-features">
-    <img src="https://img.shields.io/badge/Features-1F2328?style=for-the-badge" alt="Features">
-  </a>
-  <a href="#built-in-audio-suite">
-    <img src="https://img.shields.io/badge/Audio_Suite-1F2328?style=for-the-badge" alt="Audio Suite">
-  </a>
-  <a href="#material-design-3-expressive-ui">
-    <img src="https://img.shields.io/badge/Interface-1F2328?style=for-the-badge" alt="Interface">
-  </a>
-  <a href="#download-and-install">
-    <img src="https://img.shields.io/badge/Install-1F2328?style=for-the-badge" alt="Install">
-  </a>
-  <a href="#faq">
-    <img src="https://img.shields.io/badge/FAQ-1F2328?style=for-the-badge" alt="FAQ">
-  </a>
-  <a href="#build-from-source">
-    <img src="https://img.shields.io/badge/Build-1F2328?style=for-the-badge" alt="Build">
+  &nbsp;
+  <a href="https://riff.hs.vc">
+    <img src="https://img.shields.io/badge/Website-1F2328?style=for-the-badge&logo=open-webui&logoColor=white" height="40" alt="Visit Website">
   </a>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/static/v1?label=NOTICE&message=Pull%20requests%20are%20temporarily%20closed&color=f2b8b5&labelColor=241618&style=for-the-badge&logo=github&logoColor=f2b8b5" alt="Pull requests are temporarily closed">
+  <a href="#core-features">Features</a> &nbsp;·&nbsp;
+  <a href="#built-in-audio-suite">Audio Suite</a> &nbsp;·&nbsp;
+  <a href="#material-design-3-expressive-ui">Interface</a> &nbsp;·&nbsp;
+  <a href="#download-and-install">Install</a> &nbsp;·&nbsp;
+  <a href="#faq">FAQ</a> &nbsp;·&nbsp;
+  <a href="#build-from-source">Build</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/rootscripts/riff/stargazers"><img src="https://img.shields.io/github/stars/rootscripts/riff?style=flat-square&labelColor=16191C&color=CAD3F5" alt="Stars"></a>
+  <a href="https://github.com/rootscripts/riff/commits/main"><img src="https://img.shields.io/github/last-commit/rootscripts/riff?style=flat-square&labelColor=16191C&color=94C9FF" alt="Last Commit"></a>
+  <a href="https://github.com/rootscripts/riff/blob/main/LICENSE"><img src="https://img.shields.io/github/license/rootscripts/riff?style=flat-square&labelColor=16191C&color=8EEDD8" alt="License"></a>
+  <a href="https://ko-fi.com/rootlesszen"><img src="https://img.shields.io/badge/Ko--fi-support-FF5E5B?style=flat-square&logo=kofi&logoColor=white&labelColor=16191C" alt="Support on Ko-fi"></a>
+</p>
+
+> [!NOTE]
+> **Pull requests are temporarily closed and will be open soon.**
 ## What is Riff?
 
 Riff is an open-source, telemetry-free desktop music app and player for **Windows, Linux, and macOS**. It unifies playback across **YouTube Music**, **YouTube**, **SoundCloud**, and offline local media into a single high-performance interface without ads, subscriptions, or login constraints. Provides very fancy UI and layout.
