@@ -14,6 +14,9 @@
     </td>
   </tr>
 </table>
+<a href="https://riff.hs.vc">
+<img src="https://img.shields.io/badge/Visit_Official_Website-6750A4?style=for-the-badge&logo=open-webui&logoColor=white" height="48" alt="Visit Website">
+</a>
 </div>
 
 <img src="github/readme/emj.gif" width="20" height="20" align="absmiddle" alt="emoji">
