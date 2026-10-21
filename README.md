@@ -66,16 +66,17 @@ Riff is an open-source, telemetry-free desktop audio hub and player for **Window
 
 Built with **Electron**, **Vanilla JavaScript**, and **WebGL**, Riff provides responsive UI interactions and hardware-accelerated audio visualization without runtime framework overhead. The project is distributed under the **MIT license** and enforces strict privacy: all configuration, cached streams, and playback history remain strictly on the local machine.
 
-## Core Features
+## Features
 
-- **Ad-Free Streaming Hub**: Native stream resolution for YouTube Music, YouTube, and SoundCloud without third-party advertisements or account requirements.
-- **Offline Lossless Playback**: Full local library support for high-resolution formats including FLAC, WAV, MP3, OGG, and M4A.
-- **Built-in Audio Suite**: Integrated visual waveform editor for lossless trimming, 10-band equalizer, and real-time DSP effects (tempo, pitch shifting, studio reverb, distortion).
-- **1-Click Multi-Platform Playlist Migration**: Direct import and resolution of public playlists from Spotify, Apple Music, YouTube Music, and SoundCloud.
-- **Material Design 3 (M3 Expressive) UI**: Dynamic color extraction from album artwork, deep UI theming, responsive layout presets, and an integrated CSS editor.
+- High quality streaming with **YouTube Music, YouTube, and SoundCloud** without third-party advertisements or account requirements
+- **Offline lossless playback with full local library support** for high resolution formats including FLAC, WAV, MP3, OGG, and M4A.
+- **Easy built-in audio editor**, downloading with effects or trimming 10-band & 3-band equalizer, and real-time DSP effects (speed, pitch, reverb, distortion).
+- **1-Click multi-platform playlist migration**: Direct import and resolution of public playlists from Spotify, Apple Music, YouTube Music, and SoundCloud
+- **Material Design 3 UI**: Dynamic color extraction from album artwork, deep UI theming, responsive layout presets, and an integrated CSS editor
 - **Hardware-Accelerated Visuals**: Canvas and WebGL visualizers including real-time frequency analyzers, an interactive squiggly progress scrubber, and synchronized karaoke lyrics.
 - **Discord Rich Presence**: Real-time playback status reporting track metadata, artist info, and elapsed time to Discord.
 - **Zero Telemetry**: No tracking identifiers, analytics pings, or background data collection.
+- **Fullscreen mode** with fancy lyrics animation.
 
 ## Built-in Audio Suite
 
