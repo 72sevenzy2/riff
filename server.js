@@ -609,59 +609,69 @@ async function ytMixTracks(seed) {
   if (cached && Date.now() < cached.expires) {
     return cached.tracks;
   }
-
-  try {
-    const args = [
-      '--flat-playlist',
-      '--dump-single-json',
-      '--no-warnings',
-      '--no-check-certificates',
-      '--playlist-end',
-      '25',
-      '--extractor-args',
-      'youtube:player_client=android',
-      `https://www.youtube.com/watch?v=${id}&list=RD${id}`
-    ];
-    const raw = await executeYtDlp(args, 25000);
-    const data = JSON.parse(raw);
-    const entries = Array.isArray(data?.entries) ? data.entries : [];
-    const results = [];
-
-    entries.forEach((entry, index) => {
-      if (!entry || !entry.id || entry.id === id) return;
-      const duration = Number(entry.duration) || 0;
-      if (duration > 480) return;
-      const artist = entry.uploader || entry.channel || 'unknown artist';
-      const title = entry.title || 'untitled';
-      if (isSpamOrUnofficial(title, duration, artist)) return;
-
-      let thumbnail = '';
-      if (Array.isArray(entry.thumbnails) && entry.thumbnails.length > 0) {
-        thumbnail = entry.thumbnails[entry.thumbnails.length - 1].url || '';
-      } else if (entry.thumbnail) {
-        thumbnail = entry.thumbnail;
-      }
-
-      results.push({
-        id: entry.id,
-        title,
-        artist,
-        duration,
-        thumbnail,
-        url: `https://www.youtube.com/watch?v=${entry.id}`,
-        platform: 'youtube',
-        isCached: false,
-        match: 1 - (index / 25) * 0.5,
-        source: 'ytmix',
-        playable: true
-      });
-    });
-
-    ytMixCache.set(id, { expires: Date.now() + 30 * 60 * 1000, tracks: results });
-    return results;
-  } catch (_) {
-    return [];
+  if (cached?.promise) {
+    return cached.promise;
   }
+
+  const lookupPromise = (async () => {
+    try {
+      const args = [
+        '--flat-playlist',
+        '--dump-single-json',
+        '--no-warnings',
+        '--no-check-certificates',
+        '--playlist-end',
+        '25',
+        '--extractor-args',
+        'youtube:player_client=android',
+        `https://www.youtube.com/watch?v=${id}&list=RD${id}`
+      ];
+      const raw = await executeYtDlp(args, 25000);
+      const data = JSON.parse(raw);
+      const entries = Array.isArray(data?.entries) ? data.entries : [];
+      const results = [];
+
+      entries.forEach((entry, index) => {
+        if (!entry || !entry.id || entry.id === id) return;
+        const duration = Number(entry.duration) || 0;
+        if (duration > 480) return;
+        const artist = entry.uploader || entry.channel || 'unknown artist';
+        const title = entry.title || 'untitled';
+        if (isSpamOrUnofficial(title, duration, artist)) return;
+
+        let thumbnail = '';
+        if (Array.isArray(entry.thumbnails) && entry.thumbnails.length > 0) {
+          thumbnail = entry.thumbnails[entry.thumbnails.length - 1].url || '';
+        } else if (entry.thumbnail) {
+          thumbnail = entry.thumbnail;
+        }
+
+        results.push({
+          id: entry.id,
+          title,
+          artist,
+          duration,
+          thumbnail,
+          url: `https://www.youtube.com/watch?v=${entry.id}`,
+          platform: 'youtube',
+          isCached: false,
+          match: 1 - (index / 25) * 0.5,
+          source: 'ytmix',
+          playable: true
+        });
+      });
+
+      ytMixCache.set(id, { expires: Date.now() + 30 * 60 * 1000, tracks: results });
+      return results;
+    } catch (_) {
+      if (ytMixCache.get(id)?.promise === lookupPromise) {
+        ytMixCache.delete(id);
+      }
+      return [];
+    }
+  })();
+  ytMixCache.set(id, { expires: 0, promise: lookupPromise });
+  return lookupPromise;
 }
 
 async function gatherCandidates(seeds) {
@@ -795,32 +805,42 @@ async function resolveCandidate(c) {
   if (cached && Date.now() < cached.expires) {
     return cached.track;
   }
+  if (cached?.promise) {
+    return cached.promise;
+  }
 
-  let resolved = null;
-  try {
-    const candArtistNorm = normalizeArtistName(c.artist);
-    const candTitleNorm = (c.title || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
-    const query = `${c.artist} ${c.title}`.trim();
-    const scResults = await searchSoundcloud(query, 4);
+  const lookupPromise = (async () => {
+    let resolved = null;
+    try {
+      const candArtistNorm = normalizeArtistName(c.artist);
+      const candTitleNorm = (c.title || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+      const query = `${c.artist} ${c.title}`.trim();
+      const scResults = await searchSoundcloud(query, 4);
 
-    for (const r of (scResults || [])) {
-      const rArtistNorm = normalizeArtistName(r.artist || r.uploader || '');
-      const rTitleNorm = (r.title || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
-      const artistMatch = rArtistNorm.includes(candArtistNorm) || candArtistNorm.includes(rArtistNorm);
-      const titleMatch = rTitleNorm.includes(candTitleNorm) || candTitleNorm.includes(rTitleNorm);
-      if (artistMatch && titleMatch) {
-        resolved = normalizeTrack(r);
-        break;
+      for (const r of (scResults || [])) {
+        const rArtistNorm = normalizeArtistName(r.artist || r.uploader || '');
+        const rTitleNorm = (r.title || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+        const artistMatch = rArtistNorm.includes(candArtistNorm) || candArtistNorm.includes(rArtistNorm);
+        const titleMatch = rTitleNorm.includes(candTitleNorm) || candTitleNorm.includes(rTitleNorm);
+        if (artistMatch && titleMatch) {
+          resolved = normalizeTrack(r);
+          break;
+        }
       }
+    } catch (_) {}
+
+    if (resolvedCache.get(key)?.promise === lookupPromise) {
+      resolvedCache.set(key, { expires: Date.now() + 24 * 3600 * 1000, track: resolved });
     }
-  } catch (_) {}
+    return resolved;
+  })();
 
   if (resolvedCache.size >= 500) {
     const oldest = resolvedCache.keys().next().value;
     resolvedCache.delete(oldest);
   }
-  resolvedCache.set(key, { expires: Date.now() + 24 * 3600 * 1000, track: resolved });
-  return resolved;
+  resolvedCache.set(key, { expires: 0, promise: lookupPromise });
+  return lookupPromise;
 }
 
 function pickWeightedSeeds(seeds, count = 4) {
@@ -1456,11 +1476,32 @@ async function searchYtmTracks(query, limit = 16) {
 
 async function handleSearch(req, res, query, platform = 'youtube', limit = 20) {
   const cacheKey = `${platform}:${query}:${limit}`;
-  if (searchCache.has(cacheKey)) {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify(searchCache.get(cacheKey)));
+  while (true) {
+    const cached = searchCache.get(cacheKey);
+    if (cached === undefined) break;
+    if (cached?.promise instanceof Promise) {
+      const outcome = await cached.promise;
+      res.writeHead(outcome.status, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(outcome.body));
+    }
+    if (searchCache.has(cacheKey)) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(cached));
+    }
   }
 
+  let resolveSearchOutcome;
+  const searchOutcome = new Promise(resolve => { resolveSearchOutcome = resolve; });
+  const cacheEntry = { promise: searchOutcome };
+  searchCache.set(cacheKey, cacheEntry);
+  let responseOutcome = null;
+  const sendResponse = (status, body) => {
+    responseOutcome = { status, body };
+    resolveSearchOutcome(responseOutcome);
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(body));
+  };
+  try {
   if (platform === 'youtube') {
     try {
       const directTracks = await directYoutubeSearch(query);
@@ -1474,8 +1515,7 @@ async function handleSearch(req, res, query, platform = 'youtube', limit = 20) {
           }
         }, 100);
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify(result));
+        return sendResponse(200, result);
       }
     } catch (e) {}
   }
@@ -1497,8 +1537,7 @@ async function handleSearch(req, res, query, platform = 'youtube', limit = 20) {
           setTimeout(() => {
             if (entries[0] && entries[0].url) prefetchTrack(entries[0].url, entries[0].id, 'youtube').catch(() => {});
           }, 60);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify(result));
+          return sendResponse(200, result);
         } else {
           ytmFailCount++;
           if (ytmFailCount >= 3) {
@@ -1604,11 +1643,9 @@ async function handleSearch(req, res, query, platform = 'youtube', limit = 20) {
       setTimeout(() => {
         if (entries[0] && entries[0].url) prefetchTrack(entries[0].url, entries[0].id, 'youtube').catch(() => {});
       }, 60);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify(result));
+      return sendResponse(200, result);
     } catch (err) {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ success: false, tracks: [], error: 'YouTube Music is unavailable' }));
+      return sendResponse(200, { success: false, tracks: [], error: 'YouTube Music is unavailable' });
     }
   }
 
@@ -1666,11 +1703,19 @@ async function handleSearch(req, res, query, platform = 'youtube', limit = 20) {
       if (entries[0] && entries[0].url) prefetchTrack(entries[0].url, entries[0].id, platform).catch(() => {});
     }, 60);
 
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(result));
+    return sendResponse(200, result);
   } catch (err) {
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: false, error: err.message }));
+    return sendResponse(500, { success: false, error: err.message });
+  }
+  } finally {
+    if (!responseOutcome) {
+      const outcome = { status: 500, body: { success: false, error: 'Search failed' } };
+      responseOutcome = outcome;
+      resolveSearchOutcome(outcome);
+    }
+    if (searchCache.get(cacheKey) === cacheEntry) {
+      searchCache.delete(cacheKey);
+    }
   }
 }
 
