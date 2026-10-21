@@ -2,6 +2,8 @@
   <img src="banner.png?v=2" alt="Riff - desktop music player and audio suite for YouTube Music, SoundCloud, and local files" width="100%">
 </p>
 <div align="center">
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/windows8/windows8-original.svg" width="24" height="24" align="absmiddle" alt="Windows">&nbsp;<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/apple/apple-original.svg" width="24" height="24" align="absmiddle" alt="macOS">&nbsp;<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/linux/linux-original.svg" width="24" height="24" align="absmiddle" alt="Linux">&nbsp;<img src="https://cdn.simpleicons.org/ios/9ca3af" width="24" height="24" align="absmiddle" alt="iOS">&nbsp;<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/android/android-original.svg" width="24" height="24" align="absmiddle" alt="Android">
+<p align="center"><b>A free, open-source desktop music player for YouTube Music, SoundCloud, and local files. Built with Material Design 3, no tracking, and no account needed.</b></p>
 <table border="0">
   <tr>
     <td valign="middle" align="center">
@@ -12,9 +14,11 @@
     </td>
   </tr>
 </table>
-<p align="center"><b>A free, open-source desktop music player for YouTube Music, SoundCloud, and local files. Built with Material Design 3, no tracking, and no account needed.</b></p>
+</div>
+
 <img src="github/readme/emj.gif" width="20" height="20" align="absmiddle" alt="emoji">
 <p align="center">
+  
   <a href="https://github.com/rootscripts/riff/commits/main">
     <img src="https://img.shields.io/github/last-commit/rootscripts/riff?style=for-the-badge&labelColor=16191C&color=94C9FF" alt="Last Commit">
   </a>
@@ -33,13 +37,27 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/rootscripts/riff/releases"><b>Download</b></a> ·
-  <a href="#core-features">Features</a> ·
-  <a href="#built-in-audio-suite">Audio Suite</a> ·
-  <a href="#material-design-3-expressive-ui">Interface</a> ·
-  <a href="#download-and-install">Install</a> ·
-  <a href="#faq">FAQ</a> ·
-  <a href="#build-from-source">Build</a>
+  <a href="https://github.com/rootscripts/riff/releases">
+    <img src="https://img.shields.io/badge/Download-6750A4?style=for-the-badge&logo=download&logoColor=white" alt="Download">
+  </a>
+  <a href="#core-features">
+    <img src="https://img.shields.io/badge/Features-1F2328?style=for-the-badge" alt="Features">
+  </a>
+  <a href="#built-in-audio-suite">
+    <img src="https://img.shields.io/badge/Audio_Suite-1F2328?style=for-the-badge" alt="Audio Suite">
+  </a>
+  <a href="#material-design-3-expressive-ui">
+    <img src="https://img.shields.io/badge/Interface-1F2328?style=for-the-badge" alt="Interface">
+  </a>
+  <a href="#download-and-install">
+    <img src="https://img.shields.io/badge/Install-1F2328?style=for-the-badge" alt="Install">
+  </a>
+  <a href="#faq">
+    <img src="https://img.shields.io/badge/FAQ-1F2328?style=for-the-badge" alt="FAQ">
+  </a>
+  <a href="#build-from-source">
+    <img src="https://img.shields.io/badge/Build-1F2328?style=for-the-badge" alt="Build">
+  </a>
 </p>
 
 ## What is Riff?
