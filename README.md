@@ -5,7 +5,7 @@
 <table border="0">
   <tr>
     <td valign="middle" align="center">
-      <img src="github/readme/emoji.gif" width="64" height="64" alt="emoji">
+      <img src="github/readme/emoj2i.gif" width="64" height="64" alt="emoji">
     </td>
     <td valign="middle">
       <h1>Riff</h1>
