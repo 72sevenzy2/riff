@@ -52,46 +52,121 @@ function stopWatchdog() {
 	}
 }
 
+
+function recoverConnection(client, reason) {
+	if (rpcClient !== client) return;
+
+	console.warn('[Discord RPC] Recovering:', reason);
+
+	// invalidate client
+	rpcClient = null;
+	isConnected = false;
+
+	stopWatchdog();
+	disposeClient(client);
+
+	if (isEnabled && !isDestroying) {
+		scheduleReconnect();
+	}
+}
+
 function initRPC() {
-	if (rpcClient || isDestroying) return;
+	if (rpcClient || isDestroying || !isEnabled) return;
 
-	rpcClient = new RPC.Client({ transport: 'ipc' });
+	const client = new RPC.Client({ transport: 'ipc' });
+	rpcClient = client;
 
-	rpcClient.on('ready', () => {
+	client.on('ready', () => {
+		if (rpcClient !== client || isDestroying || !isEnabled) return;
+
 		isConnected = true;
-		console.log('[Discord RPC] Connected as', rpcClient.user?.username || 'unknown');
-		if (lastTrackInfo && isEnabled) {
+		reconnectAttempts = 0;
+
+		console.log(
+			'[Discord RPC] Connected as',
+			client.user?.username || 'unknown'
+		);
+
+		stopWatchdog();
+
+		watchdogTimer = setInterval(() => {
+			if (
+				rpcClient === client &&
+				isConnected &&
+				isEnabled &&
+				lastTrackInfo
+			) {
+				_setActivity(lastTrackInfo);
+			}
+		}, WATCHDOG_INTERVAL_MS);
+
+		watchdogTimer.unref?.();
+
+		if (lastTrackInfo) {
 			_setActivity(lastTrackInfo);
 		}
 	});
 
-	rpcClient.on('disconnected', () => {
-		console.log('[Discord RPC] Disconnected');
-		isConnected = false;
-		rpcClient = null;
-		scheduleReconnect();
+	client.on('disconnected', () => {
+		recoverConnection(client, 'Disconnected event');
 	});
 
-	rpcClient.login({ clientId: CLIENT_ID }).catch(err => {
-		console.warn('[Discord RPC] Login failed:', err.message || err);
-		isConnected = false;
-		rpcClient = null;
-		scheduleReconnect();
+	// Protect against emitted errors where supported.
+	client.on('error', err => {
+		recoverConnection(client, err.message || String(err));
+	});
+
+	withTimeout(
+		Promise.resolve().then(() =>
+			client.login({ clientId: CLIENT_ID })
+		),
+		LOGIN_TIMEOUT_MS,
+		'Discord RPC login'
+	).catch(err => {
+		recoverConnection(client, `Login failed: ${err.message || err}`);
 	});
 }
 
 function scheduleReconnect() {
 	if (reconnectTimer || isDestroying || !isEnabled) return;
+
+	const exponentialDelay = Math.min(
+		BASE_RECONNECT_DELAY_MS * 2 ** reconnectAttempts,
+		MAX_RECONNECT_DELAY_MS
+	);
+
+	// Add ±20% jitter to spread out retries.
+	const delay = Math.round(
+		exponentialDelay * (0.8 + Math.random() * 0.4)
+	);
+
+	reconnectAttempts++;
+
+	console.log(
+		`[Discord RPC] Reconnecting in ${Math.round(delay / 1000)}s`
+	);
+
 	reconnectTimer = setTimeout(() => {
 		reconnectTimer = null;
-		if (isEnabled && !isDestroying) {
+
+		if (isEnabled && !isDestroying && !rpcClient) {
 			initRPC();
 		}
-	}, RECONNECT_DELAY_MS);
+	}, delay);
 }
 
 function _setActivity(trackInfo) {
-	if (!rpcClient || !isConnected || !trackInfo) return;
+	const client = rpcClient;
+
+	if (!client || !isConnected || !trackInfo || !isEnabled) {
+		return;
+	}
+
+	// Don't stack activity requests for the same client.
+	if (activityInFlightClient === client) return;
+
+	activityInFlightClient = client;
+	const revision = trackRevision;
 
 	const now = Math.floor(Date.now() / 1000);
 	const startEpoch = trackInfo.startTimestamp || now;
@@ -99,7 +174,9 @@ function _setActivity(trackInfo) {
 	const activity = {
 		type: 2,
 		details: (trackInfo.title || 'Unknown Track').substring(0, 128),
-		state: trackInfo.artist ? `by ${trackInfo.artist}`.substring(0, 128) : 'Unknown Artist',
+		state: trackInfo.artist
+			? `by ${trackInfo.artist}`.substring(0, 128)
+			: 'Unknown Artist',
 		timestamps: {
 			start: startEpoch,
 		},
@@ -110,7 +187,8 @@ function _setActivity(trackInfo) {
 	};
 
 	if (trackInfo.duration && trackInfo.duration > 0) {
-		activity.timestamps.end = startEpoch + Math.floor(trackInfo.duration);
+		activity.timestamps.end =
+			startEpoch + Math.floor(trackInfo.duration);
 	}
 
 	if (trackInfo.url) {
@@ -118,24 +196,44 @@ function _setActivity(trackInfo) {
 			? 'Listen on SoundCloud'
 			: 'Listen on YouTube';
 
-		activity.buttons = [
-			{ label, url: trackInfo.url }
-		];
+		activity.buttons = [{ label, url: trackInfo.url }];
 	}
 
-	console.log('[Discord RPC] Sending activity:', JSON.stringify(activity, null, 2));
-	rpcClient.request('SET_ACTIVITY', {
-		pid: process.pid,
-		activity,
-	}).catch(err => {
-		console.warn('[Discord RPC] SET_ACTIVITY error:', err.message || err);
-	});
+	withTimeout(
+		client.request('SET_ACTIVITY', {
+			pid: process.pid,
+			activity,
+		}),
+		ACTIVITY_TIMEOUT_MS,
+		'SET_ACTIVITY'
+	)
+		.catch(err => {
+			recoverConnection(client, err.message || String(err));
+		})
+		.finally(() => {
+			if (activityInFlightClient === client) {
+				activityInFlightClient = null;
+			}
+
+			// If another track arrived while this request was running,
+			// send only the newest track.
+			if (
+				rpcClient === client &&
+				isConnected &&
+				isEnabled &&
+				lastTrackInfo &&
+				revision !== trackRevision
+			) {
+				_setActivity(lastTrackInfo);
+			}
+		});
 }
 
 function updatePresence(trackInfo) {
 	if (!trackInfo) return;
 
 	lastTrackInfo = trackInfo;
+	trackRevision++;
 
 	if (!isEnabled) return;
 
@@ -148,9 +246,19 @@ function updatePresence(trackInfo) {
 
 function clearPresence() {
 	lastTrackInfo = null;
-	if (rpcClient && isConnected) {
-		rpcClient.clearActivity().catch(() => { });
-	}
+	trackRevision++;
+
+	const client = rpcClient;
+
+	if (!client || !isConnected) return;
+
+	withTimeout(
+		client.clearActivity(),
+		ACTIVITY_TIMEOUT_MS,
+		'Clear activity'
+	).catch(err => {
+		recoverConnection(client, err.message || String(err));
+	});
 }
 
 function setEnabled(enabled) {
@@ -180,18 +288,26 @@ function getConnected() {
 
 function destroyRPC() {
 	isDestroying = true;
+
 	if (reconnectTimer) {
 		clearTimeout(reconnectTimer);
 		reconnectTimer = null;
 	}
-	if (rpcClient) {
-		try {
-			rpcClient.destroy().catch(() => { });
-		} catch (e) { }
-		rpcClient = null;
-	}
+
+	stopWatchdog();
+
+	const client = rpcClient;
+
+	rpcClient = null;
 	isConnected = false;
-	setTimeout(() => { isDestroying = false; }, 500);
+
+	if (activityInFlightClient === client) {
+		activityInFlightClient = null;
+	}
+
+	disposeClient(client);
+
+	isDestroying = false;
 }
 
 module.exports = {
