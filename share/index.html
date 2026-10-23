@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title id="page-title">Riff</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700;800&family=Google+Sans+Text:wght@400;500;700&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg: #121214;
+      --surface: #1e1f22;
+      --surface-high: #28292c;
+      --surface-highest: #333438;
+      --primary: #d0bcff;
+      --on-primary: #381e72;
+      --primary-container: #4f378b;
+      --on-primary-container: #eaddff;
+      --on-surface: #e6e6e8;
+      --on-surface-variant: #cac4d0;
+      --outline: #938f99;
+      --outline-variant: #49454f;
+      --accent: var(--primary);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Google Sans', 'Google Sans Text', system-ui, -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--on-surface);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    .top-banner {
+      height: 44px;
+      background: #000000;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      font-size: 13.5px;
+      font-weight: 500;
+      text-decoration: none;
+      padding: 0 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      transition: background-color 0.2s ease;
+    }
+
+    .top-banner:hover {
+      background: #18181b;
+    }
+
+    .top-banner svg {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2.2;
+    }
+
+    .main-wrap {
+      flex: 1;
+      width: 100%;
+      max-width: 1300px;
+      margin: 0;
+      padding: clamp(32px, 5vw, 64px) clamp(24px, 5vw, 64px);
+      position: relative;
+      z-index: 2;
+      text-align: left;
+    }
+
+    .hero-glow {
+      position: absolute;
+      top: 40px;
+      left: 0;
+      width: 600px;
+      height: 480px;
+      background: var(--accent);
+      filter: blur(120px) saturate(1.8);
+      opacity: 0.28;
+      pointer-events: none;
+      z-index: 0;
+      border-radius: 50%;
+      transition: background 0.6s ease;
+    }
+
+    .hero-section {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: flex-end;
+      gap: clamp(24px, 4vw, 36px);
+      margin-bottom: 36px;
+      text-align: left;
+    }
+
+    .hero-cover-wrap {
+      width: clamp(180px, 22vw, 240px);
+      height: clamp(180px, 22vw, 240px);
+      border-radius: 20px;
+      overflow: hidden;
+      flex-shrink: 0;
+      background: var(--surface-high);
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+      position: relative;
+    }
+
+    .hero-cover-wrap.is-artist {
+      border-radius: 50% !important;
+    }
+
+    .hero-cover {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .hero-info {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-width: 0;
+      flex: 1;
+      text-align: left;
+    }
+
+    .hero-title {
+      font-size: clamp(36px, 6vw, 76px);
+      font-weight: 800;
+      line-height: 1.05;
+      letter-spacing: -0.025em;
+      color: #ffffff;
+      word-break: break-word;
+      text-align: left;
+      margin: 0;
+    }
+
+    .hero-meta {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 14.5px;
+      color: var(--on-surface-variant);
+      margin-top: 4px;
+      text-align: left;
+      justify-content: flex-start;
+    }
+
+    .artist-avatar-mini {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      object-fit: cover;
+      background: var(--surface-highest);
+      flex-shrink: 0;
+    }
+
+    .hero-meta span.artist-link {
+      color: #ffffff;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .hero-meta span.artist-link:hover {
+      text-decoration: underline;
+    }
+
+    .meta-bullet {
+      opacity: 0.6;
+    }
+
+    .controls-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 36px;
+      position: relative;
+      z-index: 2;
+      justify-content: flex-start;
+    }
+
+    .btn-play-hero {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: var(--on-primary);
+      border: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+      transition: transform 0.15s ease, filter 0.15s ease;
+    }
+
+    .btn-play-hero:hover {
+      transform: scale(1.06);
+      filter: brightness(1.08);
+    }
+
+    .btn-play-hero svg {
+      width: 24px;
+      height: 24px;
+      fill: currentColor;
+      margin-left: 2px;
+    }
+
+    .btn-icon-pill {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: var(--surface);
+      color: var(--on-surface-variant);
+      border: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    .btn-icon-pill:hover {
+      background: var(--surface-high);
+      color: var(--on-surface);
+    }
+
+    .btn-pill-cta {
+      height: 44px;
+      padding: 0 24px;
+      border-radius: 999px;
+      background: var(--primary-container);
+      color: var(--on-primary-container);
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.2s ease, transform 0.15s ease;
+    }
+
+    .btn-pill-cta:hover {
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+    }
+
+    .app-info-card {
+      background: var(--surface);
+      border-radius: 24px;
+      padding: 24px 28px;
+      max-width: 680px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      text-align: left;
+    }
+
+    .app-info-text {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .app-info-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--on-surface);
+    }
+
+    .app-info-desc {
+      font-size: 13.5px;
+      color: var(--on-surface-variant);
+      line-height: 1.4;
+    }
+
+    audio { display: none; }
+
+    @media (max-width: 640px) {
+      .hero-section {
+        flex-direction: column;
+        align-items: flex-start;
+        text-align: left;
+        gap: 20px;
+      }
+      .controls-row {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+      }
+      .app-info-card {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .btn-pill-cta {
+        width: 100%;
+        justify-content: center;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <a href="https://github.com/rootscripts/riff" target="_blank" rel="noopener" class="top-banner">
+    <span>Download Riff — your best music app on your device.</span>
+    <svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+  </a>
+
+  <div class="hero-glow" id="hero-glow"></div>
+
+  <div class="main-wrap">
+    
+    <header class="hero-section">
+      <div class="hero-cover-wrap" id="cover-wrap">
+        <img id="item-cover" class="hero-cover" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23333438'><rect width='24' height='24'/></svg>" alt="">
+      </div>
+
+      <div class="hero-info">
+        <h1 class="hero-title" id="item-title">Loading...</h1>
+        <div class="hero-meta" id="item-meta">
+          <img id="artist-avatar" class="artist-avatar-mini" src="" alt="" style="display: none;">
+          <span class="artist-link" id="item-artist"></span>
+          <span class="meta-bullet" id="bullet-dur" style="display:none;">•</span>
+          <span id="item-dur"></span>
+        </div>
+      </div>
+    </header>
+
+    <div class="controls-row">
+      <button class="btn-play-hero" id="btn-play" title="Play preview" aria-label="Play preview">
+        <svg id="play-icon" viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+        <svg id="pause-icon" style="display:none;" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+      </button>
+
+      <button class="btn-icon-pill" id="btn-share" title="Share" aria-label="Share">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+        </svg>
+      </button>
+
+      <a href="https://github.com/rootscripts/riff" target="_blank" rel="noopener" class="btn-pill-cta" id="btn-open-riff">
+        <span>Open in Riff</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg>
+      </a>
+    </div>
+
+    <div class="app-info-card">
+      <div class="app-info-text">
+        <span class="app-info-title">Listen without limits on Riff</span>
+        <span class="app-info-desc">Enjoy high-resolution audio, custom equalizer presets, real-time synchronized lyrics, and offline playback.</span>
+      </div>
+      <a href="https://github.com/rootscripts/riff" target="_blank" rel="noopener" class="btn-pill-cta" style="height:38px; padding:0 20px; font-size:13.5px; flex-shrink:0;">
+        Install App
+      </a>
+    </div>
+
+  </div>
+
+  <audio id="audio-player" preload="none"></audio>
+
+  <script>
+    function parseQuery() {
+      const str = window.location.search || window.location.hash;
+      const map = new Map();
+      const raw = str.replace(/^[?#]/, '');
+      const parts = raw.split(/[?&]/);
+      for (const item of parts) {
+        if (!item) continue;
+        const [k, v] = item.split('=');
+        if (k) map.set(decodeURIComponent(k.trim()), v ? decodeURIComponent(v.trim()) : '');
+      }
+      return {
+        type: map.get('t') || 'music',
+        title: map.get('n') || map.get('name') || '',
+        artist: map.get('a') || map.get('artist') || '',
+        url: map.get('url') || '',
+        img: map.get('img') || map.get('cover') || '',
+        dur: parseInt(map.get('dur') || '0', 10),
+        id: map.get('id') || ''
+      };
+    }
+
+    const info = parseQuery();
+    const tag = (info.type || 'music').toLowerCase();
+
+    const titleEl = document.getElementById('item-title');
+    const authorEl = document.getElementById('item-artist');
+    const timeEl = document.getElementById('item-dur');
+    const dotEl = document.getElementById('bullet-dur');
+    const avaEl = document.getElementById('artist-avatar');
+    const picEl = document.getElementById('item-cover');
+    const picBox = document.getElementById('cover-wrap');
+    const glowEl = document.getElementById('hero-glow');
+    const docTitle = document.getElementById('page-title');
+    const playBtn = document.getElementById('btn-play');
+    const icoPlay = document.getElementById('play-icon');
+    const icoPause = document.getElementById('pause-icon');
+    const player = document.getElementById('audio-player');
+    const shareBtn = document.getElementById('btn-share');
+
+    const byArtist = (tag === 'artist');
+
+    titleEl.textContent = info.title || (byArtist ? info.artist : 'Untitled');
+    docTitle.textContent = `${info.title || info.artist || 'Riff'} | Riff`;
+
+    if (byArtist) {
+      picBox.classList.add('is-artist');
+      authorEl.textContent = 'Artist on Riff';
+    } else {
+      authorEl.textContent = info.artist || '';
+      authorEl.onclick = () => {
+        if (info.artist) window.location.search = `?t=artist&n=${encodeURIComponent(info.artist)}`;
+      };
+      if (info.dur > 0) {
+        const m = Math.floor(info.dur / 60);
+        const s = String(info.dur % 60).padStart(2, '0');
+        timeEl.textContent = `${m}:${s}`;
+        dotEl.style.display = 'inline';
+      }
+    }
+
+    if (info.img) {
+      picEl.src = info.img;
+      if (!byArtist) {
+        avaEl.src = info.img;
+        avaEl.style.display = 'inline-block';
+      }
+      getColor(info.img, (clr) => {
+        if (clr) {
+          glowEl.style.background = clr;
+          document.documentElement.style.setProperty('--accent', clr);
+        }
+      });
+    }
+
+    function getColor(src, done) {
+      const img = new Image();
+      img.crossOrigin = 'Anonymous';
+      img.onload = () => {
+        try {
+          const cvs = document.createElement('canvas');
+          cvs.width = 16;
+          cvs.height = 16;
+          const ctx = cvs.getContext('2d');
+          ctx.drawImage(img, 0, 0, 16, 16);
+          const px = ctx.getImageData(0, 0, 16, 16).data;
+          let r = 0, g = 0, b = 0, n = 0;
+          for (let i = 0; i < px.length; i += 4) {
+            r += px[i]; g += px[i+1]; b += px[i+2]; n++;
+          }
+          done(`rgb(${Math.round(r/n)}, ${Math.round(g/n)}, ${Math.round(b/n)})`);
+        } catch (_) { done(null); }
+      };
+      img.onerror = () => done(null);
+      img.src = src;
+    }
+
+    let on = false;
+    playBtn.addEventListener('click', () => {
+      if (info.url && /^https?:\/\//i.test(info.url) && /\.(mp3|m4a|ogg|wav)$/i.test(info.url)) {
+        if (!player.src) player.src = info.url;
+        if (on) {
+          player.pause();
+          on = false;
+          icoPlay.style.display = 'block';
+          icoPause.style.display = 'none';
+        } else {
+          player.play();
+          on = true;
+          icoPlay.style.display = 'none';
+          icoPause.style.display = 'block';
+        }
+      } else {
+        window.location.href = `riff://play?title=${encodeURIComponent(info.title)}&artist=${encodeURIComponent(info.artist)}&url=${encodeURIComponent(info.url)}`;
+        setTimeout(() => {
+          window.open('https://github.com/rootscripts/riff', '_blank');
+        }, 700);
+      }
+    });
+
+    shareBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(window.location.href).then(() => {
+        alert('Link copied to clipboard!');
+      });
+    });
+  </script>
+</body>
+</html>
