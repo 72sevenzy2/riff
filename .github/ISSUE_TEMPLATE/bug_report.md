@@ -1,11 +1,16 @@
 ---
 name: Bug report
 about: Create a report to help us improve
-title: ''
-labels: ''
+title: '[BUG]: '
+labels: 'bug'
 assignees: ''
 
 ---
+
+> [!WARNING]
+> **DO NOT REPORT MOBILE BUGS HERE**
+> The mobile version is developed by the community and is not maintained in this repository.
+> Any issues related to mobile devices (iOS / Android) will be closed immediately without review.
 
 **Describe the bug**
 A clear and concise description of what the bug is.
@@ -20,19 +25,16 @@ Steps to reproduce the behavior:
 **Expected behavior**
 A clear and concise description of what you expected to happen.
 
-**Screenshots**
-If applicable, add screenshots to help explain your problem.
+**Screenshots / Media**
+If applicable, add screenshots or screen recordings to help explain your problem.
 
-**Desktop (please complete the following information):**
- - OS: [e.g. iOS]
- - Browser [e.g. chrome, safari]
- - Version [e.g. 22]
+**Desktop Environment:**
+- **OS:** [e.g. Linux (Arch / Ubuntu / Fedora) / Windows 10/11]
+- **Display Server:** [e.g. Wayland / X11] (if Linux)
+- **Package / Install type:** [e.g. AppImage / DEB / AUR / built from source]
+- **App Version:** [e.g. 1.2.0]
 
-**Smartphone (please complete the following information):**
- - Device: [e.g. iPhone6]
- - OS: [e.g. iOS8.1]
- - Browser [e.g. stock browser, safari]
- - Version [e.g. 22]
-
-**Additional context**
-Add any other context about the problem here.
+**Console Logs**
+If you run it from terminal or have DevTools console output (Ctrl+Shift+I):
+```text
+paste logs here
