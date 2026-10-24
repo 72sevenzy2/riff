@@ -1,7 +1,7 @@
 name: Bug report
 description: Report an issue or unexpected behavior in the desktop app
 title: "[BUG]: "
-labels: ["bug"]
+labels: ["Bug"]
 body:
   - type: markdown
     attributes:
