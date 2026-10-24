@@ -72,5 +72,5 @@ body:
     id: logs
     attributes:
       label: Console Logs
-      description: Paste terminal logs or DevTools console output (Ctrl+Shift+I) here.
+      description: Paste  logs copied from settings > about or riff.log in logs folder
       render: text
