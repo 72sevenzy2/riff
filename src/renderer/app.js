@@ -726,11 +726,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  const savedUiLang = localStorage.getItem('riff_ui_lang') || 'en';
-  if (savedUiLang !== 'en') {
-    applyI18n(savedUiLang);
-  }
-
   checkToolsStatus(true);
 
   if (window.electronAPI && window.electronAPI.discordRpcSetEnabled) {
@@ -4902,6 +4897,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     '.custom-lyrics-tip > span',
     '.empty-hint'
   ].join(', ');
+
+  const savedUiLang = localStorage.getItem('riff_ui_lang') || 'en';
+  if (savedUiLang !== 'en') {
+    applyI18n(savedUiLang);
+  }
 
   function collectI18n() {
     const list = new Set();
