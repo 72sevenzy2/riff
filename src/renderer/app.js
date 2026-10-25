@@ -685,6 +685,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                           isGlitching: false,
                           isWindowVisible: true,
                           loadToken: 0,
+                          audioDurationStale: false,
                           currentAbortController: null,
                           presetToRenameId: null,
                           serverPort: 38472,
@@ -7213,13 +7214,21 @@ document.addEventListener('DOMContentLoaded', async () => {
       updatePlayPauseButton(state.isPlaying, false);
     });
 
+    el.nativeAudio.addEventListener('loadstart', () => {
+      state.audioDurationStale = true;
+    });
+
     el.nativeAudio.addEventListener('loadedmetadata', () => {
+      state.audioDurationStale = false;
       try {
         const tr = getTrackTrim(state.currentTrack);
         if (tr && Number.isFinite(tr.end) && tr.end > (tr.start || 0) + 1.5 && el.nativeAudio.currentTime < tr.start) {
           el.nativeAudio.currentTime = tr.start;
         }
       } catch (_) {}
+      const d = formatDuration(getReliableTrackDuration());
+      if (el.timeDuration) el.timeDuration.textContent = d;
+      if (el.tvkTimeDuration) el.tvkTimeDuration.textContent = d;
     });
 
     el.nativeAudio.addEventListener('play', () => {
@@ -7290,8 +7299,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function getReliableTrackDuration() {
       const metaDur = (state.currentTrack && Number.isFinite(state.currentTrack.duration) && state.currentTrack.duration > 0) ? state.currentTrack.duration : 0;
-      const audioDur = (el.nativeAudio && Number.isFinite(el.nativeAudio.duration) && el.nativeAudio.duration > 0) ? el.nativeAudio.duration : 0;
-      if (metaDur > 0 && audioDur > 0 && audioDur < metaDur * 0.85) return metaDur;
+      const audioDur = (!state.audioDurationStale && el.nativeAudio && Number.isFinite(el.nativeAudio.duration) && el.nativeAudio.duration > 0) ? el.nativeAudio.duration : 0;
+      if (metaDur > 0 && audioDur > 0 && (audioDur < metaDur * 0.85 || audioDur > metaDur * 1.15)) return metaDur;
       return Math.max(metaDur, audioDur);
     }
 
@@ -7333,7 +7342,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     el.nativeAudio.addEventListener('durationchange', () => {
       const audio = el.nativeAudio;
-      if (state.currentTrack && Number.isFinite(audio.duration) && audio.duration > 1) {
+      if (state.currentTrack && !state.audioDurationStale && Number.isFinite(audio.duration) && audio.duration > 1) {
         const newDur = Math.round(audio.duration);
         if (!state.currentTrack.duration || state.currentTrack.duration <= 0 || audio.duration >= state.currentTrack.duration * 0.9) {
           if (Math.abs(audio.duration - (state.currentTrack.duration || 0)) > 1.5) {
