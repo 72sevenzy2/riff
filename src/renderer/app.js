@@ -4895,7 +4895,49 @@ document.addEventListener('DOMContentLoaded', async () => {
     '.btn-pill-primary > span',
     '.btn-outline-pill > span',
     '.custom-lyrics-tip > span',
-    '.empty-hint'
+    '.empty-hint',
+    'button.btn-pill-primary:not(:has(*))',
+    'button.btn-outline-pill:not(:has(*))',
+    'button.btn-text:not(:has(*))',
+    'button.btn-text-error:not(:has(*))',
+    'button.theme-mode-btn:not(:has(*))',
+    'h2',
+    'h3',
+    'p',
+    'label:not(:has(*))',
+    '.setting-item-top > span:not([class])',
+    '.setting-hints > span:not([class])',
+    '.setting-item > div:not([class]):not(:has(*))',
+    '.setting-value',
+    '.m3-dropdown-label',
+    '.m3-dropdown-option',
+    '.m3-dropdown-trigger > span:not([class])',
+    '.sp-modes button',
+    '.audio-tab > span:not([class])',
+    '.artist-horiz-tab > span:not([class])',
+    '.lyrics-action-btn > span:not([class])',
+    '.lyrics-mode-btn > span:not([class])',
+    '.cache-stat-label > span:not([class])',
+    '.playlist-type-badge',
+    '.artist-about-title',
+    '.album-meta-line',
+    '.sleep-timer-hint',
+    '.hq-label',
+    '.sync-mode-badge',
+    '.sync-tip-pill',
+    '.sync-progress-text',
+    '.cpm-import-label',
+    '.download-section-label',
+    '.download-preview-title',
+    '.download-preview-artist',
+    '.download-caption-path',
+    '.css-editor-title',
+    '.css-editor-hint',
+    '.tvk-label',
+    '.tvk-pill-btn',
+    '.tvk-actions button',
+    '.right-panel-artist',
+    '.dialog-card span:not([class])'
   ].join(', ');
 
   const savedUiLang = localStorage.getItem('riff_ui_lang') || 'en';
@@ -4940,8 +4982,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (lang === 'en') {
       document.querySelectorAll(AUTO_I18N_SELECTORS).forEach(el => {
-        if (el.dataset.origText) el.textContent = el.dataset.origText;
-        else if (el._i18n_orig) el.textContent = el._i18n_orig;
+        if (el.dataset.i18nShown !== undefined && el.textContent !== el.dataset.i18nShown) return;
+        if (el.dataset.origText) {
+          el.textContent = el.dataset.origText;
+          el.dataset.i18nShown = el.textContent;
+        } else if (el._i18n_orig) el.textContent = el._i18n_orig;
       });
       document.querySelectorAll('input[placeholder], textarea[placeholder]').forEach(input => {
         if (input.dataset.origPlaceholder) input.placeholder = input.dataset.origPlaceholder;
@@ -5005,9 +5050,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.querySelectorAll(AUTO_I18N_SELECTORS).forEach(el => {
       if (!el.dataset.origText) el.dataset.origText = el.textContent.trim();
-      if (el.dataset.origText) {
-        el.textContent = translations[el.dataset.origText] || el.dataset.origText;
-      }
+      if (!el.dataset.origText) return;
+      if (el.dataset.i18nShown !== undefined && el.textContent !== el.dataset.i18nShown) return;
+      el.textContent = translations[el.dataset.origText] || el.dataset.origText;
+      el.dataset.i18nShown = el.textContent;
     });
 
     document.querySelectorAll('input[placeholder], textarea[placeholder]').forEach(input => {
