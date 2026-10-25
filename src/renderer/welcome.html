@@ -982,12 +982,80 @@
     @keyframes rippleAnim {
       to { transform: scale(3.5); opacity: 0; }
     }
+
+    .lang-selector-wrap {
+      position: relative;
+      width: 100%;
+    }
+
+    #langMenu {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 0;
+      right: 0;
+      background: var(--container-fill);
+      border-radius: 16px;
+      padding: 10px;
+      z-index: 100;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2) !important;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 220px;
+    }
+
+    #langMenu.is-hidden {
+      display: none !important;
+    }
+
+    #langSearch {
+      width: 100%;
+      background: var(--card-bg);
+      color: var(--text-color);
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-family: var(--font-google-sans);
+      font-size: 13.5px;
+    }
+
+    #langList {
+      overflow-y: auto;
+      max-height: 160px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .lang-option {
+      background: transparent;
+      color: var(--text-color);
+      padding: 8px 12px;
+      border-radius: 10px;
+      text-align: left;
+      font-size: 13.5px;
+      font-family: var(--font-google-sans);
+      font-weight: 500;
+      cursor: pointer !important;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .lang-option:hover,
+    .lang-option.selected {
+      background: var(--card-bg-hover);
+    }
+
+    body.perf #langMenu {
+      transition: none !important;
+      animation: none !important;
+    }
   </style>
 </head>
 <body>
 
   <div class="win-controls" id="winControls">
-    <button class="btn small secondary" id="skipBtn">Skip</button>
+    <button class="btn small secondary" id="skipBtn" data-i18n>Skip</button>
     <button class="btn secondary win-icon" id="winMinBtn" title="Minimize">
       <svg viewBox="0 0 24 24"><path d="M6 19h12v2H6z"/></svg>
     </button>
@@ -1010,7 +1078,7 @@
             <g class="shape-spin"><path class="shape-path" id="shapePath" d=""/></g>
           </svg>
           <div class="icon-tint">
-            <img class="riff-icon" src="assets/icon.png" alt="Riff" onerror="this.onerror=null; this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%23ffffff\'><path d=\'M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z\'/></svg>';" >
+            <img class="riff-icon" src="../../assets/icon.png" alt="Riff" onerror="this.onerror=null; this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%23ffffff\'><path d=\'M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z\'/></svg>';" >
           </div>
         </div>
         <h1 class="riff-title">
@@ -1020,13 +1088,24 @@
 
       <div class="stacked-group">
         <div class="stacked-container top">
-          <h2 class="step-header-title">Welcome to Riff.</h2>
-          <p class="step-header-subtitle">Let's get started.</p>
+          <h2 class="step-header-title" data-i18n>Welcome to Riff.</h2>
+          <p class="step-header-subtitle" data-i18n>Let's get started.</p>
         </div>
 
-        <div class="stacked-container bottom">
+        <div class="stacked-container bottom" style="display: flex; flex-direction: column; gap: 10px;">
+          <div class="lang-selector-wrap">
+            <button class="btn secondary" id="langBtn" type="button" style="width: 100%; justify-content: space-between; font-size: 14px; padding: 10px 18px;">
+              <span id="langBtnLabel">🇺🇸 English (en)</span>
+              <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: currentColor;"><path d="M7 10l5 5 5-5z"/></svg>
+            </button>
+            <div id="langMenu" class="is-hidden">
+              <input type="text" id="langSearch" placeholder="Search language..." data-i18n-attr="placeholder" autocomplete="off">
+              <div id="langList"></div>
+            </div>
+          </div>
+
           <button class="btn primary" data-nav="next">
-            <span>Continue</span>
+            <span data-i18n>Continue</span>
             <svg class="arrow-right" viewBox="0 0 24 24">
               <path d="M5 13h11.86l-5.43 5.43 1.42 1.42L21.14 12l-8.29-8.29-1.42 1.42L16.86 11H5v2z"/>
             </svg>
@@ -1039,8 +1118,8 @@
       <div class="stacked-group">
 
         <div class="stacked-container stacked-3-top">
-          <h2 class="step-header-title">Choose your look</h2>
-          <p class="step-header-subtitle">Select a preset or fine-tune color and intensity to your liking.</p>
+          <h2 class="step-header-title" data-i18n>Choose your look</h2>
+          <p class="step-header-subtitle" data-i18n>Select a preset or fine-tune color and intensity to your liking.</p>
 
           <div class="themes-grid">
             <div class="theme-card" data-preset="dark">
@@ -1053,7 +1132,7 @@
                 </div>
                 <div class="mock-bottombar"><div class="mock-controls"></div></div>
               </div>
-              <span class="theme-card-name">Dark</span>
+              <span class="theme-card-name" data-i18n>Dark</span>
             </div>
 
             <div class="theme-card" data-preset="light">
@@ -1066,7 +1145,7 @@
                 </div>
                 <div class="mock-bottombar"><div class="mock-controls"></div></div>
               </div>
-              <span class="theme-card-name">Light</span>
+              <span class="theme-card-name" data-i18n>Light</span>
             </div>
 
             <div class="theme-card" data-preset="discord">
@@ -1079,7 +1158,7 @@
                 </div>
                 <div class="mock-bottombar"><div class="mock-controls"></div></div>
               </div>
-              <span class="theme-card-name">Discord</span>
+              <span class="theme-card-name" data-i18n>Discord</span>
             </div>
 
             <div class="theme-card active" data-preset="light-purple-vibrant">
@@ -1092,7 +1171,7 @@
                 </div>
                 <div class="mock-bottombar"><div class="mock-controls"></div></div>
               </div>
-              <span class="theme-card-name">Light Purple</span>
+              <span class="theme-card-name" data-i18n>Light Purple</span>
             </div>
           </div>
         </div>
@@ -1101,7 +1180,7 @@
           <div class="sliders-layout">
             <div class="slider-block">
               <div class="slider-header">
-                <span>Color Accent</span>
+                <span data-i18n>Color Accent</span>
                 <span id="hueVal">Purple (260°)</span>
               </div>
               <div class="sl hue">
@@ -1112,7 +1191,7 @@
 
             <div class="slider-block">
               <div class="slider-header">
-                <span>Theme Brightness</span>
+                <span data-i18n>Theme Brightness</span>
                 <span id="brightnessVal">66%</span>
               </div>
               <div class="sl">
@@ -1123,7 +1202,7 @@
 
             <div class="slider-block">
               <div class="slider-header">
-                <span>Color Intensity</span>
+                <span data-i18n>Color Intensity</span>
                 <span id="satVal">85%</span>
               </div>
               <div class="sl">
@@ -1139,11 +1218,11 @@
             <svg class="arrow-left" viewBox="0 0 24 24">
               <path d="M19 11H7.14l5.43-5.43L11.14 4.14 2.86 12.43l8.29 8.29 1.42-1.42L7.14 13H19v-2z"/>
             </svg>
-            <span>Back</span>
+            <span data-i18n>Back</span>
           </button>
           <div class="dots"><i></i><i></i><i></i><i></i><i></i></div>
           <button class="btn primary" data-nav="next">
-            <span>Continue</span>
+            <span data-i18n>Continue</span>
             <svg class="arrow-right" viewBox="0 0 24 24">
               <path d="M5 13h11.86l-5.43 5.43 1.42 1.42L21.14 12l-8.29-8.29-1.42 1.42L16.86 11H5v2z"/>
             </svg>
@@ -1157,8 +1236,8 @@
       <div class="stacked-group">
 
         <div class="stacked-container stacked-3-top">
-          <h2 class="step-header-title">Make it yours</h2>
-          <p class="step-header-subtitle">Everything here can be changed later in Settings.</p>
+          <h2 class="step-header-title" data-i18n>Make it yours</h2>
+          <p class="step-header-subtitle" data-i18n>Everything here can be changed later in Settings.</p>
         </div>
 
         <div class="stacked-container stacked-3-middle row">
@@ -1166,8 +1245,8 @@
             <svg viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
           </div>
           <div class="row-text">
-            <div class="row-title">Local library</div>
-            <div class="row-sub">Show the My files tab for music stored on your computer</div>
+            <div class="row-title" data-i18n>Local library</div>
+            <div class="row-sub" data-i18n>Show the My files tab for music stored on your computer</div>
           </div>
           <button class="sw on" role="switch" aria-checked="true" data-key="riff_show_local"></button>
         </div>
@@ -1177,10 +1256,10 @@
             <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
           </div>
           <div class="row-text">
-            <div class="row-title">Custom background</div>
-            <div class="row-sub" id="bgSub">Use your own image or video behind the app</div>
+            <div class="row-title" data-i18n>Custom background</div>
+            <div class="row-sub" id="bgSub" data-i18n>Use your own image or video behind the app</div>
           </div>
-          <button class="btn small secondary is-hidden" id="bgPickBtn">Choose file</button>
+          <button class="btn small secondary is-hidden" id="bgPickBtn" data-i18n>Choose file</button>
           <button class="sw" role="switch" aria-checked="false" data-key="riff_custom_bg_enabled"></button>
         </div>
 
@@ -1189,8 +1268,8 @@
             <svg viewBox="0 0 24 24"><path d="M21 3L3 10.53v.98l6.84 2.65L12.49 21h.98L21 3z"/></svg>
           </div>
           <div class="row-text">
-            <div class="row-title">No-Hand cursor</div>
-            <div class="row-sub">Keep the normal arrow instead of the hand on buttons</div>
+            <div class="row-title" data-i18n>No-Hand cursor</div>
+            <div class="row-sub" data-i18n>Keep the normal arrow instead of the hand on buttons</div>
           </div>
           <button class="sw" role="switch" aria-checked="false" data-key="riff_no_hand_cursor"></button>
         </div>
@@ -1200,8 +1279,8 @@
             <svg viewBox="0 0 24 24"><path d="M20.38 8.57l-1.23 1.85a8 8 0 0 1-.22 7.58H5.07A8 8 0 0 1 15.58 6.85l1.85-1.23A10 10 0 0 0 3.35 19a2 2 0 0 0 1.72 1h13.85a2 2 0 0 0 1.74-1 10 10 0 0 0-.27-10.44zm-9.79 6.84a2 2 0 0 0 2.83 0l5.66-8.49-8.49 5.66a2 2 0 0 0 0 2.83z"/></svg>
           </div>
           <div class="row-text">
-            <div class="row-title">Performance mode</div>
-            <div class="row-sub">Turn off blur and heavy animations on slower computers</div>
+            <div class="row-title" data-i18n>Performance mode</div>
+            <div class="row-sub" data-i18n>Turn off blur and heavy animations on slower computers</div>
           </div>
           <button class="sw" role="switch" aria-checked="false" data-key="riff_perf_mode"></button>
         </div>
@@ -1211,11 +1290,11 @@
             <svg class="arrow-left" viewBox="0 0 24 24">
               <path d="M19 11H7.14l5.43-5.43L11.14 4.14 2.86 12.43l8.29 8.29 1.42-1.42L7.14 13H19v-2z"/>
             </svg>
-            <span>Back</span>
+            <span data-i18n>Back</span>
           </button>
           <div class="dots"><i></i><i></i><i></i><i></i><i></i></div>
           <button class="btn primary" data-nav="next">
-            <span>Continue</span>
+            <span data-i18n>Continue</span>
             <svg class="arrow-right" viewBox="0 0 24 24">
               <path d="M5 13h11.86l-5.43 5.43 1.42 1.42L21.14 12l-8.29-8.29-1.42 1.42L16.86 11H5v2z"/>
             </svg>
@@ -1229,8 +1308,8 @@
       <div class="stacked-group">
 
         <div class="stacked-container stacked-3-top">
-          <h2 class="step-header-title">Add Riff to your launcher</h2>
-          <p class="step-header-subtitle" id="launcherSub">Open Riff in one click from your Start menu or applications menu.</p>
+          <h2 class="step-header-title" data-i18n>Add Riff to your launcher</h2>
+          <p class="step-header-subtitle" id="launcherSub" data-i18n>Open Riff in one click from your Start menu or applications menu.</p>
         </div>
 
         <div class="stacked-container stacked-3-middle launcher-preview">
@@ -1239,7 +1318,7 @@
           </div>
           <div>
             <div class="launcher-name">Riff</div>
-            <div class="launcher-desc">Music player</div>
+            <div class="launcher-desc" data-i18n>Music player</div>
           </div>
         </div>
 
@@ -1248,8 +1327,8 @@
             <svg viewBox="0 0 24 24"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg>
           </div>
           <div class="row-text">
-            <div class="row-title" id="launcherTitle">Start menu shortcut</div>
-            <div class="row-sub" id="launcherRowSub">Add Riff with its icon so you can find it by searching</div>
+            <div class="row-title" id="launcherTitle" data-i18n>Start menu shortcut</div>
+            <div class="row-sub" id="launcherRowSub" data-i18n>Add Riff with its icon so you can find it by searching</div>
           </div>
           <button class="sw on" role="switch" aria-checked="true" id="launcherSwitch"></button>
         </div>
@@ -1259,11 +1338,11 @@
             <svg class="arrow-left" viewBox="0 0 24 24">
               <path d="M19 11H7.14l5.43-5.43L11.14 4.14 2.86 12.43l8.29 8.29 1.42-1.42L7.14 13H19v-2z"/>
             </svg>
-            <span>Back</span>
+            <span data-i18n>Back</span>
           </button>
           <div class="dots"><i></i><i></i><i></i><i></i><i></i></div>
           <button class="btn primary" data-nav="next">
-            <span>Continue</span>
+            <span data-i18n>Continue</span>
             <svg class="arrow-right" viewBox="0 0 24 24">
               <path d="M5 13h11.86l-5.43 5.43 1.42 1.42L21.14 12l-8.29-8.29-1.42 1.42L16.86 11H5v2z"/>
             </svg>
@@ -1277,8 +1356,8 @@
       <div class="stacked-group">
 
         <div class="stacked-container stacked-3-top">
-          <h2 class="step-header-title">Connect your world</h2>
-          <p class="step-header-subtitle">Optional. You can skip this and set it up whenever you like.</p>
+          <h2 class="step-header-title" data-i18n>Connect your world</h2>
+          <p class="step-header-subtitle" data-i18n>Optional. You can skip this and set it up whenever you like.</p>
         </div>
 
         <div class="stacked-container stacked-3-middle row">
@@ -1286,8 +1365,8 @@
             <svg viewBox="0 0 24 24"><path d="M21 6h-2v9H6v2c0 .55.45 1 1 1h11l4 4V7c0-.55-.45-1-1-1zm-4 6V3c0-.55-.45-1-1-1H3c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1z"/></svg>
           </div>
           <div class="row-text">
-            <div class="row-title">Discord Rich Presence</div>
-            <div class="row-sub" id="discordSub">Show what you're listening to on your Discord profile</div>
+            <div class="row-title" data-i18n>Discord Rich Presence</div>
+            <div class="row-sub" id="discordSub" data-i18n>Show what you're listening to on your Discord profile</div>
           </div>
           <button class="sw" role="switch" aria-checked="false" id="discordSwitch"></button>
         </div>
@@ -1298,13 +1377,13 @@
               <svg viewBox="0 0 24 24"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
             </div>
             <div class="row-text">
-              <div class="row-title">Import a Spotify playlist</div>
-              <div class="row-sub">Paste a public playlist link and it becomes a Riff playlist</div>
+              <div class="row-title" data-i18n>Import a Spotify playlist</div>
+              <div class="row-sub" data-i18n>Paste a public playlist link and it becomes a Riff playlist</div>
             </div>
           </div>
           <div class="field-row">
             <input class="field" id="spotifyUrl" type="text" placeholder="https://open.spotify.com/playlist/..." spellcheck="false" autocomplete="off">
-            <button class="btn small primary" id="spotifyImportBtn">Import</button>
+            <button class="btn small primary" id="spotifyImportBtn" data-i18n>Import</button>
           </div>
           <div class="status-line" id="spotifyStatus"></div>
         </div>
@@ -1314,11 +1393,11 @@
             <svg class="arrow-left" viewBox="0 0 24 24">
               <path d="M19 11H7.14l5.43-5.43L11.14 4.14 2.86 12.43l8.29 8.29 1.42-1.42L7.14 13H19v-2z"/>
             </svg>
-            <span>Back</span>
+            <span data-i18n>Back</span>
           </button>
           <div class="dots"><i></i><i></i><i></i><i></i><i></i></div>
           <button class="btn primary" id="finishBtn">
-            <span id="finishBtnText">Let's go</span>
+            <span id="finishBtnText" data-i18n>Let's go</span>
             <svg class="arrow-right" id="finishBtnIcon" viewBox="0 0 24 24">
               <path d="M5 13h11.86l-5.43 5.43 1.42 1.42L21.14 12l-8.29-8.29-1.42 1.42L16.86 11H5v2z"/>
             </svg>
@@ -2055,6 +2134,290 @@
       viewport.classList.add('closing');
       setTimeout(() => bridge.finish({ skipped: true }), 450);
     });
+
+    const TRANSLATION_LANGUAGES = [
+      { code: 'af', name: 'Afrikaans', flag: '🇿🇦' },
+      { code: 'sq', name: 'Albanian', flag: '🇦🇱' },
+      { code: 'am', name: 'Amharic', flag: '🇪🇹' },
+      { code: 'ar', name: 'Arabic', flag: '🇸🇦' },
+      { code: 'hy', name: 'Armenian', flag: '🇦🇲' },
+      { code: 'as', name: 'Assamese', flag: '🇮🇳' },
+      { code: 'ay', name: 'Aymara', flag: '🇧🇴' },
+      { code: 'az', name: 'Azerbaijani', flag: '🇦🇿' },
+      { code: 'bm', name: 'Bambara', flag: '🇲🇱' },
+      { code: 'eu', name: 'Basque', flag: '🇪🇸' },
+      { code: 'be', name: 'Belarusian', flag: '🇧🇾' },
+      { code: 'bn', name: 'Bengali', flag: '🇧🇩' },
+      { code: 'bho', name: 'Bhojpuri', flag: '🇮🇳' },
+      { code: 'bs', name: 'Bosnian', flag: '🇧🇦' },
+      { code: 'bg', name: 'Bulgarian', flag: '🇧🇬' },
+      { code: 'ca', name: 'Catalan', flag: '🇪🇸' },
+      { code: 'ceb', name: 'Cebuano', flag: '🇵🇭' },
+      { code: 'ny', name: 'Chichewa', flag: '🇲🇼' },
+      { code: 'zh-CN', name: 'Chinese (Simplified)', flag: '🇨🇳' },
+      { code: 'zh-TW', name: 'Chinese (Traditional)', flag: '🇹🇼' },
+      { code: 'co', name: 'Corsican', flag: '🇫🇷' },
+      { code: 'hr', name: 'Croatian', flag: '🇭🇷' },
+      { code: 'cs', name: 'Czech', flag: '🇨🇿' },
+      { code: 'da', name: 'Danish', flag: '🇩🇰' },
+      { code: 'dv', name: 'Dhivehi', flag: '🇲🇻' },
+      { code: 'doi', name: 'Dogri', flag: '🇮🇳' },
+      { code: 'nl', name: 'Dutch', flag: '🇳🇱' },
+      { code: 'en', name: 'English', flag: '🇺🇸' },
+      { code: 'eo', name: 'Esperanto', flag: '🌐' },
+      { code: 'et', name: 'Estonian', flag: '🇪🇪' },
+      { code: 'ee', name: 'Ewe', flag: '🇬🇭' },
+      { code: 'tl', name: 'Filipino', flag: '🇵🇭' },
+      { code: 'fi', name: 'Finnish', flag: '🇫🇮' },
+      { code: 'fr', name: 'French', flag: '🇫🇷' },
+      { code: 'fy', name: 'Frisian', flag: '🇳🇱' },
+      { code: 'gl', name: 'Galician', flag: '🇪🇸' },
+      { code: 'ka', name: 'Georgian', flag: '🇬🇪' },
+      { code: 'de', name: 'German', flag: '🇩🇪' },
+      { code: 'el', name: 'Greek', flag: '🇬🇷' },
+      { code: 'gn', name: 'Guarani', flag: '🇵🇾' },
+      { code: 'gu', name: 'Gujarati', flag: '🇮🇳' },
+      { code: 'ht', name: 'Haitian Creole', flag: '🇭🇹' },
+      { code: 'ha', name: 'Hausa', flag: '🇳🇬' },
+      { code: 'haw', name: 'Hawaiian', flag: '🇺🇸' },
+      { code: 'iw', name: 'Hebrew', flag: '🇮🇱' },
+      { code: 'hi', name: 'Hindi', flag: '🇮🇳' },
+      { code: 'hmn', name: 'Hmong', flag: '🇱🇦' },
+      { code: 'hu', name: 'Hungarian', flag: '🇭🇺' },
+      { code: 'is', name: 'Icelandic', flag: '🇮🇸' },
+      { code: 'ig', name: 'Igbo', flag: '🇳🇬' },
+      { code: 'ilo', name: 'Ilocano', flag: '🇵🇭' },
+      { code: 'id', name: 'Indonesian', flag: '🇮🇩' },
+      { code: 'ga', name: 'Irish', flag: '🇮🇪' },
+      { code: 'it', name: 'Italian', flag: '🇮🇹' },
+      { code: 'ja', name: 'Japanese', flag: '🇯🇵' },
+      { code: 'jw', name: 'Javanese', flag: '🇮🇩' },
+      { code: 'kn', name: 'Kannada', flag: '🇮🇳' },
+      { code: 'kk', name: 'Kazakh', flag: '🇰🇿' },
+      { code: 'km', name: 'Khmer', flag: '🇰🇭' },
+      { code: 'rw', name: 'Kinyarwanda', flag: '🇷🇼' },
+      { code: 'gom', name: 'Konkani', flag: '🇮🇳' },
+      { code: 'ko', name: 'Korean', flag: '🇰🇷' },
+      { code: 'kri', name: 'Krio', flag: '🇸🇱' },
+      { code: 'ku', name: 'Kurdish (Kurmanji)', flag: '🇮🇶' },
+      { code: 'ckb', name: 'Kurdish (Sorani)', flag: '🇮🇶' },
+      { code: 'ky', name: 'Kyrgyz', flag: '🇰🇬' },
+      { code: 'lo', name: 'Lao', flag: '🇱🇦' },
+      { code: 'la', name: 'Latin', flag: '🇻🇦' },
+      { code: 'lv', name: 'Latvian', flag: '🇱🇻' },
+      { code: 'ln', name: 'Lingala', flag: '🇨🇩' },
+      { code: 'lt', name: 'Lithuanian', flag: '🇱🇹' },
+      { code: 'lg', name: 'Luganda', flag: '🇺🇬' },
+      { code: 'lb', name: 'Luxembourgish', flag: '🇱🇺' },
+      { code: 'mk', name: 'Macedonian', flag: '🇲🇰' },
+      { code: 'mai', name: 'Maithili', flag: '🇮🇳' },
+      { code: 'mg', name: 'Malagasy', flag: '🇲🇬' },
+      { code: 'ms', name: 'Malay', flag: '🇲🇾' },
+      { code: 'ml', name: 'Malayalam', flag: '🇮🇳' },
+      { code: 'mt', name: 'Maltese', flag: '🇲🇹' },
+      { code: 'mi', name: 'Maori', flag: '🇳🇿' },
+      { code: 'mr', name: 'Marathi', flag: '🇮🇳' },
+      { code: 'mni-Mtei', name: 'Meiteilon (Manipuri)', flag: '🇮🇳' },
+      { code: 'lus', name: 'Mizo', flag: '🇮🇳' },
+      { code: 'mn', name: 'Mongolian', flag: '🇲🇳' },
+      { code: 'my', name: 'Myanmar (Burmese)', flag: '🇲🇲' },
+      { code: 'ne', name: 'Nepali', flag: '🇳🇵' },
+      { code: 'no', name: 'Norwegian', flag: '🇳🇴' },
+      { code: 'or', name: 'Odia (Oriya)', flag: '🇮🇳' },
+      { code: 'om', name: 'Oromo', flag: '🇪🇹' },
+      { code: 'ps', name: 'Pashto', flag: '🇦🇫' },
+      { code: 'fa', name: 'Persian', flag: '🇮🇷' },
+      { code: 'pl', name: 'Polish', flag: '🇵🇱' },
+      { code: 'pt', name: 'Portuguese', flag: '🇵🇹' },
+      { code: 'pa', name: 'Punjabi', flag: '🇮🇳' },
+      { code: 'qu', name: 'Quechua', flag: '🇵🇪' },
+      { code: 'ro', name: 'Romanian', flag: '🇷🇴' },
+      { code: 'ru', name: 'Russian', flag: '🇷🇺' },
+      { code: 'sm', name: 'Samoan', flag: '🇼🇸' },
+      { code: 'sa', name: 'Sanskrit', flag: '🇮🇳' },
+      { code: 'gd', name: 'Scots Gaelic', flag: '🇬🇧' },
+      { code: 'nso', name: 'Sepedi', flag: '🇿🇦' },
+      { code: 'sr', name: 'Serbian', flag: '🇷🇸' },
+      { code: 'st', name: 'Sesotho', flag: '🇱🇸' },
+      { code: 'sn', name: 'Shona', flag: '🇿🇼' },
+      { code: 'sd', name: 'Sindhi', flag: '🇵🇰' },
+      { code: 'si', name: 'Sinhala', flag: '🇱🇰' },
+      { code: 'sk', name: 'Slovak', flag: '🇸🇰' },
+      { code: 'sl', name: 'Slovenian', flag: '🇸🇮' },
+      { code: 'so', name: 'Somali', flag: '🇸🇴' },
+      { code: 'es', name: 'Spanish', flag: '🇪🇸' },
+      { code: 'su', name: 'Sundanese', flag: '🇮🇩' },
+      { code: 'sw', name: 'Swahili', flag: '🇰🇪' },
+      { code: 'sv', name: 'Swedish', flag: '🇸🇪' },
+      { code: 'tg', name: 'Tajik', flag: '🇹🇯' },
+      { code: 'ta', name: 'Tamil', flag: '🇮🇳' },
+      { code: 'tt', name: 'Tatar', flag: '🇷🇺' },
+      { code: 'te', name: 'Telugu', flag: '🇮🇳' },
+      { code: 'th', name: 'Thai', flag: '🇹🇭' },
+      { code: 'ti', name: 'Tigrinya', flag: '🇪🇷' },
+      { code: 'ts', name: 'Tsonga', flag: '🇿🇦' },
+      { code: 'tr', name: 'Turkish', flag: '🇹🇷' },
+      { code: 'tk', name: 'Turkmen', flag: '🇹🇲' },
+      { code: 'ak', name: 'Twi (Akan)', flag: '🇬🇭' },
+      { code: 'uk', name: 'Ukrainian', flag: '🇺🇦' },
+      { code: 'ur', name: 'Urdu', flag: '🇵🇰' },
+      { code: 'ug', name: 'Uyghur', flag: '🇨🇳' },
+      { code: 'uz', name: 'Uzbek', flag: '🇺🇿' },
+      { code: 'vi', name: 'Vietnamese', flag: '🇻🇳' },
+      { code: 'cy', name: 'Welsh', flag: '🏴󠁧󠁢󠁷󠁬󠁳󠁿' },
+      { code: 'xh', name: 'Xhosa', flag: '🇿🇦' },
+      { code: 'yi', name: 'Yiddish', flag: '🇮🇱' },
+      { code: 'yo', name: 'Yoruba', flag: '🇳🇬' },
+      { code: 'zu', name: 'Zulu', flag: '🇿🇦' }
+    ];
+
+    async function translateWelcome(lang) {
+      bridge.set('riff_ui_lang', lang);
+      const found = TRANSLATION_LANGUAGES.find(l => l.code === lang);
+      const langBtnLabel = document.getElementById('langBtnLabel');
+      if (langBtnLabel) {
+        langBtnLabel.textContent = found ? `${found.flag} ${found.name} (${found.code})` : `🌐 ${lang}`;
+      }
+
+      const elements = document.querySelectorAll('[data-i18n]');
+      const attrElements = document.querySelectorAll('[data-i18n-attr]');
+
+      elements.forEach(el => {
+        if (!el._origText) el._origText = el.textContent.trim();
+      });
+      attrElements.forEach(el => {
+        const attr = el.getAttribute('data-i18n-attr') || 'placeholder';
+        if (!el._origAttrs) el._origAttrs = {};
+        if (!el._origAttrs[attr]) el._origAttrs[attr] = el.getAttribute(attr) || '';
+      });
+
+      if (lang === 'en') {
+        elements.forEach(el => {
+          if (el._origText) el.textContent = el._origText;
+        });
+        attrElements.forEach(el => {
+          const attr = el.getAttribute('data-i18n-attr') || 'placeholder';
+          if (el._origAttrs && el._origAttrs[attr]) el.setAttribute(attr, el._origAttrs[attr]);
+        });
+        return;
+      }
+
+      const texts = [];
+      elements.forEach(el => {
+        if (el._origText && !texts.includes(el._origText)) texts.push(el._origText);
+      });
+      attrElements.forEach(el => {
+        const attr = el.getAttribute('data-i18n-attr') || 'placeholder';
+        const val = el._origAttrs && el._origAttrs[attr];
+        if (val && !texts.includes(val)) texts.push(val);
+      });
+
+      try {
+        const port = await bridge.serverPort();
+        if (!port) return;
+        const token = (window.electronAPI && window.electronAPI.serverToken) || '';
+        const res = await fetch(`http://127.0.0.1:${port}/api/i18n-batch`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Riff-Token': token
+          },
+          body: JSON.stringify({ target: lang, texts })
+        });
+        const data = await res.json();
+        if (data && data.success && Array.isArray(data.translations)) {
+          const map = {};
+          texts.forEach((orig, idx) => {
+            map[orig] = data.translations[idx] || orig;
+          });
+          elements.forEach(el => {
+            if (el._origText && map[el._origText]) {
+              el.textContent = map[el._origText];
+            }
+          });
+          attrElements.forEach(el => {
+            const attr = el.getAttribute('data-i18n-attr') || 'placeholder';
+            const val = el._origAttrs && el._origAttrs[attr];
+            if (val && map[val]) {
+              el.setAttribute(attr, map[val]);
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('Welcome i18n-batch failed:', e);
+      }
+    }
+
+    const langBtn = document.getElementById('langBtn');
+    const langMenu = document.getElementById('langMenu');
+    const langSearch = document.getElementById('langSearch');
+    const langList = document.getElementById('langList');
+
+    if (langBtn && langMenu && langList) {
+      const curLang = bridge.get('riff_ui_lang', 'en');
+      const foundCur = TRANSLATION_LANGUAGES.find(l => l.code === curLang);
+      const langBtnLabel = document.getElementById('langBtnLabel');
+      if (foundCur && langBtnLabel) {
+        langBtnLabel.textContent = `${foundCur.flag} ${foundCur.name} (${foundCur.code})`;
+      }
+
+      const frag = document.createDocumentFragment();
+      TRANSLATION_LANGUAGES.forEach(item => {
+        const opt = document.createElement('div');
+        opt.className = 'lang-option' + (item.code === curLang ? ' selected' : '');
+        opt.dataset.value = item.code;
+        opt.textContent = `${item.flag} ${item.name} (${item.code})`;
+        opt.addEventListener('click', (e) => {
+          e.stopPropagation();
+          langList.querySelectorAll('.lang-option').forEach(o => o.classList.remove('selected'));
+          opt.classList.add('selected');
+          langMenu.classList.add('is-hidden');
+          translateWelcome(item.code);
+        });
+        frag.appendChild(opt);
+      });
+      langList.appendChild(frag);
+
+      langBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = !langMenu.classList.toggle('is-hidden');
+        if (isOpen && langSearch) {
+          langSearch.value = '';
+          langList.querySelectorAll('.lang-option').forEach(o => o.style.display = '');
+          setTimeout(() => langSearch.focus(), 50);
+        }
+      });
+
+      if (langSearch) {
+        langSearch.addEventListener('click', (e) => e.stopPropagation());
+        langSearch.addEventListener('input', (e) => {
+          const q = e.target.value.toLowerCase().trim();
+          langList.querySelectorAll('.lang-option').forEach(opt => {
+            const text = (opt.textContent || '').toLowerCase();
+            const code = (opt.dataset.value || '').toLowerCase();
+            opt.style.display = (!q || text.includes(q) || code.includes(q)) ? '' : 'none';
+          });
+        });
+        langSearch.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
+            e.stopPropagation();
+            langMenu.classList.add('is-hidden');
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+            const first = langList.querySelector('.lang-option:not([style*="display: none"])');
+            if (first) first.click();
+          }
+        });
+      }
+
+      document.addEventListener('click', () => {
+        langMenu.classList.add('is-hidden');
+      });
+
+      if (curLang && curLang !== 'en') {
+        translateWelcome(curLang);
+      }
+    }
   </script>
 </body>
 </html>

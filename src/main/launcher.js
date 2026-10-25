@@ -55,7 +55,7 @@ function installLinux() {
   let icon = 'audio-x-generic';
   try {
     fs.mkdirSync(path.dirname(iconDest), { recursive: true });
-    fs.writeFileSync(iconDest, fs.readFileSync(path.join(__dirname, 'assets', 'icon.png')));
+    fs.writeFileSync(iconDest, fs.readFileSync(path.join(__dirname, '../../assets', 'icon.png')));
     icon = iconDest;
   } catch (e) {}
   const lines = [

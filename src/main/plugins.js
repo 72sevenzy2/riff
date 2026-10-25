@@ -1,7 +1,7 @@
 const { dialog, ipcMain, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
-const { DATA_DIR } = require('./platform');
+const { DATA_DIR } = require('../shared/platform');
 
 const PLUGINS_DIR = path.join(DATA_DIR, 'plugins');
 const STATE_PATH = path.join(PLUGINS_DIR, 'plugins.json');

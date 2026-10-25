@@ -4,8 +4,8 @@ const path = require('path');
 const https = require('https');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
-const { IS_WIN, BIN_DIR, resolveBinary, clearBinaryCache } = require('./platform');
-const logger = require('./logger');
+const { IS_WIN, BIN_DIR, resolveBinary, clearBinaryCache } = require('../shared/platform');
+const logger = require('../shared/logger');
 
 const state = { status: 'idle', tool: '', percent: 0, error: '' };
 const STAMP = path.join(BIN_DIR, '.ytdlp-update-stamp');

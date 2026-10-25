@@ -152,7 +152,7 @@ function resolveBinary(name) {
     process.env[envKey],
     path.join(BIN_DIR, exe),
     process.resourcesPath && path.join(process.resourcesPath, 'bin', exe),
-    path.join(__dirname, 'bin', exe)
+    path.join(__dirname, '../../bin', exe)
   ].filter(Boolean);
   let found = candidates.find(isExecutableFile) || findInPath(name);
   if (!found && !IS_WIN) {

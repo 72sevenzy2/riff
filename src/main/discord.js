@@ -51,45 +51,37 @@ function scheduleReconnect() {
 
 function _setActivity(trackInfo) {
   if (!rpcClient || !isConnected || !trackInfo) return;
-
   const now = Math.floor(Date.now() / 1000);
   const startEpoch = trackInfo.startTimestamp || now;
-
-  const activity = {
+  const showArtistStatus = trackInfo.artistInStatus !== false;
+  const cleanTitle = String(trackInfo.title || 'Unknown Track').substring(0, 128).padEnd(2, ' ');
+  const cleanArtist = String(trackInfo.artist || 'Unknown Artist').substring(0, 128).padEnd(2, ' ');
+  const baseActivity = {
     type: 2,
-    details: (trackInfo.title || 'Unknown Track').substring(0, 128),
-    state: trackInfo.artist ? `by ${trackInfo.artist}`.substring(0, 128) : 'Unknown Artist',
-    timestamps: {
-      start: startEpoch,
-    },
-    assets: {
-      large_image: trackInfo.thumbnail || undefined,
-    },
+    details: cleanTitle,
+    state: showArtistStatus ? cleanArtist : (`by ${trackInfo.artist || 'Unknown Artist'}`).substring(0, 128).padEnd(2, ' '),
+    timestamps: { start: startEpoch },
+    assets: { large_image: trackInfo.thumbnail || undefined },
     instance: false,
   };
-
   if (trackInfo.duration && trackInfo.duration > 0) {
-    activity.timestamps.end = startEpoch + Math.floor(trackInfo.duration);
+    baseActivity.timestamps.end = startEpoch + Math.floor(trackInfo.duration);
   }
-
-  if (trackInfo.url) {
-    const label = trackInfo.platform === 'soundcloud'
-      ? 'Listen on SoundCloud'
-      : 'Listen on YouTube';
-
-    activity.buttons = [
-      { label, url: trackInfo.url }
-    ];
+  if (trackInfo.url && typeof trackInfo.url === 'string' && trackInfo.url.startsWith('https://') && trackInfo.url.length <= 512) {
+    baseActivity.buttons = [{ label: 'Listen', url: trackInfo.url }];
   }
-
-  console.log('[Discord RPC] Sending activity:', JSON.stringify(activity, null, 2));
-  rpcClient.request('SET_ACTIVITY', {
-    pid: process.pid,
-    activity,
-  }).catch(err => {
-    console.warn('[Discord RPC] SET_ACTIVITY error:', err.message || err);
+  const primaryActivity = showArtistStatus
+    ? Object.assign({}, baseActivity, { status_display_type: 1 })
+    : baseActivity;
+  rpcClient.request('SET_ACTIVITY', { pid: process.pid, activity: primaryActivity }).catch(() => {
+    if (rpcClient && isConnected) {
+      rpcClient.request('SET_ACTIVITY', { pid: process.pid, activity: baseActivity }).catch(err => {
+        console.warn('[Discord RPC] SET_ACTIVITY error:', err.message || err);
+      });
+    }
   });
 }
+
 
 function updatePresence(trackInfo) {
   if (!trackInfo) return;
@@ -153,6 +145,11 @@ function destroyRPC() {
   setTimeout(() => { isDestroying = false; }, 500);
 }
 
+function reconnectRPC() {
+  destroyRPC();
+  setTimeout(() => initRPC(), 600);
+}
+
 module.exports = {
   initRPC,
   updatePresence,
@@ -161,4 +158,5 @@ module.exports = {
   getEnabled,
   getConnected,
   destroyRPC,
+  reconnectRPC,
 };
