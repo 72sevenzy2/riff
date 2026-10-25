@@ -619,7 +619,7 @@ body.is-window-resizing .platform-switch-container {
   fill: currentColor;
 }
 
-.nav-item.active .nav-badge {
+.sidebar-nav .nav-item.active .nav-badge {
   display: none !important;
 }
 

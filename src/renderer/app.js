@@ -9615,7 +9615,8 @@ function renderClickableArtists(container, rawArtist) {
   function setNavCount(node, count) {
     if (!node) return;
     node.textContent = count;
-    node.hidden = !count;
+    const nav = node.closest('.nav-item');
+    node.hidden = !count || !!(nav && nav.classList.contains('active'));
   }
 
   function updateFavoritesBadge() {
@@ -10546,9 +10547,12 @@ function renderClickableArtists(container, rawArtist) {
         if (v) v.classList.remove('active');
       });
 
-        [el.navDiscover, el.navFavorites, el.navAlbums, el.navLocal, el.navHistory, el.navQueue, el.navSettings].forEach(n => {
-          if (n) n.classList.remove('active');
-        });
+        const nestedView = viewName === 'playlist-detail' || viewName === 'album' || viewName === 'artist';
+        if (!nestedView) {
+          [el.navDiscover, el.navFavorites, el.navAlbums, el.navLocal, el.navHistory, el.navQueue, el.navSettings].forEach(n => {
+            if (n) n.classList.remove('active');
+          });
+        }
 
           if (viewName === 'discover') {
             if (el.viewDiscover) el.viewDiscover.classList.add('active');
