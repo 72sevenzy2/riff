@@ -13,6 +13,11 @@ const PORT = 38472;
 const { DATA_DIR, CACHE_DIR, CUSTOM_LYRICS_DIR, LYRICS_DIR, THUMBNAILS_DIR, METADATA_PATH, LIBRARY_DIR, LIBRARY_PATH, ytDlpCommand, resolveDownloadDir, resolveBinary } = require('../shared/platform');
 const I18N_DIR = path.join(DATA_DIR, 'i18n');
 try { fs.mkdirSync(I18N_DIR, { recursive: true }); } catch (_) {}
+
+const I18N_FIX = {
+  ru: { 'About': 'О приложении' }
+};
+
 const logger = require('../shared/logger');
 const { getSystemAudioOutputInfo } = require('../shared/audio-output');
 
@@ -6082,6 +6087,7 @@ const server = http.createServer(async (req, res) => {
       const langFile = path.join(I18N_DIR, safeLang + '.json');
       let dict = {};
       try { dict = JSON.parse(fs.readFileSync(langFile, 'utf8')); } catch (_) {}
+      Object.assign(dict, I18N_FIX[safeLang] || {});
 
       const missing = [];
       for (const str of texts) {
