@@ -620,8 +620,7 @@ body.is-window-resizing .platform-switch-container {
 }
 
 .nav-item.active .nav-badge {
-  background: var(--md-sys-color-on-primary) !important;
-  color: var(--md-sys-color-primary) !important;
+  display: none !important;
 }
 
 .nav-badge {

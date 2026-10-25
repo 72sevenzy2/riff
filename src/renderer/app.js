@@ -1692,6 +1692,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                           albumsCount: document.getElementById('albums-count'),
                           localCount: document.getElementById('local-count'),
                           queueCount: document.getElementById('queue-count'),
+                          historyCount: document.getElementById('history-count'),
 
                           presetsContainer: document.getElementById('presets-container'),
                           btnSavePresetDialog: document.getElementById('btn-save-preset-dialog'),
@@ -3811,6 +3812,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     state.history.unshift(track);
     if (state.history.length > 100) state.history.pop();
     localStorage.setItem('devsize_history', JSON.stringify(state.history));
+    updateHistoryBadge();
     if (state.currentView === 'history') renderHistoryView();
 
     updateNowPlayingUI(track);
@@ -7959,10 +7961,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function updateAlbumsCount() {
-    const elCount = document.getElementById('albums-count');
-    if (elCount) {
-      elCount.textContent = getSavedAlbums().length;
-    }
+    setNavCount(document.getElementById('albums-count'), getSavedAlbums().length);
   }
 
   function renderSavedAlbums() {
@@ -9613,8 +9612,14 @@ function renderClickableArtists(container, rawArtist) {
     el.favIcon.setAttribute('fill', isFav ? 'currentColor' : 'none');
   }
 
+  function setNavCount(node, count) {
+    if (!node) return;
+    node.textContent = count;
+    node.hidden = !count;
+  }
+
   function updateFavoritesBadge() {
-    if (el.favoritesCount) el.favoritesCount.textContent = state.favorites.length;
+    setNavCount(el.favoritesCount, state.favorites.length);
   }
 
   const TRACK_SORT_KEYS = { favorites: 'riff_favorites_sort', playlist: 'riff_playlist_sort' };
@@ -9717,12 +9722,17 @@ function renderClickableArtists(container, rawArtist) {
     setupSortDropdown('favorites-sort-dropdown', 'favorites-sort-trigger', 'favorites-sort-menu', 'favorites-sort-label', el.favoritesSort);
   }
 
+  function updateHistoryBadge() {
+    setNavCount(el.historyCount, state.history.length);
+  }
+
   function renderHistoryView() {
+    updateHistoryBadge();
     if (el.historyTracksList) renderTracks(el.historyTracksList, state.history, 'history');
   }
 
   function updateQueueBadge() {
-    if (el.queueCount) el.queueCount.textContent = state.queue.length;
+    setNavCount(el.queueCount, state.queue.length);
   }
 
   function renderQueueView() {
@@ -9730,7 +9740,15 @@ function renderClickableArtists(container, rawArtist) {
   }
 
   function updateLocalBadge() {
-    if (el.localCount) el.localCount.textContent = (state.localTracks && state.localTracks.length) || 0;
+    setNavCount(el.localCount, (state.localTracks && state.localTracks.length) || 0);
+  }
+
+  function refreshNavBadges() {
+    updateFavoritesBadge();
+    updateAlbumsCount();
+    updateLocalBadge();
+    updateHistoryBadge();
+    updateQueueBadge();
   }
 
   async function renderLocalView(forceFetch = true) {
@@ -10576,6 +10594,8 @@ function renderClickableArtists(container, rawArtist) {
           }
 
           updateNavIndicator(true);
+
+          refreshNavBadges();
 
           highlightPlayingRow();
           if (typeof syncHomeAmbientVisibility === 'function') syncHomeAmbientVisibility();
@@ -18825,7 +18845,7 @@ function bindCoverHoldZoom(wrapEl) {
     });
   }
 
-  updateFavoritesBadge();
+  refreshNavBadges();
   fetch(`http://127.0.0.1:${state.serverPort}/api/library`).then(r => r.json()).then(data => {
     state.localTracks = data;
     updateLocalBadge();
