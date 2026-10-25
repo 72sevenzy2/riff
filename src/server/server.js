@@ -1383,6 +1383,14 @@ function executeYtDlp(args, timeoutMs = 25000, opts = {}) {
   });
 }
 
+async function imageContentType(buf) {
+  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8) return 'image/jpeg';
+  if (buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50) return 'image/png';
+  if (buf.length > 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  if (buf.length > 6 && buf.toString('ascii', 0, 3) === 'GIF') return 'image/gif';
+  return 'image/jpeg';
+}
+
 async function cacheThumbnailToDisk(cleanId, thumbnailUrl) {
   if (!cleanId || !thumbnailUrl || !thumbnailUrl.startsWith('http')) return null;
   const destPath = path.join(THUMBNAILS_DIR, `${cleanId}.jpg`);
@@ -6533,6 +6541,38 @@ const server = http.createServer(async (req, res) => {
       }
     });
     return;
+  }
+
+  if (parsedUrl.pathname === '/api/image-proxy') {
+    const target = parsedUrl.query.url || '';
+    if (!/^https?:\/\//i.test(target)) {
+      res.writeHead(400);
+      return res.end();
+    }
+    const key = crypto.createHash('sha1').update(target).digest('hex');
+    const cachePath = path.join(THUMBNAILS_DIR, `proxy-${key}.img`);
+    let buffer = null;
+    try {
+      if (fs.existsSync(cachePath)) buffer = await fs.promises.readFile(cachePath);
+    } catch (e) {}
+    if (!buffer) {
+      try {
+        const r = await fetch(target, {
+          signal: AbortSignal.timeout(10000),
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36' }
+        });
+        if (!r.ok) throw new Error(String(r.status));
+        const data = Buffer.from(await r.arrayBuffer());
+        if (data.length < 500) throw new Error('empty image');
+        buffer = data;
+        fs.promises.writeFile(cachePath, data).catch(() => {});
+      } catch (e) {
+        res.writeHead(302, { Location: target });
+        return res.end();
+      }
+    }
+    res.writeHead(200, { 'Content-Type': imageContentType(buffer), 'Cache-Control': 'public, max-age=31536000' });
+    return res.end(buffer);
   }
 
   if (parsedUrl.pathname === '/api/local-thumbnail') {

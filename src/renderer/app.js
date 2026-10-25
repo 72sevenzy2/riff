@@ -9856,15 +9856,19 @@ function renderClickableArtists(container, rawArtist) {
     }
   }
 
+  function proxiedThumb(src) {
+    if (!src || !state.serverPort) return src;
+    if (!/^https?:\/\//i.test(src)) return src;
+    if (src.indexOf('/api/image-proxy') !== -1) return src;
+    return `http://127.0.0.1:${state.serverPort}/api/image-proxy?url=${encodeURIComponent(src)}`;
+  }
+
   function getTrackThumbUrl(track) {
     if (!track) return '';
     const o = getTrackArt(track).cover;
-    if (o) return o;
+    if (o) return proxiedThumb(o);
     if (track.localThumbnail) return track.localThumbnail;
-    if (track.id && state.serverPort) {
-      const cleanId = String(track.id).replace(/[^a-zA-Z0-9_-]/g, '_');
-    }
-    return track.thumbnail || track.cover || track.image || track.artworkUrl || '';
+    return proxiedThumb(track.thumbnail || track.cover || track.image || track.artworkUrl || '');
   }
 
   function renderPlaylistCover(container, playlist, size = 64) {
@@ -10356,7 +10360,7 @@ function renderClickableArtists(container, rawArtist) {
       };
       if (typeof bindCoverHoldZoom === 'function') bindCoverHoldZoom(detailCover);
     }
-    const coverSrc = (pl && pl.cover) ? pl.cover : ((pl.tracks && pl.tracks[0]) ? getTrackThumbUrl(pl.tracks[0]) : '');
+    const coverSrc = (pl && pl.cover) ? proxiedThumb(pl.cover) : ((pl.tracks && pl.tracks[0]) ? getTrackThumbUrl(pl.tracks[0]) : '');
     const plHeroFx = document.getElementById('playlist-hero-fx');
     if (plHeroFx) {
       plHeroFx.style.backgroundImage = coverSrc ? `url("${coverSrc}")` : '';
