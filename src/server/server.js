@@ -1383,6 +1383,29 @@ function executeYtDlp(args, timeoutMs = 25000, opts = {}) {
   });
 }
 
+const thumbHostFails = new Map();
+
+async function lookupCoverArt(artist, title) {
+  const key = crypto.createHash('sha1').update(`${artist}\u0000${title}`.toLowerCase()).digest('hex').slice(0, 16);
+  const dest = path.join(THUMBNAILS_DIR, `cover-${key}.jpg`);
+  if (fs.existsSync(dest)) return dest;
+  try {
+    const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(`${artist} ${title}`)}&entity=song&limit=5`, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const item = (data.results || [])[0];
+    if (!item || !item.artworkUrl100) return null;
+    const art = await fetch(item.artworkUrl100.replace('100x100', '600x600'), { signal: AbortSignal.timeout(8000) });
+    if (!art.ok) return null;
+    const buf = Buffer.from(await art.arrayBuffer());
+    if (buf.length < 500) return null;
+    await fs.promises.writeFile(dest, buf);
+    return dest;
+  } catch (e) {
+    return null;
+  }
+}
+
 async function imageContentType(buf) {
   if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8) return 'image/jpeg';
   if (buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50) return 'image/png';
@@ -6555,10 +6578,13 @@ const server = http.createServer(async (req, res) => {
     try {
       if (fs.existsSync(cachePath)) buffer = await fs.promises.readFile(cachePath);
     } catch (e) {}
-    if (!buffer) {
+    let host = '';
+    try { host = new URL(target).hostname; } catch (e) {}
+    const hostDead = !!host && (thumbHostFails.get(host) || 0) > Date.now();
+    if (!buffer && !hostDead) {
       try {
         const r = await fetch(target, {
-          signal: AbortSignal.timeout(10000),
+          signal: AbortSignal.timeout(6000),
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36' }
         });
         if (!r.ok) throw new Error(String(r.status));
@@ -6567,9 +6593,18 @@ const server = http.createServer(async (req, res) => {
         buffer = data;
         fs.promises.writeFile(cachePath, data).catch(() => {});
       } catch (e) {
-        res.writeHead(302, { Location: target });
-        return res.end();
+        if (host) thumbHostFails.set(host, Date.now() + 600000);
       }
+    }
+    if (!buffer && parsedUrl.query.artist && parsedUrl.query.title) {
+      const alt = await lookupCoverArt(parsedUrl.query.artist, parsedUrl.query.title);
+      if (alt) {
+        try { buffer = await fs.promises.readFile(alt); } catch (e) {}
+      }
+    }
+    if (!buffer) {
+      res.writeHead(302, { Location: target });
+      return res.end();
     }
     res.writeHead(200, { 'Content-Type': imageContentType(buffer), 'Cache-Control': 'public, max-age=31536000' });
     return res.end(buffer);

@@ -9856,19 +9856,24 @@ function renderClickableArtists(container, rawArtist) {
     }
   }
 
-  function proxiedThumb(src) {
+  function proxiedThumb(src, track) {
     if (!src || !state.serverPort) return src;
     if (!/^https?:\/\//i.test(src)) return src;
     if (src.indexOf('/api/image-proxy') !== -1) return src;
-    return `http://127.0.0.1:${state.serverPort}/api/image-proxy?url=${encodeURIComponent(src)}`;
+    if (src.indexOf('127.0.0.1') !== -1 || src.indexOf('localhost') !== -1) return src;
+    let out = `http://127.0.0.1:${state.serverPort}/api/image-proxy?url=${encodeURIComponent(src)}`;
+    if (track && track.artist && track.title) {
+      out += `&artist=${encodeURIComponent(track.artist)}&title=${encodeURIComponent(track.title)}`;
+    }
+    return out;
   }
 
   function getTrackThumbUrl(track) {
     if (!track) return '';
     const o = getTrackArt(track).cover;
-    if (o) return proxiedThumb(o);
+    if (o) return proxiedThumb(o, track);
     if (track.localThumbnail) return track.localThumbnail;
-    return proxiedThumb(track.thumbnail || track.cover || track.image || track.artworkUrl || '');
+    return proxiedThumb(track.thumbnail || track.cover || track.image || track.artworkUrl || '', track);
   }
 
   function renderPlaylistCover(container, playlist, size = 64) {
