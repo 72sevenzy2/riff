@@ -14661,7 +14661,7 @@ function bindCoverHoldZoom(wrapEl) {
           btn.classList.add('selected');
           uiLangDropdown.classList.remove('open');
           if (item.code === prevLang) return;
-          await applyI18n(item.code);
+          applyI18n(item.code);
           showLangRestartDialog(item.code);
         });
         frag.appendChild(btn);
