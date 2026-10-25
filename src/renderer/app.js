@@ -14636,12 +14636,15 @@ function bindCoverHoldZoom(wrapEl) {
         }
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
+          const prevLang = localStorage.getItem('riff_ui_lang') || 'en';
           localStorage.setItem('riff_ui_lang', item.code);
           if (uiLangLabel) uiLangLabel.textContent = text;
           uiLangMenu.querySelectorAll('.m3-dropdown-option').forEach(o => o.classList.remove('selected'));
           btn.classList.add('selected');
           uiLangDropdown.classList.remove('open');
+          if (item.code === prevLang) return;
           await applyI18n(item.code);
+          showLangRestartDialog(item.code);
         });
         frag.appendChild(btn);
       });
@@ -14685,6 +14688,56 @@ function bindCoverHoldZoom(wrapEl) {
 
     document.addEventListener('click', () => {
       uiLangDropdown.classList.remove('open');
+    });
+  }
+
+  const LANG_RESTART_TEXT = {
+    en: {
+      title: 'Restart required',
+      msg: 'Changes will take effect after restarting the app',
+      cancel: 'Cancel',
+      restart: 'Restart'
+    },
+    ru: {
+      title: 'Необходимо перезагрузить приложение',
+      msg: 'Изменения войдут после перезагрузки приложения',
+      cancel: 'Отмена',
+      restart: 'Перезагрузить'
+    }
+  };
+
+  const langRestartModal = document.getElementById('lang-restart-modal');
+
+  function showLangRestartDialog(lang) {
+    if (!langRestartModal) return;
+    const t = LANG_RESTART_TEXT[lang];
+    if (t) {
+      const title = langRestartModal.querySelector('h3');
+      const msg = document.getElementById('lang-restart-msg');
+      const cancel = document.getElementById('btn-lang-restart-cancel');
+      const confirm = document.getElementById('btn-lang-restart-confirm');
+      if (title) title.textContent = t.title;
+      if (msg) msg.textContent = t.msg;
+      if (cancel) cancel.textContent = t.cancel;
+      if (confirm) confirm.textContent = t.restart;
+    }
+    openModal(langRestartModal);
+  }
+
+  const btnCancelLangRestart = document.getElementById('btn-lang-restart-cancel');
+  const btnConfirmLangRestart = document.getElementById('btn-lang-restart-confirm');
+
+  if (btnCancelLangRestart) {
+    btnCancelLangRestart.addEventListener('click', () => closeModal(langRestartModal));
+  }
+
+  if (btnConfirmLangRestart) {
+    btnConfirmLangRestart.addEventListener('click', () => {
+      if (window.electronAPI && window.electronAPI.restartApp) {
+        window.electronAPI.restartApp();
+      } else {
+        window.location.reload();
+      }
     });
   }
 
