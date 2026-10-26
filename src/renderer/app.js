@@ -759,6 +759,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     else if (isHttpUrl(track.thumbnail)) rpcThumb = track.thumbnail;
     else if (isHttpUrl(track.cover)) rpcThumb = track.cover;
     const shareUrl = buildRiffShareUrl(track, '', '', 500);
+    const posSec = (el.nativeAudio && Number.isFinite(el.nativeAudio.currentTime) && el.nativeAudio.currentTime > 0) ? Math.floor(el.nativeAudio.currentTime) : 0;
     window.electronAPI.discordRpcUpdate({
       title: track.title || 'Unknown Track',
       artist: track.artist || 'Unknown Artist',
@@ -767,7 +768,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       thumbnail: rpcThumb,
       url: shareUrl,
       platform: track.platform || state.platform,
-      startTimestamp: Math.floor(Date.now() / 1000)
+      startTimestamp: Math.floor(Date.now() / 1000) - posSec
     });
   }
 
@@ -1978,6 +1979,29 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   applyReducedMotionSetting();
   document.body.classList.toggle('hide-titlebar', !!getAdv('hide_titlebar', false));
+
+  let titlebarRevealHideTimer = null;
+  window.addEventListener('mousemove', (e) => {
+    if (!document.body.classList.contains('hide-titlebar')) {
+      document.body.classList.remove('titlebar-reveal');
+      return;
+    }
+    if (e.clientY <= 2) {
+      if (titlebarRevealHideTimer) { clearTimeout(titlebarRevealHideTimer); titlebarRevealHideTimer = null; }
+      document.body.classList.add('titlebar-reveal');
+    } else if (document.body.classList.contains('titlebar-reveal') && e.clientY > 48) {
+      if (!titlebarRevealHideTimer) {
+        titlebarRevealHideTimer = setTimeout(() => {
+          document.body.classList.remove('titlebar-reveal');
+          titlebarRevealHideTimer = null;
+        }, 400);
+      }
+    }
+  });
+  document.addEventListener('mouseleave', () => {
+    document.body.classList.remove('titlebar-reveal');
+    if (titlebarRevealHideTimer) { clearTimeout(titlebarRevealHideTimer); titlebarRevealHideTimer = null; }
+  });
 
   const savedBannerBlur = parseInt(localStorage.getItem('riff_banner_blur') || '3', 10);
   const savedBannerOpacity = parseInt(localStorage.getItem('riff_banner_opacity') || '100', 10);
