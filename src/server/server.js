@@ -2399,7 +2399,7 @@ async function fetchItunesArtistAlbums(artistName) {
   if (!artistName || !artistName.trim()) return [];
   try {
     const target = artistName.toLowerCase().trim();
-    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(artistName)}&entity=album&limit=35`;
+    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(artistName)}&entity=album&limit=35${itunesCountryParam()}`;
     const data = await fetchItunesJson(url);
     const results = (data && Array.isArray(data.results)) ? data.results : [];
     return results
@@ -2483,7 +2483,7 @@ async function fetchArtistInfo(artistName) {
     tracks = filteredYtm;
   }
 
-  const itunesAlbumUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(cleanName)}&entity=album&attribute=artistTerm&limit=35`;
+  const itunesAlbumUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(cleanName)}&entity=album&attribute=artistTerm&limit=35${itunesCountryParam()}`;
   const itData = await fetchItunesJson(itunesAlbumUrl).catch(() => null);
   const itAlbums = (itData && Array.isArray(itData.results)) ? itData.results : [];
   const matchedAlbums = itAlbums.filter(a => a && a.wrapperType === 'collection' && String(a.artistName || '').toLowerCase().trim() === cleanName.toLowerCase().trim()).map(a => ({
@@ -2499,7 +2499,7 @@ async function fetchArtistInfo(artistName) {
 
   let matchedArtist = null;
   try {
-    const itunesSearchUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(cleanName)}&entity=musicArtist&limit=5`;
+    const itunesSearchUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(cleanName)}&entity=musicArtist&limit=5${itunesCountryParam()}`;
     const itunesData = await fetchItunesJson(itunesSearchUrl);
     if (itunesData && Array.isArray(itunesData.results)) {
       matchedArtist = itunesData.results.find(r => r && r.wrapperType === 'artist' && norm(r.artistName) === normClean) || null;
@@ -2514,7 +2514,7 @@ async function fetchArtistInfo(artistName) {
 
     try {
       if (tracks.length < 4) {
-        const songsUrl = `https://itunes.apple.com/lookup?id=${artistId}&entity=song&limit=50`;
+        const songsUrl = `https://itunes.apple.com/lookup?id=${artistId}&entity=song&limit=50${itunesCountryParam()}`;
         const songsData = await fetchItunesJson(songsUrl).catch(() => null);
         if (songsData && Array.isArray(songsData.results)) {
           tracks = songsData.results
@@ -2540,7 +2540,7 @@ async function fetchArtistInfo(artistName) {
       }
 
       if (albums.length === 0) {
-        const albumsUrl = `https://itunes.apple.com/lookup?id=${artistId}&entity=album&limit=40`;
+        const albumsUrl = `https://itunes.apple.com/lookup?id=${artistId}&entity=album&limit=40${itunesCountryParam()}`;
         const albumsData = await fetchItunesJson(albumsUrl).catch(() => null);
         if (albumsData && Array.isArray(albumsData.results)) {
           albums = albumsData.results
@@ -3042,6 +3042,107 @@ async function cleanupDownloadArtifacts(dir, beforeSet, baseName, videoId, chose
       }
     }
   } catch (_) {}
+}
+
+// ---- cover art for local library tracks: embedded picture first, then iTunes ----
+const localCoverQueued = new Set();
+const localCoverQueue = [];
+let localCoverWorking = false;
+let lastOnlineCoverLookup = 0;
+
+function localCoverPath(id) {
+  return path.join(THUMBNAILS_DIR, `localcover_${id}.jpg`);
+}
+
+function extractEmbeddedCover(src, dest) {
+  return new Promise((resolve) => {
+    const ffmpegBin = resolveBinary('ffmpeg');
+    if (!ffmpegBin || !fs.existsSync(src)) return resolve(false);
+    const tmp = `${dest}.tmp.jpg`;
+    let proc;
+    try {
+      proc = spawn(ffmpegBin, ['-y', '-v', 'error', '-i', src, '-map', '0:v:0', '-frames:v', '1', '-vf', "scale='min(600,iw)':-2", tmp], { windowsHide: true });
+    } catch (e) { return resolve(false); }
+    const timer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch (_) {} }, 20000);
+    proc.on('error', () => { clearTimeout(timer); resolve(false); });
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      try {
+        if (code === 0 && fs.existsSync(tmp) && fs.statSync(tmp).size > 500) {
+          fs.renameSync(tmp, dest);
+          return resolve(true);
+        }
+        fs.rmSync(tmp, { force: true });
+      } catch (_) {}
+      resolve(false);
+    });
+  });
+}
+
+async function fetchOnlineCover(item, dest) {
+  try {
+    const norm = (s) => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+    const title = (item.title || '').replace(/\(.*?\)|\[.*?\]/g, '').trim();
+    if (!title) return false;
+    const artist = item.artist && !/^unknown artist$/i.test(item.artist) ? item.artist : '';
+    const term = `${artist} ${title}`.trim();
+    const data = await fetchItunesJson(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&entity=song&limit=5${itunesCountryParam()}`);
+    const results = (data && Array.isArray(data.results)) ? data.results : [];
+    const hit = results.find(r => r && r.artworkUrl100 && norm(r.trackName).includes(norm(title)) && (!artist || norm(r.artistName).includes(norm(artist)) || norm(artist).includes(norm(r.artistName))));
+    if (!hit) return false;
+    const res = await fetch(hit.artworkUrl100.replace('100x100', '600x600'));
+    if (!res.ok) return false;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 500) return false;
+    await fs.promises.writeFile(dest, buf);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function processLocalCovers() {
+  if (localCoverWorking) return;
+  localCoverWorking = true;
+  try {
+    while (localCoverQueue.length) {
+      const id = localCoverQueue.shift();
+      const item = libraryIndex[id];
+      if (!item) continue;
+      const dest = localCoverPath(id);
+      if (fs.existsSync(dest)) continue;
+      let ok = await extractEmbeddedCover(path.join(LIBRARY_DIR, item.file), dest);
+      if (!ok) {
+        // iTunes allows only a few lookups per minute, so space them out
+        const wait = 4000 - (Date.now() - lastOnlineCoverLookup);
+        if (wait > 0) await new Promise(r => setTimeout(r, wait));
+        lastOnlineCoverLookup = Date.now();
+        ok = await fetchOnlineCover(item, dest);
+      }
+    }
+  } finally {
+    localCoverWorking = false;
+  }
+}
+
+function queueLocalCovers(ids) {
+  for (const id of ids) {
+    if (localCoverQueued.has(id) || fs.existsSync(localCoverPath(id))) continue;
+    localCoverQueued.add(id);
+    localCoverQueue.push(id);
+  }
+  if (localCoverQueue.length) processLocalCovers().catch(() => {});
+}
+
+function handleLocalCover(req, res, parsedUrl) {
+  const id = String(parsedUrl.query.id || '');
+  const file = /^[\w-]{1,64}$/.test(id) && libraryIndex[id] ? localCoverPath(id) : '';
+  if (!file || !fs.existsSync(file)) {
+    res.writeHead(404);
+    return res.end();
+  }
+  res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'max-age=3600' });
+  fs.createReadStream(file).pipe(res);
 }
 
 async function handleDownload(req, res, trackUrl, title, artist, format = 'mp3', quality = '0', startParam = null, endParam = null, raw = false, trackId = null, streamUrlParam = null) {
@@ -5469,6 +5570,16 @@ function setAlbumCache(key, data) {
   albumCache.set(key, { data, expires: Date.now() + 15 * 60 * 1000 });
 }
 
+// iTunes serves a different catalog per storefront; use the user's region when known.
+function itunesCountryParam() {
+  try {
+    const code = process.versions.electron ? require('electron').app.getLocaleCountryCode() : '';
+    return /^[A-Za-z]{2}$/.test(code) ? `&country=${code.toUpperCase()}` : '';
+  } catch (e) {
+    return '';
+  }
+}
+
 function fetchItunesJson(url) {
   return new Promise((resolve, reject) => {
     const req = https.get(url, {
@@ -5534,7 +5645,7 @@ async function handleAlbumSearch(req, res, parsedUrl) {
   try {
     const albumUrlMatch = q.match(/music\.apple\.com\/(?:[a-z]{2}\/)?album\/(?:[^/]+\/)?(\d+)/i);
     if (albumUrlMatch) {
-      const data = await fetchItunesJson(`https://itunes.apple.com/lookup?id=${albumUrlMatch[1]}&entity=album`);
+      const data = await fetchItunesJson(`https://itunes.apple.com/lookup?id=${albumUrlMatch[1]}&entity=album${itunesCountryParam()}`);
       const results = (data && Array.isArray(data.results)) ? data.results : [];
       const item = results.find(r => r && r.wrapperType === 'collection');
       if (item) {
@@ -5556,12 +5667,12 @@ async function handleAlbumSearch(req, res, parsedUrl) {
 
     const cleanQ = q.replace(/\s+-\s+/g, ' ').replace(/\bby\b/gi, ' ').replace(/\s+/g, ' ').trim();
     const urls = [
-      `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=album&media=music&limit=25`,
-      `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=25`
+      `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=album&media=music&limit=25${itunesCountryParam()}`,
+      `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=25${itunesCountryParam()}`
     ];
     if (cleanQ && cleanQ.toLowerCase() !== q.toLowerCase()) {
-      urls.push(`https://itunes.apple.com/search?term=${encodeURIComponent(cleanQ)}&entity=album&media=music&limit=25`);
-      urls.push(`https://itunes.apple.com/search?term=${encodeURIComponent(cleanQ)}&media=music&limit=25`);
+      urls.push(`https://itunes.apple.com/search?term=${encodeURIComponent(cleanQ)}&entity=album&media=music&limit=25${itunesCountryParam()}`);
+      urls.push(`https://itunes.apple.com/search?term=${encodeURIComponent(cleanQ)}&media=music&limit=25${itunesCountryParam()}`);
     }
 
     const responses = await Promise.all(urls.map(u => fetchItunesJson(u).catch(() => null)));
@@ -5671,7 +5782,7 @@ async function handleAlbumTracks(req, res, parsedUrl) {
 
     if (id) {
       try {
-        const url = `https://itunes.apple.com/lookup?id=${encodeURIComponent(id)}&entity=song`;
+        const url = `https://itunes.apple.com/lookup?id=${encodeURIComponent(id)}&entity=song${itunesCountryParam()}`;
         const data = await fetchItunesJson(url);
         const results = (data && Array.isArray(data.results)) ? data.results : [];
         const albumItem = results.find(r => r && (r.wrapperType === 'collection' || r.collectionType === 'Album'));
@@ -6519,18 +6630,22 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsedUrl.pathname === '/api/library') {
-    const list = Object.values(libraryIndex)
-      .sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0))
-      .map(item => ({
+    const items = Object.values(libraryIndex).sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+    queueLocalCovers(items.map(item => item.id));
+    const list = items.map(item => ({
         id: item.id,
         platform: 'local',
         title: item.title,
         artist: item.artist,
         duration: Number(item.duration) || 0,
-        thumbnail: ''
+        thumbnail: fs.existsSync(localCoverPath(item.id)) ? `http://127.0.0.1:${PORT}/api/local-cover?id=${encodeURIComponent(item.id)}` : ''
       }));
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(list));
+  }
+
+  if (parsedUrl.pathname === '/api/local-cover') {
+    return handleLocalCover(req, res, parsedUrl);
   }
 
   if (parsedUrl.pathname === '/api/library-file') {
