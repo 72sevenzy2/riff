@@ -341,6 +341,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   window.t = t;
 
+  function tSet(el, str) {
+    if (!el) return;
+    el.textContent = t(str);
+    const lang = localStorage.getItem('riff_ui_lang') || 'en';
+    if (lang === 'en') return;
+    const dict = i18nSessionMap.get(lang);
+    if (dict && dict.has(str)) return;
+    setTimeout(() => {
+      const d = i18nSessionMap.get(lang);
+      if (d && d.has(str) && el.isConnected) el.textContent = d.get(str);
+    }, 1500);
+  }
+
   const toastQueue = [];
   const MAX_QUEUED_TOASTS = 10;
   let isToastActive = false;
@@ -9087,7 +9100,7 @@ function renderClickableArtists(container, rawArtist) {
     const profName = document.getElementById('artist-profile-name');
     if (btnFollow && profName && profName.textContent.trim().toLowerCase() === lower) {
       btnFollow.classList.toggle('following', followed);
-      btnFollow.textContent = followed ? 'Following' : 'Follow';
+      tSet(btnFollow, followed ? 'Following' : 'Follow');
     }
 
     if (typeof renderSpotifyHome === 'function') renderSpotifyHome();
@@ -9343,7 +9356,7 @@ function renderClickableArtists(container, rawArtist) {
     if (btnFollow) {
       const isFollowed = isArtistFollowed(cleanName);
       btnFollow.classList.toggle('following', isFollowed);
-      btnFollow.textContent = isFollowed ? 'Following' : 'Follow';
+      tSet(btnFollow, isFollowed ? 'Following' : 'Follow');
       btnFollow.onclick = () => {
         const meta = {
           avatar: (state.currentArtistData && (state.currentArtistData.avatar || state.currentArtistData.banner)) || '',
@@ -9445,10 +9458,10 @@ function renderClickableArtists(container, rawArtist) {
       if (el.artistVerifiedBadge) el.artistVerifiedBadge.classList.toggle('hidden', !data.artist.isVerified);
 
       const fans = data.artist.fans || data.artist.nb_fan || 0;
-      const listenersText = data.artist.monthlyListeners || (fans > 0 ? `${formatCount(fans)} monthly listeners` : '');
+      const rawListeners = data.artist.monthlyListeners || (fans > 0 ? `${formatCount(fans)} monthly listeners` : '');
       if (el.artistFansLine) {
-        if (listenersText) {
-          el.artistFansLine.textContent = listenersText;
+        if (rawListeners) {
+          tSet(el.artistFansLine, rawListeners);
           el.artistFansLine.style.display = 'block';
         } else {
           el.artistFansLine.textContent = '';
