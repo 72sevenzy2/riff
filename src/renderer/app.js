@@ -341,19 +341,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   window.t = t;
 
-  function tSet(el, str) {
-    if (!el) return;
-    el.textContent = t(str);
-    const lang = localStorage.getItem('riff_ui_lang') || 'en';
-    if (lang === 'en') return;
-    const dict = i18nSessionMap.get(lang);
-    if (dict && dict.has(str)) return;
-    setTimeout(() => {
-      const d = i18nSessionMap.get(lang);
-      if (d && d.has(str) && el.isConnected) el.textContent = d.get(str);
-    }, 1500);
-  }
-
   const toastQueue = [];
   const MAX_QUEUED_TOASTS = 10;
   let isToastActive = false;
@@ -759,7 +746,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     else if (isHttpUrl(track.thumbnail)) rpcThumb = track.thumbnail;
     else if (isHttpUrl(track.cover)) rpcThumb = track.cover;
     const shareUrl = buildRiffShareUrl(track, '', '', 500);
-    const posSec = (el.nativeAudio && Number.isFinite(el.nativeAudio.currentTime) && el.nativeAudio.currentTime > 0) ? Math.floor(el.nativeAudio.currentTime) : 0;
     window.electronAPI.discordRpcUpdate({
       title: track.title || 'Unknown Track',
       artist: track.artist || 'Unknown Artist',
@@ -768,7 +754,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       thumbnail: rpcThumb,
       url: shareUrl,
       platform: track.platform || state.platform,
-      startTimestamp: Math.floor(Date.now() / 1000) - posSec
+      startTimestamp: Math.floor(Date.now() / 1000)
     });
   }
 
@@ -1979,29 +1965,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   applyReducedMotionSetting();
   document.body.classList.toggle('hide-titlebar', !!getAdv('hide_titlebar', false));
-
-  let titlebarRevealHideTimer = null;
-  window.addEventListener('mousemove', (e) => {
-    if (!document.body.classList.contains('hide-titlebar')) {
-      document.body.classList.remove('titlebar-reveal');
-      return;
-    }
-    if (e.clientY <= 2) {
-      if (titlebarRevealHideTimer) { clearTimeout(titlebarRevealHideTimer); titlebarRevealHideTimer = null; }
-      document.body.classList.add('titlebar-reveal');
-    } else if (document.body.classList.contains('titlebar-reveal') && e.clientY > 48) {
-      if (!titlebarRevealHideTimer) {
-        titlebarRevealHideTimer = setTimeout(() => {
-          document.body.classList.remove('titlebar-reveal');
-          titlebarRevealHideTimer = null;
-        }, 400);
-      }
-    }
-  });
-  document.addEventListener('mouseleave', () => {
-    document.body.classList.remove('titlebar-reveal');
-    if (titlebarRevealHideTimer) { clearTimeout(titlebarRevealHideTimer); titlebarRevealHideTimer = null; }
-  });
 
   const savedBannerBlur = parseInt(localStorage.getItem('riff_banner_blur') || '3', 10);
   const savedBannerOpacity = parseInt(localStorage.getItem('riff_banner_opacity') || '100', 10);
@@ -7178,7 +7141,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (state.isShuffle) {
-      const nextIdx = Math.floor(Math.random() * state.queue.length);
+      let nextIdx = -1;
+      if (shuffleProvider) {
+        try {
+          const pick = await shuffleProvider.fn({
+            queue: state.queue.slice(),
+            queueIndex: state.queueIndex,
+            context: state.currentTrackContext,
+            current: state.currentTrack
+          });
+          if (pick) nextIdx = state.queue.findIndex(t => isSameTrack(t, pick));
+        } catch (e) { reportPluginError(shuffleProvider.file, e); }
+        if (state.queue.length === 0) return;
+      }
+      if (nextIdx < 0) nextIdx = Math.floor(Math.random() * state.queue.length);
       state.queueIndex = nextIdx;
       recordPlayedIndex(nextIdx);
       playTrack(state.queue[nextIdx]);
@@ -9124,7 +9100,7 @@ function renderClickableArtists(container, rawArtist) {
     const profName = document.getElementById('artist-profile-name');
     if (btnFollow && profName && profName.textContent.trim().toLowerCase() === lower) {
       btnFollow.classList.toggle('following', followed);
-      tSet(btnFollow, followed ? 'Following' : 'Follow');
+      btnFollow.textContent = followed ? 'Following' : 'Follow';
     }
 
     if (typeof renderSpotifyHome === 'function') renderSpotifyHome();
@@ -9380,7 +9356,7 @@ function renderClickableArtists(container, rawArtist) {
     if (btnFollow) {
       const isFollowed = isArtistFollowed(cleanName);
       btnFollow.classList.toggle('following', isFollowed);
-      tSet(btnFollow, isFollowed ? 'Following' : 'Follow');
+      btnFollow.textContent = isFollowed ? 'Following' : 'Follow';
       btnFollow.onclick = () => {
         const meta = {
           avatar: (state.currentArtistData && (state.currentArtistData.avatar || state.currentArtistData.banner)) || '',
@@ -9482,10 +9458,10 @@ function renderClickableArtists(container, rawArtist) {
       if (el.artistVerifiedBadge) el.artistVerifiedBadge.classList.toggle('hidden', !data.artist.isVerified);
 
       const fans = data.artist.fans || data.artist.nb_fan || 0;
-      const rawListeners = data.artist.monthlyListeners || (fans > 0 ? `${formatCount(fans)} monthly listeners` : '');
+      const listenersText = data.artist.monthlyListeners || (fans > 0 ? `${formatCount(fans)} monthly listeners` : '');
       if (el.artistFansLine) {
-        if (rawListeners) {
-          tSet(el.artistFansLine, rawListeners);
+        if (listenersText) {
+          el.artistFansLine.textContent = listenersText;
           el.artistFansLine.style.display = 'block';
         } else {
           el.artistFansLine.textContent = '';
@@ -14212,6 +14188,7 @@ function bindCoverHoldZoom(wrapEl) {
 
   const loadedPlugins = new Map();
   const pluginListeners = [];
+  let shuffleProvider = null;
   function emitPluginEvent(event, data) {
     pluginListeners.filter((l) => l.event === event).forEach((l) => { try { l.cb(data); } catch (e) { reportPluginError(l.file, e); } });
   }
@@ -14244,7 +14221,60 @@ function bindCoverHoldZoom(wrapEl) {
       getTrack: () => state.currentTrack,
       isPlaying: () => state.isPlaying,
       audio: () => el.nativeAudio,
-      query: (sel) => document.querySelector(sel)
+      query: (sel) => document.querySelector(sel),
+      sameTrack: (a, b) => isSameTrack(a, b),
+      shuffle: {
+        // fn({ queue, queueIndex, context, current }) -> track | Promise<track> | null.
+        // Returning null/undefined falls back to Riff's default random pick.
+        setProvider(fn) {
+          shuffleProvider = typeof fn === 'function' ? { fn, file: p.file } : null;
+          return () => { if (shuffleProvider && shuffleProvider.file === p.file) shuffleProvider = null; };
+        },
+        isOn: () => !!state.isShuffle
+      },
+      queue: {
+        get: () => state.queue.slice(),
+        getIndex: () => state.queueIndex,
+        getContext: () => state.currentTrackContext,
+        // Appends tracks that are not already queued; returns the ones actually added.
+        append(tracks) {
+          const added = [];
+          (Array.isArray(tracks) ? tracks : []).forEach((t) => {
+            if (!t || !t.title || (!t.id && !t.url)) return;
+            if (state.queue.some((q) => isSameTrack(q, t))) return;
+            state.queue.push(t);
+            added.push(t);
+          });
+          if (added.length) {
+            updateQueueBadge();
+            if (state.currentView === 'queue') renderQueueView();
+          }
+          return added;
+        }
+      },
+      library: {
+        favorites: () => (state.favorites || []).slice(),
+        history: () => (state.history || []).slice()
+      },
+      api: {
+        async search(q, opts) {
+          const o = opts || {};
+          const lim = Math.max(1, Math.min(parseInt(o.limit, 10) || 10, 30));
+          const url = `http://127.0.0.1:${state.serverPort}/api/search?q=${encodeURIComponent(q)}&platform=${o.platform || state.platform}&limit=${lim}`;
+          const r = await fetch(url, { signal: o.signal });
+          const d = await r.json();
+          return d && d.success && Array.isArray(d.tracks) ? d.tracks : [];
+        },
+        async vibe(body) {
+          const r = await fetch(`http://127.0.0.1:${state.serverPort}/api/vibe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body || {})
+          });
+          const d = await r.json();
+          return d && d.success && Array.isArray(d.tracks) ? d.tracks : [];
+        }
+      }
     };
   }
   function runPlugin(p) {
@@ -14260,6 +14290,7 @@ function bindCoverHoldZoom(wrapEl) {
     const entry = loadedPlugins.get(p.file);
     try { if (entry && entry.stop) entry.stop(); } catch (e) { reportPluginError(p.file, e); }
     for (let i = pluginListeners.length - 1; i >= 0; i--) if (pluginListeners[i].file === p.file) pluginListeners.splice(i, 1);
+    if (shuffleProvider && shuffleProvider.file === p.file) shuffleProvider = null;
     document.querySelectorAll(`style[data-plugin="${p.file}"]`).forEach((n) => n.remove());
     const hadStop = !!(entry && entry.stop);
     loadedPlugins.delete(p.file);

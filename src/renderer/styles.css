@@ -236,7 +236,6 @@ button:not(.btn-play-pause):not(.nav-item):not(.settings-nav-btn):active, .chip-
 .titlebar .app-logo { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; pointer-events: none; }
 .titlebar-riff-icon { width: 20px; height: 20px; display: block; background-color: var(--md-sys-color-primary); -webkit-mask: url('../../assets/riff.svg') no-repeat center / contain; mask: url('../../assets/riff.svg') no-repeat center / contain; }
 body.hide-titlebar .titlebar { height: 0 !important; min-height: 0 !important; opacity: 0; overflow: hidden; pointer-events: none; }
-body.hide-titlebar.titlebar-reveal .titlebar { height: 40px !important; min-height: 40px !important; opacity: 1; pointer-events: auto; position: fixed; top: 0; left: 0; right: 0; background: var(--md-sys-color-surface, rgba(24, 24, 27, 0.92)); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid var(--md-sys-color-outline-variant, rgba(255, 255, 255, 0.08)); }
 body.hide-titlebar .app-layout { height: calc(100% - 64px - var(--playbar-space, 120px)) !important; max-height: calc(100vh - 64px - var(--playbar-space, 120px)) !important; }
 body.perf .titlebar { transition: none !important; }
 
