@@ -15,8 +15,22 @@ const I18N_DIR = path.join(DATA_DIR, 'i18n');
 try { fs.mkdirSync(I18N_DIR, { recursive: true }); } catch (_) {}
 
 const I18N_FIX = {
-  ru: { 'About': 'О приложении' }
+  ru: {
+    'About': 'О приложении',
+    'About the artist': 'Об исполнителе',
+    'Follow': 'Подписаться',
+    'Following': 'Вы подписаны',
+    'Word': 'Слово',
+    'Line': 'Строка',
+    'Default output': 'Устройство по умолчанию',
+    'No local tracks in library yet.': 'В библиотеке пока нет локальных треков.',
+    'Add files': 'Добавить файлы'
+  }
 };
+
+function i18nValueBroken(v) {
+  return typeof v !== 'string' || !v || v.indexOf('�') !== -1;
+}
 
 const logger = require('../shared/logger');
 const { getSystemAudioOutputInfo } = require('../shared/audio-output');
@@ -6229,6 +6243,10 @@ const server = http.createServer(async (req, res) => {
       const langFile = path.join(I18N_DIR, safeLang + '.json');
       let dict = {};
       try { dict = JSON.parse(fs.readFileSync(langFile, 'utf8')); } catch (_) {}
+      let dictDirty = false;
+      for (const k of Object.keys(dict)) {
+        if (i18nValueBroken(dict[k])) { delete dict[k]; dictDirty = true; }
+      }
       Object.assign(dict, I18N_FIX[safeLang] || {});
 
       const missing = [];
@@ -6265,13 +6283,14 @@ const server = http.createServer(async (req, res) => {
             let chunkTrans = await callTranslate(joined, safeLang);
             if (chunkTrans && chunkTrans.length === chunk.length) {
               for (let i = 0; i < chunk.length; i++) {
+                if (i18nValueBroken(chunkTrans[i])) continue;
                 dict[chunk[i]] = chunkTrans[i];
                 changed = true;
               }
             } else {
               for (const str of chunk) {
                 const single = await callTranslate(str, safeLang);
-                if (single && single[0]) {
+                if (single && single[0] && !i18nValueBroken(single[0])) {
                   dict[str] = single[0];
                   changed = true;
                 }
@@ -6279,7 +6298,7 @@ const server = http.createServer(async (req, res) => {
             }
           }
         }
-        if (changed) {
+        if (changed || dictDirty) {
           try {
             fs.writeFileSync(langFile, JSON.stringify(dict, null, 2), 'utf8');
           } catch (_) {}

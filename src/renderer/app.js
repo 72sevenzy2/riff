@@ -341,6 +341,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   window.t = t;
 
+  function tSet(el, str) {
+    if (!el) return;
+    el.textContent = t(str);
+    const lang = localStorage.getItem('riff_ui_lang') || 'en';
+    if (lang === 'en') return;
+    const dict = i18nSessionMap.get(lang);
+    if (dict && dict.has(str)) return;
+    setTimeout(() => {
+      const d = i18nSessionMap.get(lang);
+      if (d && d.has(str) && el.isConnected) el.textContent = d.get(str);
+    }, 1500);
+  }
+
   const toastQueue = [];
   const MAX_QUEUED_TOASTS = 10;
   let isToastActive = false;
@@ -746,6 +759,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     else if (isHttpUrl(track.thumbnail)) rpcThumb = track.thumbnail;
     else if (isHttpUrl(track.cover)) rpcThumb = track.cover;
     const shareUrl = buildRiffShareUrl(track, '', '', 500);
+    const posSec = (el.nativeAudio && Number.isFinite(el.nativeAudio.currentTime) && el.nativeAudio.currentTime > 0) ? Math.floor(el.nativeAudio.currentTime) : 0;
     window.electronAPI.discordRpcUpdate({
       title: track.title || 'Unknown Track',
       artist: track.artist || 'Unknown Artist',
@@ -754,7 +768,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       thumbnail: rpcThumb,
       url: shareUrl,
       platform: track.platform || state.platform,
-      startTimestamp: Math.floor(Date.now() / 1000)
+      startTimestamp: Math.floor(Date.now() / 1000) - posSec
     });
   }
 
@@ -1965,6 +1979,25 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   applyReducedMotionSetting();
   document.body.classList.toggle('hide-titlebar', !!getAdv('hide_titlebar', false));
+
+  let titlebarRevealHideTimer = null;
+  window.addEventListener('mousemove', (e) => {
+    if (!document.body.classList.contains('hide-titlebar')) {
+      document.body.classList.remove('titlebar-reveal');
+      return;
+    }
+    if (e.clientY <= 2) {
+      if (titlebarRevealHideTimer) { clearTimeout(titlebarRevealHideTimer); titlebarRevealHideTimer = null; }
+      document.body.classList.add('titlebar-reveal');
+    } else if (document.body.classList.contains('titlebar-reveal') && e.clientY > 48) {
+      if (!titlebarRevealHideTimer) {
+        titlebarRevealHideTimer = setTimeout(() => {
+          document.body.classList.remove('titlebar-reveal');
+          titlebarRevealHideTimer = null;
+        }, 400);
+      }
+    }
+  });
 
   const savedBannerBlur = parseInt(localStorage.getItem('riff_banner_blur') || '3', 10);
   const savedBannerOpacity = parseInt(localStorage.getItem('riff_banner_opacity') || '100', 10);
@@ -4984,12 +5017,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.querySelectorAll(AUTO_I18N_SELECTORS).forEach(el => {
         if (el.dataset.i18nShown !== undefined && el.textContent !== el.dataset.i18nShown) return;
         if (el.dataset.origText) {
-          el.textContent = el.dataset.origText;
-          el.dataset.i18nShown = el.textContent;
+          if (el.textContent !== el.dataset.origText) el.textContent = el.dataset.origText;
+          el.dataset.i18nShown = el.dataset.origText;
         } else if (el._i18n_orig) el.textContent = el._i18n_orig;
       });
       document.querySelectorAll('input[placeholder], textarea[placeholder]').forEach(input => {
-        if (input.dataset.origPlaceholder) input.placeholder = input.dataset.origPlaceholder;
+        if (input.dataset.origPlaceholder && input.placeholder !== input.dataset.origPlaceholder) input.placeholder = input.dataset.origPlaceholder;
       });
       document.querySelectorAll('[data-i18n-attr]').forEach(el => {
         const attr = el.getAttribute('data-i18n-attr') || 'placeholder';
@@ -5052,14 +5085,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!el.dataset.origText) el.dataset.origText = el.textContent.trim();
       if (!el.dataset.origText) return;
       if (el.dataset.i18nShown !== undefined && el.textContent !== el.dataset.i18nShown) return;
-      el.textContent = translations[el.dataset.origText] || el.dataset.origText;
-      el.dataset.i18nShown = el.textContent;
+      const next = translations[el.dataset.origText] || el.dataset.origText;
+      if (el.textContent !== next) el.textContent = next;
+      el.dataset.i18nShown = next;
     });
 
     document.querySelectorAll('input[placeholder], textarea[placeholder]').forEach(input => {
       if (!input.dataset.origPlaceholder) input.dataset.origPlaceholder = input.placeholder;
       if (input.dataset.origPlaceholder) {
-        input.placeholder = translations[input.dataset.origPlaceholder] || input.dataset.origPlaceholder;
+        const next = translations[input.dataset.origPlaceholder] || input.dataset.origPlaceholder;
+        if (input.placeholder !== next) input.placeholder = next;
       }
     });
 
@@ -5075,6 +5110,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   window.collectI18n = collectI18n;
   window.applyI18n = applyI18n;
+
+  if (savedUiLang !== 'en') {
+    setTimeout(() => applyI18n(savedUiLang).catch(() => {}), 4000);
+    setTimeout(() => applyI18n(savedUiLang).catch(() => {}), 12000);
+  }
+
+  let i18nApplyTimer = null;
+  function scheduleI18nApply() {
+    const lang = localStorage.getItem('riff_ui_lang') || 'en';
+    if (lang === 'en') return;
+    if (i18nApplyTimer) clearTimeout(i18nApplyTimer);
+    i18nApplyTimer = setTimeout(() => {
+      i18nApplyTimer = null;
+      applyI18n(lang).catch(() => {});
+    }, 600);
+  }
+  new MutationObserver(scheduleI18nApply).observe(document.body, { childList: true, subtree: true });
 
   const lyricsTranslationCache = new Map();
 
@@ -5534,8 +5586,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!isWordEnabled && state.lyricsMode === 'word') {
       state.lyricsMode = 'line';
     }
-    const label = state.lyricsMode === 'word' ? 'Word' : 'Line';
-    el.btnLyricsMode.querySelector('span').textContent = label;
+    const lblEl = el.btnLyricsMode.querySelector('span');
+    tSet(lblEl, state.lyricsMode === 'word' ? 'Word' : 'Line');
   }
 
   if (el.btnLyricsMode) {
@@ -6017,7 +6069,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       } catch (e) {}
     }
 
-    const finalName = deviceName || 'Default output';
+    const finalName = t(deviceName || 'Default output');
     nameEl.textContent = finalName;
     if (outputContainer) outputContainer.title = finalName;
 
@@ -9299,7 +9351,7 @@ function renderClickableArtists(container, rawArtist) {
     const profName = document.getElementById('artist-profile-name');
     if (btnFollow && profName && profName.textContent.trim().toLowerCase() === lower) {
       btnFollow.classList.toggle('following', followed);
-      btnFollow.textContent = followed ? 'Following' : 'Follow';
+      tSet(btnFollow, followed ? 'Following' : 'Follow');
     }
 
     if (typeof renderSpotifyHome === 'function') renderSpotifyHome();
@@ -9555,7 +9607,7 @@ function renderClickableArtists(container, rawArtist) {
     if (btnFollow) {
       const isFollowed = isArtistFollowed(cleanName);
       btnFollow.classList.toggle('following', isFollowed);
-      btnFollow.textContent = isFollowed ? 'Following' : 'Follow';
+      tSet(btnFollow, isFollowed ? 'Following' : 'Follow');
       btnFollow.onclick = () => {
         const meta = {
           avatar: (state.currentArtistData && (state.currentArtistData.avatar || state.currentArtistData.banner)) || '',
@@ -9657,10 +9709,10 @@ function renderClickableArtists(container, rawArtist) {
       if (el.artistVerifiedBadge) el.artistVerifiedBadge.classList.toggle('hidden', !data.artist.isVerified);
 
       const fans = data.artist.fans || data.artist.nb_fan || 0;
-      const listenersText = data.artist.monthlyListeners || (fans > 0 ? `${formatCount(fans)} monthly listeners` : '');
+      const rawListeners = data.artist.monthlyListeners || (fans > 0 ? `${formatCount(fans)} monthly listeners` : '');
       if (el.artistFansLine) {
-        if (listenersText) {
-          el.artistFansLine.textContent = listenersText;
+        if (rawListeners) {
+          tSet(el.artistFansLine, rawListeners);
           el.artistFansLine.style.display = 'block';
         } else {
           el.artistFansLine.textContent = '';
