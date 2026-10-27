@@ -24,19 +24,24 @@ function ffmpegAsset() {
   return null;
 }
 
-function get(url, redirects = 6) {
+function get(url, redirects = 6, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'Riff' } }, (res) => {
+    const req = https.get(url, {
+      headers: Object.assign({ 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Riff/43.1' }, extraHeaders),
+      timeout: 25000
+    }, (res) => {
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirects > 0) {
         res.resume();
-        return resolve(get(new URL(res.headers.location, url).toString(), redirects - 1));
+        return resolve(get(new URL(res.headers.location, url).toString(), redirects - 1, extraHeaders));
       }
-      if (res.statusCode !== 200) {
+      if (res.statusCode !== 200 && res.statusCode !== 206) {
         res.resume();
         return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
       }
       resolve(res);
-    }).on('error', reject);
+    });
+    req.on('timeout', () => { req.destroy(new Error('Request timeout')); });
+    req.on('error', reject);
   });
 }
 
@@ -49,23 +54,52 @@ async function getText(url) {
 }
 
 async function downloadFile(url, dest) {
-  const res = await get(url);
-  const total = Number(res.headers['content-length']) || 0;
-  let done = 0;
-  const hash = crypto.createHash('sha256');
-  await new Promise((resolve, reject) => {
-    const out = fs.createWriteStream(dest);
-    res.on('data', (c) => {
-      hash.update(c);
-      done += c.length;
-      if (total) state.percent = Math.round((done / total) * 100);
-    });
-    res.on('error', reject);
-    out.on('error', reject);
-    out.on('finish', resolve);
-    res.pipe(out);
-  });
-  return hash.digest('hex');
+  try { fs.rmSync(dest, { force: true }); } catch (_) {}
+  let lastErr = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    let existingBytes = 0;
+    try {
+      if (fs.existsSync(dest)) existingBytes = fs.statSync(dest).size;
+    } catch (_) {}
+    try {
+      const headers = existingBytes > 0 ? { Range: `bytes=${existingBytes}-` } : {};
+      const res = await get(url, 6, headers);
+      const isPartial = res.statusCode === 206;
+      if (!isPartial && existingBytes > 0) {
+        existingBytes = 0;
+        try { fs.rmSync(dest, { force: true }); } catch (_) {}
+      }
+      const contentLen = Number(res.headers['content-length']) || 0;
+      const total = contentLen ? (existingBytes + contentLen) : 0;
+      let done = existingBytes;
+      await new Promise((resolve, reject) => {
+        const out = fs.createWriteStream(dest, { flags: isPartial ? 'a' : 'w' });
+        res.on('data', (c) => {
+          done += c.length;
+          if (total) state.percent = Math.min(99, Math.round((done / total) * 100));
+        });
+        res.on('error', reject);
+        out.on('error', reject);
+        out.on('finish', resolve);
+        res.pipe(out);
+      });
+      state.percent = 100;
+      const fileBuf = await fs.promises.readFile(dest);
+      return crypto.createHash('sha256').update(fileBuf).digest('hex');
+    } catch (err) {
+      lastErr = err;
+      await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
+    }
+  }
+  try {
+    const curlBin = IS_WIN ? 'curl.exe' : 'curl';
+    await run(curlBin, ['-L', '--fail', '--retry', '5', '--retry-delay', '2', '-C', '-', '-A', 'Mozilla/5.0', '-o', dest, url], 600000);
+    state.percent = 100;
+    const fileBuf = await fs.promises.readFile(dest);
+    return crypto.createHash('sha256').update(fileBuf).digest('hex');
+  } catch (_) {
+    throw lastErr || new Error('Download failed');
+  }
 }
 
 function expectedHash(sums, fileName) {
@@ -127,6 +161,21 @@ async function installYtDlp() {
 
 async function installFfmpeg() {
   const asset = ffmpegAsset();
+  if (process.platform === 'darwin' && !asset) {
+    const archive = path.join(os.tmpdir(), 'riff-ffmpeg-macos.zip');
+    try {
+      await downloadFile('https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip', archive);
+      await run('/usr/bin/unzip', ['-o', archive, '-d', BIN_DIR]);
+      const dest = path.join(BIN_DIR, 'ffmpeg');
+      if (fs.existsSync(dest)) fs.chmodSync(dest, 0o755);
+      return;
+    } catch (e) {
+      try { logger.error('macOS ffmpeg download failed', e); } catch (_) {}
+      return;
+    } finally {
+      try { fs.rmSync(archive, { force: true }); } catch (_) {}
+    }
+  }
   if (!asset) throw new Error('No ffmpeg build for this system. Install ffmpeg with your package manager (for macOS: brew install ffmpeg).');
   const base = 'https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download';
   const sums = await getText(`${base}/checksums.sha256`);
@@ -137,7 +186,19 @@ async function installFfmpeg() {
   if (got !== want) { fs.rmSync(archive, { force: true }); throw new Error('ffmpeg checksum mismatch'); }
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'riff-ffmpeg-'));
   try {
-    await run('tar', ['-xf', archive, '-C', work]);
+    if (IS_WIN) {
+      try {
+        await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Expand-Archive -LiteralPath '${archive.replace(/'/g, "''")}' -DestinationPath '${work.replace(/'/g, "''")}' -Force`]);
+      } catch (_) {
+        await new Promise((resolve, reject) => {
+          const p = spawn('tar.exe', ['-xf', path.basename(archive), '-C', work], { cwd: path.dirname(archive), windowsHide: true });
+          p.on('error', reject);
+          p.on('close', code => code === 0 ? resolve() : reject(new Error(`tar exited with ${code}`)));
+        });
+      }
+    } else {
+      await run('tar', ['-xf', archive, '-C', work]);
+    }
     for (const name of ['ffmpeg', 'ffprobe']) {
       const exe = IS_WIN ? `${name}.exe` : name;
       const src = findFile(work, exe);
@@ -153,12 +214,24 @@ async function installFfmpeg() {
 }
 
 function toolsStatus() {
-  return {
-    ytDlp: !!resolveBinary('yt-dlp'),
-    ffmpeg: !!resolveBinary('ffmpeg'),
+  const ytdlp = !!resolveBinary('yt-dlp');
+  const ffmpeg = !!resolveBinary('ffmpeg');
+  const status = {
+    ytDlp: ytdlp,
+    ytdlp,
+    ffmpeg,
+    percent: state.percent,
+    step: state.tool ? `downloading ${state.tool}` : '',
+    error: state.error,
     progress: Object.assign({}, state)
   };
+  if (process.platform === 'darwin') {
+    status.ffmpeg = true;
+  }
+  return status;
 }
+
+const checkStatus = toolsStatus;
 
 async function ensureTools() {
   if (state.status === 'downloading') return toolsStatus();
@@ -167,7 +240,16 @@ async function ensureTools() {
   state.error = '';
   try {
     if (!resolveBinary('yt-dlp')) { state.tool = 'yt-dlp'; state.percent = 0; await installYtDlp(); clearBinaryCache(); }
-    if (!resolveBinary('ffmpeg')) { state.tool = 'ffmpeg'; state.percent = 0; await installFfmpeg(); clearBinaryCache(); }
+    if (!resolveBinary('ffmpeg')) {
+      state.tool = 'ffmpeg';
+      state.percent = 0;
+      try {
+        await installFfmpeg();
+      } catch (err) {
+        if (process.platform !== 'darwin') throw err;
+      }
+      clearBinaryCache();
+    }
     state.status = 'done';
   } catch (e) {
     try { logger.error(`Tool download failed: ${state.tool}`, e); } catch (_) {}
@@ -194,4 +276,4 @@ async function updateYtDlpIfManaged() {
   }
 }
 
-module.exports = { ensureTools, toolsStatus, updateYtDlpIfManaged, expectedHash, ytDlpAsset, ffmpegAsset };
+module.exports = { ensureTools, toolsStatus, checkStatus, updateYtDlpIfManaged, expectedHash, ytDlpAsset, ffmpegAsset };

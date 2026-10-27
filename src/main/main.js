@@ -2,8 +2,9 @@ const { app, BrowserWindow, dialog, ipcMain, screen, shell, Tray, Menu, nativeIm
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { pathToFileURL } = require('url');
-const { spawn } = require('child_process');
+const url = require('url');
+const { pathToFileURL } = url;
+const { spawn, execFile } = require('child_process');
 const crypto = require('crypto');
 const zlib = require('zlib');
 const RFACC_KEY = crypto.createHash('sha256').update('riff-account-key-v1').digest();
@@ -78,7 +79,22 @@ app.commandLine.appendSwitch('disable-background-networking');
 app.commandLine.appendSwitch('disable-domain-reliability');
 app.commandLine.appendSwitch('disable-sync');
 app.commandLine.appendSwitch('disable-speech-api');
-app.commandLine.appendSwitch('js-flags', '--expose-gc');
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=384');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
+app.commandLine.appendSwitch('disk-cache-size', '52428800');
+app.commandLine.appendSwitch('media-cache-size', '52428800');
+
+setInterval(() => {
+  try {
+    session.defaultSession.clearCache().catch(() => {});
+    if (global.gc) global.gc();
+  } catch (_) {}
+}, 180000);
+app.on('ready', () => {
+  const cleanUA = (app.userAgentFallback || '').replace(/\s*Electron\/[^\s]+/gi, '').replace(/\s*riff\/[^\s]+/gi, '');
+  if (cleanUA) app.userAgentFallback = cleanUA;
+});
 
 const extraFlags = (process.env.RIFF_FLAGS || '').split(';').map((s) => s.trim()).filter(Boolean);
 for (const flag of extraFlags) {
@@ -138,6 +154,9 @@ function runGUI() {
   const FALLBACK_STORAGE_FILE = path.join(app.getPath('userData'), 'storage.json');
 
   function getActiveStorageFile() {
+    if (process.platform === 'darwin' || app.isPackaged) {
+      return FALLBACK_STORAGE_FILE;
+    }
     try {
       fs.accessSync(path.dirname(PRIMARY_STORAGE_FILE), fs.constants.W_OK);
       return PRIMARY_STORAGE_FILE;
@@ -354,6 +373,19 @@ function runGUI() {
       return { action: 'deny' };
     });
 
+    mainWindow.webContents.on('did-finish-load', () => {
+      try {
+        const curUrl = mainWindow.webContents.getURL() || '';
+        if (curUrl.includes('index.html')) {
+          if (mainWindow.webContents.navigationHistory?.clear) {
+            mainWindow.webContents.navigationHistory.clear();
+          } else if (mainWindow.webContents.clearHistory) {
+            mainWindow.webContents.clearHistory();
+          }
+        }
+      } catch (_) {}
+    });
+
     mainWindow.on('minimize', () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('window-visibility', false);
@@ -407,6 +439,9 @@ function runGUI() {
   ipcMain.removeHandler('account-import');
   ipcMain.removeHandler('pick-media');
   ipcMain.removeHandler('import-audio-files');
+  ipcMain.removeHandler('pick-local-files');
+  ipcMain.removeHandler('pick-local-folder');
+  ipcMain.removeHandler('rescan-local-metadata');
 
   ipcMain.on('window-minimize', () => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
@@ -457,8 +492,23 @@ function runGUI() {
     ipcMain.on('open-logs-folder', () => { shell.openPath(LOG_DIR); });
 
       ipcMain.handle('get-server-port', () => serverPort);
+      ipcMain.handle('set-app-proxy', async (event, proxyUrl) => {
+        try {
+          const clean = String(proxyUrl || '').trim();
+          const config = clean
+            ? { proxyRules: clean, proxyBypassRules: '<local>,127.0.0.1,localhost' }
+            : { mode: 'direct' };
+          await session.defaultSession.setProxy(config);
+          const googleSess = session.fromPartition('persist:riff-google');
+          if (googleSess) await googleSess.setProxy(config);
+          return { success: true };
+        } catch (e) {
+          return { success: false, error: e.message };
+        }
+      });
       ipcMain.handle('get-gpu-compositing', () => { try { return String(app.getGPUFeatureStatus().gpu_compositing || ''); } catch (e) { return ''; } });
       ipcMain.handle('launcher-info', () => getLauncherInfo());
+      ipcMain.handle('install-launcher', () => installLauncher());
       ipcMain.handle('get-audio-output-info', async () => getSystemAudioOutputInfo());
       require('./themes').register(() => mainWindow);
       require('./plugins').register(() => mainWindow);
@@ -581,6 +631,346 @@ function runGUI() {
           out.push({ id, file, ext, name: path.basename(src, path.extname(src)) });
         }
         return out;
+      });
+
+      async function extractLocalTrackMetadata(filePath) {
+        if (!filePath || typeof filePath !== 'string') return null;
+        const coversDir = path.join(app.getPath('userData'), 'local-covers');
+        fs.mkdirSync(coversDir, { recursive: true });
+
+        const fileHash = crypto.createHash('md5').update(filePath).digest('hex');
+        const coverOut = path.join(coversDir, fileHash + '.jpg');
+
+        let title = '';
+        let artist = '';
+        let album = '';
+        let trackNum = 0;
+        let duration = 0;
+
+        let fd = null;
+        try {
+          fd = fs.openSync(filePath, 'r');
+          const header = Buffer.alloc(10);
+          const bytesRead = fs.readSync(fd, header, 0, 10, 0);
+
+          if (bytesRead >= 10 && header[0] === 0x49 && header[1] === 0x44 && header[2] === 0x33) {
+            const id3Version = header[3];
+            const id3Flags = header[5];
+            const tagSize = (header[6] << 21) | (header[7] << 14) | (header[8] << 7) | header[9];
+            const readLimit = Math.min(tagSize, 12 * 1024 * 1024);
+            const tagBuf = Buffer.alloc(readLimit);
+            fs.readSync(fd, tagBuf, 0, tagBuf.length, 10);
+
+            let offset = 0;
+            if (id3Flags & 0x40) {
+              if (id3Version === 4 && offset + 4 <= tagBuf.length) {
+                const extSize = (tagBuf[offset] << 21) | (tagBuf[offset + 1] << 14) | (tagBuf[offset + 2] << 7) | tagBuf[offset + 3];
+                offset += extSize;
+              } else if (id3Version === 3 && offset + 4 <= tagBuf.length) {
+                const extSize = tagBuf.readUInt32BE(offset);
+                offset += 4 + extSize;
+              }
+            }
+
+            function decodeId3Text(buf) {
+              if (!buf || buf.length <= 1) return '';
+              const enc = buf[0];
+              const data = buf.subarray(1);
+              if (enc === 0) return data.toString('latin1').replace(/\0+$/, '');
+              if (enc === 1) {
+                if (data.length >= 2 && data[0] === 0xfe && data[1] === 0xff) {
+                  return data.swap16().toString('utf16le').replace(/\0+$/, '');
+                }
+                return data.toString('utf16le').replace(/\0+$/, '');
+              }
+              if (enc === 2) {
+                return data.swap16().toString('utf16le').replace(/\0+$/, '');
+              }
+              if (enc === 3) return data.toString('utf8').replace(/\0+$/, '');
+              return data.toString('utf8').replace(/\0+$/, '');
+            }
+
+            while (offset + 10 <= tagBuf.length) {
+              if (tagBuf[offset] === 0) break;
+              const frameId = tagBuf.toString('latin1', offset, offset + 4);
+              if (!/^[A-Z0-9]{4}$/.test(frameId)) break;
+              let frameSize = 0;
+              if (id3Version === 4) {
+                frameSize = (tagBuf[offset + 4] << 21) | (tagBuf[offset + 5] << 14) | (tagBuf[offset + 6] << 7) | tagBuf[offset + 7];
+              } else {
+                frameSize = tagBuf.readUInt32BE(offset + 4);
+              }
+              offset += 10;
+              if (frameSize <= 0 || offset + frameSize > tagBuf.length) break;
+
+              const frameData = tagBuf.subarray(offset, offset + frameSize);
+              if (frameId === 'TIT2' && !title) {
+                title = decodeId3Text(frameData).trim();
+              } else if (frameId === 'TPE1' && !artist) {
+                artist = decodeId3Text(frameData).trim();
+              } else if (frameId === 'TPE2' && !artist) {
+                artist = decodeId3Text(frameData).trim();
+              } else if (frameId === 'TALB' && !album) {
+                album = decodeId3Text(frameData).trim();
+              } else if (frameId === 'TRCK' && !trackNum) {
+                const val = decodeId3Text(frameData).trim();
+                const n = parseInt(val.split('/')[0], 10);
+                if (!isNaN(n)) trackNum = n;
+              } else if (frameId === 'TLEN' && !duration) {
+                const ms = parseInt(decodeId3Text(frameData).trim(), 10);
+                if (!isNaN(ms) && ms > 0) duration = ms / 1000;
+              } else if (frameId === 'APIC' && !fs.existsSync(coverOut)) {
+                try {
+                  const enc = frameData[0];
+                  let p = 1;
+                  while (p < frameData.length && frameData[p] !== 0) p++;
+                  p++;
+                  p++;
+                  if (enc === 1 || enc === 2) {
+                    while (p + 1 < frameData.length && !(frameData[p] === 0 && frameData[p + 1] === 0)) p += 2;
+                    p += 2;
+                  } else {
+                    while (p < frameData.length && frameData[p] !== 0) p++;
+                    p++;
+                  }
+                  if (p < frameData.length) {
+                    const imgBuf = frameData.subarray(p);
+                    if (imgBuf.length > 32) {
+                      fs.writeFileSync(coverOut, imgBuf);
+                    }
+                  }
+                } catch (e) {}
+              }
+              offset += frameSize;
+            }
+          } else if (bytesRead >= 4 && header.subarray(0, 4).toString('latin1') === 'fLaC') {
+            let pos = 4;
+            let isLast = false;
+            while (!isLast) {
+              const blkHeader = Buffer.alloc(4);
+              if (fs.readSync(fd, blkHeader, 0, 4, pos) < 4) break;
+              pos += 4;
+              isLast = (blkHeader[0] & 0x80) !== 0;
+              const blockType = blkHeader[0] & 0x7F;
+              const blockLength = (blkHeader[1] << 16) | (blkHeader[2] << 8) | blkHeader[3];
+
+              if (blockType === 0 && blockLength >= 18) {
+                const sBuf = Buffer.alloc(Math.min(blockLength, 34));
+                fs.readSync(fd, sBuf, 0, sBuf.length, pos);
+                const sampleRate = (sBuf[10] << 12) | (sBuf[11] << 4) | (sBuf[12] >> 4);
+                const totalSamples = ((sBuf[13] & 0x0f) * 0x100000000) +
+                  (sBuf[14] << 24 >>> 0) + (sBuf[15] << 16) + (sBuf[16] << 8) + sBuf[17];
+                if (sampleRate > 0 && totalSamples > 0 && !duration) {
+                  duration = totalSamples / sampleRate;
+                }
+              } else if (blockType === 4) {
+                const vBuf = Buffer.alloc(Math.min(blockLength, 1024 * 1024));
+                fs.readSync(fd, vBuf, 0, vBuf.length, pos);
+                let vPos = 0;
+                if (vPos + 4 <= vBuf.length) {
+                  const vendorLen = vBuf.readUInt32LE(vPos);
+                  vPos += 4 + vendorLen;
+                  if (vPos + 4 <= vBuf.length) {
+                    const count = vBuf.readUInt32LE(vPos);
+                    vPos += 4;
+                    for (let i = 0; i < count && vPos + 4 <= vBuf.length; i++) {
+                      const commentLen = vBuf.readUInt32LE(vPos);
+                      vPos += 4;
+                      if (vPos + commentLen > vBuf.length) break;
+                      const comment = vBuf.toString('utf8', vPos, vPos + commentLen);
+                      vPos += commentLen;
+                      const eq = comment.indexOf('=');
+                      if (eq > 0) {
+                        const key = comment.slice(0, eq).toUpperCase();
+                        const val = comment.slice(eq + 1).trim();
+                        if (key === 'TITLE' && !title) title = val;
+                        else if (key === 'ARTIST' && !artist) artist = val;
+                        else if (key === 'ALBUM' && !album) album = val;
+                        else if (key === 'TRACKNUMBER' && !trackNum) {
+                          const n = parseInt(val.split('/')[0], 10);
+                          if (!isNaN(n)) trackNum = n;
+                        }
+                      }
+                    }
+                  }
+                }
+              } else if (blockType === 6 && !fs.existsSync(coverOut)) {
+                try {
+                  const pBuf = Buffer.alloc(Math.min(blockLength, 12 * 1024 * 1024));
+                  fs.readSync(fd, pBuf, 0, pBuf.length, pos);
+                  let pPos = 4;
+                  const mimeLen = pBuf.readUInt32BE(pPos);
+                  pPos += 4 + mimeLen;
+                  const descLen = pBuf.readUInt32BE(pPos);
+                  pPos += 4 + descLen + 16;
+                  const picLen = pBuf.readUInt32BE(pPos);
+                  pPos += 4;
+                  if (picLen > 0 && pPos + picLen <= pBuf.length) {
+                    fs.writeFileSync(coverOut, pBuf.subarray(pPos, pPos + picLen));
+                  }
+                } catch (e) {}
+              }
+              pos += blockLength;
+            }
+          }
+        } catch (e) {
+        } finally {
+          if (fd !== null) {
+            try { fs.closeSync(fd); } catch (e) {}
+          }
+        }
+
+        const platform = require('../shared/platform');
+        const ffprobeBin = platform.resolveBinary('ffprobe');
+        const ffmpegBin = platform.resolveBinary('ffmpeg');
+
+        if ((!title || !artist || !duration) && ffprobeBin) {
+          await new Promise(resolve => {
+            execFile(ffprobeBin, [
+              '-v', 'quiet',
+              '-print_format', 'json',
+              '-show_format',
+              '-show_streams',
+              filePath
+            ], { timeout: 5000 }, (err, stdout) => {
+              if (!err && stdout) {
+                try {
+                  const info = JSON.parse(stdout);
+                  const tags = (info.format && info.format.tags) || {};
+                  const getTag = (name) => {
+                    const k = Object.keys(tags).find(x => x.toLowerCase() === name.toLowerCase());
+                    return k ? String(tags[k]).trim() : '';
+                  };
+                  if (!title) title = getTag('title');
+                  if (!artist) artist = getTag('artist') || getTag('album_artist') || getTag('composer');
+                  if (!album) album = getTag('album');
+                  if (!trackNum) {
+                    const trk = getTag('track');
+                    const n = parseInt(trk.split('/')[0], 10);
+                    if (!isNaN(n)) trackNum = n;
+                  }
+                  if (!duration && info.format && info.format.duration) {
+                    const d = parseFloat(info.format.duration);
+                    if (!isNaN(d) && d > 0) duration = d;
+                  }
+                } catch (e) {}
+              }
+              resolve();
+            });
+          });
+        }
+
+        if (!fs.existsSync(coverOut) && ffmpegBin) {
+          await new Promise(resolve => {
+            execFile(ffmpegBin, [
+              '-y',
+              '-i', filePath,
+              '-an',
+              '-vcodec', 'mjpeg',
+              '-frames:v', '1',
+              coverOut
+            ], { timeout: 5000 }, () => resolve());
+          });
+        }
+
+        const ext = path.extname(filePath);
+        const base = path.basename(filePath, ext);
+        if (!title) {
+          if (base.includes(' - ')) {
+            const parts = base.split(' - ');
+            if (!artist) artist = parts[0].trim();
+            title = parts.slice(1).join(' - ').trim();
+          } else {
+            title = base.trim();
+          }
+        }
+        if (!artist) {
+          artist = 'Unknown Artist';
+        }
+
+        return {
+          id: 'local_' + fileHash,
+          title,
+          artist: artist || 'Unknown Artist',
+          album: album || '',
+          trackNumber: trackNum || 0,
+          duration: Math.round(duration || 0),
+          path: filePath,
+          url: url.pathToFileURL(filePath).toString(),
+          thumbnail: fs.existsSync(coverOut) ? url.pathToFileURL(coverOut).toString() : '',
+          cover: fs.existsSync(coverOut) ? url.pathToFileURL(coverOut).toString() : '',
+          platform: 'local'
+        };
+      }
+
+      ipcMain.handle('pick-local-files', async () => {
+        const r = await dialog.showOpenDialog(mainWindow, {
+          properties: ['openFile', 'multiSelections'],
+          filters: [{ name: 'Audio', extensions: ['mp3', 'flac', 'wav', 'ogg', 'm4a', 'aac', 'opus', 'wma'] }]
+        });
+        if (r.canceled || !r.filePaths) return [];
+        const tracks = [];
+        for (const fp of r.filePaths) {
+          try {
+            const meta = await extractLocalTrackMetadata(fp);
+            if (meta) tracks.push(meta);
+          } catch (e) {}
+        }
+        return tracks;
+      });
+
+      ipcMain.handle('pick-local-folder', async () => {
+        const r = await dialog.showOpenDialog(mainWindow, {
+          properties: ['openDirectory', 'multiSelections']
+        });
+        if (r.canceled || !r.filePaths) return [];
+        const AUDIO_EXT = new Set(['.mp3', '.flac', '.wav', '.ogg', '.m4a', '.aac', '.opus', '.wma']);
+        const sources = [];
+
+        function scanDir(dir) {
+          try {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+              const fullPath = path.join(dir, entry.name);
+              if (entry.isDirectory()) {
+                scanDir(fullPath);
+              } else if (entry.isFile()) {
+                const ext = path.extname(entry.name).toLowerCase();
+                if (AUDIO_EXT.has(ext)) {
+                  sources.push(fullPath);
+                }
+              }
+            }
+          } catch (e) {}
+        }
+
+        for (const dir of r.filePaths) {
+          scanDir(dir);
+        }
+
+        const tracks = [];
+        for (const fp of sources) {
+          try {
+            const meta = await extractLocalTrackMetadata(fp);
+            if (meta) tracks.push(meta);
+          } catch (e) {}
+        }
+        return tracks;
+      });
+
+      ipcMain.handle('rescan-local-metadata', async (event, paths) => {
+        if (!Array.isArray(paths)) return [];
+        const tracks = [];
+        for (const fp of paths) {
+          if (!fp || typeof fp !== 'string') continue;
+          try {
+            if (fs.existsSync(fp)) {
+              const meta = await extractLocalTrackMetadata(fp);
+              if (meta) tracks.push(meta);
+            }
+          } catch (e) {}
+        }
+        return tracks;
       });
 
       ipcMain.handle('get-data-dir', () => {
@@ -727,7 +1117,14 @@ function runGUI() {
       ipcMain.on('media-keys-active', () => { if (!mediaKeysActive) { mediaKeysActive = true; registerMediaKeys(); } });
       powerMonitor.on('resume', registerMediaKeys);
       powerMonitor.on('unlock-screen', registerMediaKeys);
-      app.on('will-quit', () => globalShortcut.unregisterAll());
+      app.on('will-quit', () => {
+        try {
+          globalShortcut.unregister('MediaPlayPause');
+          globalShortcut.unregister('MediaNextTrack');
+          globalShortcut.unregister('MediaPreviousTrack');
+        } catch (e) {}
+        globalShortcut.unregisterAll();
+      });
 
       let preMiniLyricsH = null;
       ipcMain.removeHandler('toggle-mini-window');
@@ -870,8 +1267,19 @@ function runGUI() {
       ipcMain.handle('google-login', async (event) => {
         const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
         const s = session.fromPartition('persist:riff-google');
-        const chromeUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+        const chromeUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
         try { s.setUserAgent(chromeUA); } catch (e) {}
+
+        try {
+          s.webRequest.onBeforeSendHeaders((details, callback) => {
+            if (details.requestHeaders) {
+              delete details.requestHeaders['sec-ch-ua'];
+              delete details.requestHeaders['sec-ch-ua-mobile'];
+              delete details.requestHeaders['sec-ch-ua-platform'];
+            }
+            callback({ requestHeaders: details.requestHeaders });
+          });
+        } catch (_) {}
 
         return new Promise((resolve) => {
           let finished = false;
@@ -885,10 +1293,15 @@ function runGUI() {
             webPreferences: {
               session: s,
               contextIsolation: true,
-              nodeIntegration: false
+              nodeIntegration: false,
+              disableBlinkFeatures: 'AutomationControlled'
             }
           });
           try { authWin.webContents.setUserAgent(chromeUA); } catch (e) {}
+
+          authWin.webContents.on('dom-ready', () => {
+            authWin.webContents.executeJavaScript('Object.defineProperty(navigator, "webdriver", { get: () => undefined });').catch(() => {});
+          });
 
           const checkCookies = async () => {
             if (finished) return;
@@ -1301,6 +1714,7 @@ function runGUI() {
       });
 
       app.whenReady().then(() => {
+        global.riffSessionFetch = (urlStr, opts) => session.defaultSession.fetch(urlStr, opts);
         if (process.platform === 'darwin' && app.dock) {
           try {
             const dockIcon = nativeImage.createFromPath(path.join(__dirname, '../../assets', 'icon.png'));
@@ -1308,7 +1722,69 @@ function runGUI() {
           } catch (_) {}
         }
         setupTray();
+        try {
+          session.defaultSession.webRequest.onBeforeSendHeaders(
+            { urls: ['*://*.googlevideo.com/*'] },
+            (details, callback) => {
+              const h = details.requestHeaders || {};
+              try {
+                const u = new URL(details.url);
+                const c = u.searchParams.get('c') || '';
+                if (c === 'ANDROID_VR') {
+                  h['User-Agent'] = 'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 14; eureka-user Build/SQ3A.220605.009.A1) gzip';
+                } else if (c === 'IOS') {
+                  h['User-Agent'] = 'com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X;)';
+                } else if (c === 'ANDROID_TESTSUITE' || c.startsWith('ANDROID')) {
+                  h['User-Agent'] = 'com.google.android.youtube/1.9 (Linux; U; Android 14; en_US) gzip';
+                }
+                delete h['Origin'];
+                delete h['origin'];
+                delete h['Referer'];
+                delete h['referer'];
+              } catch (_) {}
+              callback({ requestHeaders: h });
+            }
+          );
+        } catch (_) {}
+        try {
+          session.defaultSession.webRequest.onHeadersReceived(
+            {
+              urls: [
+                '*://*.googlevideo.com/*',
+                '*://*.ytimg.com/*',
+                '*://*.ggpht.com/*',
+                '*://*.googleusercontent.com/*',
+                '*://*.scdn.co/*',
+                '*://*.spotifycdn.com/*',
+                '*://*.mzstatic.com/*',
+                '*://*.sndcdn.com/*',
+                '*://*.dzcdn.net/*',
+                '*://*.yandex.net/*'
+              ]
+            },
+            (details, callback) => {
+              const rh = Object.assign({}, details.responseHeaders || {});
+              delete rh['access-control-allow-origin'];
+              delete rh['Access-Control-Allow-Origin'];
+              rh['Access-Control-Allow-Origin'] = ['*'];
+              rh['Access-Control-Allow-Headers'] = ['*'];
+              rh['Access-Control-Expose-Headers'] = ['Content-Length, Content-Range, Accept-Ranges'];
+              callback({ responseHeaders: rh });
+            }
+          );
+        } catch (_) {}
         createWindow();
+        try {
+          globalShortcut.register('MediaPlayPause', () => {
+            mainWindow?.webContents.send('media-control', 'play-pause');
+          });
+          globalShortcut.register('MediaNextTrack', () => {
+            mainWindow?.webContents.send('media-control', 'next');
+          });
+          globalShortcut.register('MediaPreviousTrack', () => {
+            mainWindow?.webContents.send('media-control', 'prev');
+          });
+        } catch (e) {}
         if (tutorialDone()) require('./updater').initUpdater(() => mainWindow);
         app.on('activate', () => {
           if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -48,26 +48,27 @@ function initUpdater(getWindow) {
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
   };
 
-  const fallbackFetchGitHub = async () => {
+  const checkViaGithubApi = async () => {
     try {
       const res = await fetch('https://api.github.com/repos/rootscripts/riff/releases/latest', {
         headers: { 'User-Agent': 'Riff-Player' }
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const json = await res.json();
-      const latestVersion = (json.tag_name || '').replace(/^v/i, '');
+      const latestVer = (json.tag_name || '').replace(/^v/i, '');
       const currentVersion = pkg.version || app.getVersion();
-      if (isNewer(latestVersion, currentVersion)) {
-        current = { version: latestVersion };
-        const ignored = readIgnored(ignoreFile) === latestVersion;
+      if (isNewer(latestVer, currentVersion)) {
+        current = { version: latestVer, releaseNotes: json.body || '', publishedAt: json.published_at || '', htmlUrl: json.html_url || '' };
+        const ignored = readIgnored(ignoreFile) === latestVer;
         if (ignored && !manualCheck) return;
         manualCheck = false;
         send('update-available', {
-          version: latestVersion,
-          releaseNotes: json.body,
-          htmlUrl: json.html_url,
+          version: latestVer,
+          releaseNotes: json.body || '',
+          publishedAt: json.published_at || '',
+          htmlUrl: json.html_url || '',
           canInstall: false,
-          url: json.html_url || `${releasesUrl}/tag/v${latestVersion}`
+          url: json.html_url || `${releasesUrl}/tag/v${latestVer}`
         });
       } else {
         if (manualCheck) {
@@ -82,6 +83,7 @@ function initUpdater(getWindow) {
       manualCheck = false;
     }
   };
+  const fallbackFetchGitHub = checkViaGithubApi;
 
   let autoUpdater = null;
   const hasUpdaterSupport = !isDev || fs.existsSync(devConfigFile);
@@ -93,18 +95,44 @@ function initUpdater(getWindow) {
       autoUpdater.autoDownload = false;
       autoUpdater.autoInstallOnAppQuit = false;
 
-      autoUpdater.on('update-available', (info) => {
+      let isDownloaded = false;
+
+      autoUpdater.on('update-available', async (info) => {
         current = info;
         const ignored = readIgnored(ignoreFile) === info.version;
         if (ignored && !manualCheck) return;
         manualCheck = false;
+
+        let releaseNotes = info.releaseNotes || info.releaseName || '';
+        let publishedAt = info.releaseDate || '';
+        let htmlUrl = `${releasesUrl}/tag/v${info.version}`;
+
+        try {
+          const res = await fetch('https://api.github.com/repos/rootscripts/riff/releases/latest', {
+            headers: { 'User-Agent': 'Riff-Player' }
+          });
+          if (res.ok) {
+            const json = await res.json();
+            if (json.body) releaseNotes = json.body;
+            if (json.published_at) publishedAt = json.published_at;
+            if (json.html_url) htmlUrl = json.html_url;
+          }
+        } catch (_) {}
+
+        current.releaseNotes = releaseNotes;
+        current.publishedAt = publishedAt;
+        current.htmlUrl = htmlUrl;
+
         send('update-available', {
           version: info.version,
           canInstall,
           url: `${releasesUrl}/tag/v${info.version}`,
-          releaseNotes: info.releaseNotes || info.releaseName || '',
-          htmlUrl: `${releasesUrl}/tag/v${info.version}`
+          releaseNotes,
+          publishedAt,
+          htmlUrl
         });
+
+        autoUpdater.downloadUpdate().catch(() => {});
       });
 
       autoUpdater.on('update-not-available', () => {
@@ -115,8 +143,19 @@ function initUpdater(getWindow) {
       autoUpdater.on('download-progress', (p) => send('update-progress', { percent: Math.round(p.percent) }));
 
       autoUpdater.on('update-downloaded', () => {
-        if (installNow) autoUpdater.quitAndInstall();
-        else send('update-ready', { version: current && current.version });
+        isDownloaded = true;
+        if (installNow) {
+          autoUpdater.quitAndInstall();
+        } else {
+          send('update-ready', { version: current && current.version });
+          send('update-downloaded', {
+            version: current && current.version,
+            releaseNotes: current && (current.releaseNotes || current.body || ''),
+            publishedAt: current && (current.publishedAt || current.published_at || ''),
+            htmlUrl: current && (current.htmlUrl || current.html_url || ''),
+            canInstall: true
+          });
+        }
       });
 
       autoUpdater.on('error', () => {
@@ -143,6 +182,25 @@ function initUpdater(getWindow) {
     return { ok: true };
   });
 
+  const doInstallNow = () => {
+    installNow = true;
+    if (autoUpdater && canInstall) {
+      try {
+        autoUpdater.quitAndInstall();
+      } catch (_) {
+        autoUpdater.downloadUpdate().then(() => {
+          autoUpdater.quitAndInstall();
+        }).catch(() => {});
+      }
+    } else {
+      app.relaunch();
+      app.exit(0);
+    }
+  };
+
+  try { ipcMain.removeHandler('install-update-now'); } catch (_) {}
+  ipcMain.on('install-update-now', doInstallNow);
+
   try { ipcMain.removeAllListeners('update-action'); } catch (_) {}
   ipcMain.on('update-action', (event, action) => {
     if (action === 'ignore') {
@@ -151,8 +209,7 @@ function initUpdater(getWindow) {
     }
     if (!canInstall || !autoUpdater) return;
     if (action === 'now') {
-      installNow = true;
-      autoUpdater.downloadUpdate().catch(() => {});
+      doInstallNow();
     } else if (action === 'later') {
       installNow = false;
       autoUpdater.autoInstallOnAppQuit = true;
