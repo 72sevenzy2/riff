@@ -877,6 +877,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       navigator.mediaSession.setActionHandler('previoustrack', () => handleMediaCommand('prev', 'session'));
       navigator.mediaSession.setActionHandler('nexttrack', () => handleMediaCommand('next', 'session'));
       navigator.mediaSession.setActionHandler('stop', () => handleMediaCommand('stop', 'session'));
+      navigator.mediaSession.setActionHandler('seekbackward', () => handleMediaCommand('prev', 'session'));
+      navigator.mediaSession.setActionHandler('seekforward', () => handleMediaCommand('next', 'session'));
       navigator.mediaSession.setActionHandler('seekto', (details) => {
         if (details.seekTime !== undefined && details.seekTime !== null) {
           const audio = (state.secondaryAudio && !state.secondaryAudio.paused) ? state.secondaryAudio : el.nativeAudio;
@@ -7490,6 +7492,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let lastTimeupdateSec = -1;
     el.nativeAudio.addEventListener('timeupdate', () => {
       try { onLastFmTimeUpdate(); } catch (_) {}
+      updateMediaPositionState();
       try {
         const activeTrim = state.currentTrack ? getTrackTrim(state.currentTrack) : null;
         if (activeTrim && Number.isFinite(activeTrim.end) && activeTrim.end > (activeTrim.start || 0) + 1.5 && el.nativeAudio && !isDraggingScrubber) {
