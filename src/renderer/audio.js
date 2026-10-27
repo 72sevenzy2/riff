@@ -522,7 +522,7 @@
       if (this._attachedElement) {
         try {
           this._attachedElement.volume = vol;
-          this._attachedElement.muted = !!this.isMuted;
+          this._attachedElement.muted = this.graphInitialized ? false : !!this.isMuted;
         } catch (_) {}
       }
       if (this.masterGain) {

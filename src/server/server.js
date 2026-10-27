@@ -5464,81 +5464,153 @@ async function handleAppleImport(req, res, inputUrl) {
   }
 }
 
-async function handleYandexImport(req, res, inputUrl) {
-  let apiPath = '';
-  const mUsers = (inputUrl || '').match(/users\/([^/?#]+)\/playlists\/(\d+)/i);
-  const mPl = (inputUrl || '').match(/playlists\/((?:lk\.)?[a-f0-9-]{8,})/i);
+const YANDEX_API = 'https://api.music.yandex.net';
+const YANDEX_HEADERS = {
+  'User-Agent': 'Yandex-Music-API',
+  'X-Yandex-Music-Client': 'YandexMusicAndroid/24023231',
+  'Accept': 'application/json'
+};
 
-  if (mUsers) {
-    apiPath = `/users/${mUsers[1]}/playlists/${mUsers[2]}`;
-  } else if (mPl) {
-    apiPath = `/playlist/${mPl[1]}`;
-  } else {
-    res.writeHead(400, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ success: false, error: 'Invalid Yandex Music playlist URL' }));
+function parseYandexLink(input) {
+  const text = String(input || '').trim();
+  let m = text.match(/users\/([^/?#]+)\/playlists\/(\d+)/i);
+  if (m) return { type: 'playlist', path: `/users/${m[1]}/playlists/${m[2]}` };
+  m = text.match(/playlists\/((?:lk\.)?[a-f0-9-]{8,})/i);
+  if (m) return { type: 'playlist', path: `/playlist/${m[1]}` };
+  m = text.match(/album\/(\d+)\/track\/(\d+)/i);
+  if (m) return { type: 'track', ids: [`${m[2]}:${m[1]}`] };
+  m = text.match(/track\/(\d+)/i);
+  if (m) return { type: 'track', ids: [m[1]] };
+  m = text.match(/album\/(\d+)/i);
+  if (m) return { type: 'album', id: m[1] };
+  return null;
+}
+
+async function yandexRequest(apiPath, options = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch(YANDEX_API + apiPath, {
+        method: options.method || 'GET',
+        headers: Object.assign({}, YANDEX_HEADERS, options.headers || {}),
+        body: options.body,
+        signal: AbortSignal.timeout(15000)
+      });
+      if (response.status >= 500 && attempt === 0) {
+        await new Promise(r => setTimeout(r, 400));
+        continue;
+      }
+      return response;
+    } catch (e) {
+      lastErr = e;
+    }
   }
+  throw lastErr || new Error('network');
+}
+
+async function fetchYandexTracksByIds(ids) {
+  const found = new Map();
+  for (let i = 0; i < ids.length; i += 100) {
+    const body = new URLSearchParams({ 'track-ids': ids.slice(i, i + 100).join(',') });
+    const response = await yandexRequest('/tracks', {
+      method: 'POST',
+      body,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+    if (!response.ok) continue;
+    const data = await response.json().catch(() => null);
+    const list = data && Array.isArray(data.result) ? data.result : [];
+    for (const t of list) {
+      if (t && t.id != null) found.set(String(t.id), t);
+    }
+  }
+  return found;
+}
+
+function yandexCoverUrl(uri, size = '400x400') {
+  if (!uri || typeof uri !== 'string') return '';
+  const value = uri.replace('%%', size);
+  return /^https?:\/\//i.test(value) ? value : 'https://' + value;
+}
+
+function normalizeYandexTrack(t, fallbackAlbum = '') {
+  if (!t || !t.title) return null;
+  let title = String(t.title).trim();
+  const version = typeof t.version === 'string' ? t.version.trim() : '';
+  if (version && !title.toLowerCase().includes(version.toLowerCase())) title += ` (${version})`;
+  const names = Array.isArray(t.artists) ? t.artists.map(a => a && a.name).filter(Boolean) : [];
+  const artist = names.join(', ') || (typeof t.artist === 'string' ? t.artist : '');
+  const album = Array.isArray(t.albums) && t.albums[0] ? t.albums[0] : null;
+  const cover = yandexCoverUrl(t.ogImage || t.coverUri || (album && album.coverUri) || (typeof t.cover === 'string' ? t.cover : '')) || t.thumbnail || t.image || '';
+  const duration = t.durationMs ? Math.round(t.durationMs / 1000) : (t.duration ? Math.round(t.duration) : 0);
+  return { title, artist, album: (album && album.title) || fallbackAlbum, duration, cover, thumbnail: cover, image: cover };
+}
+
+async function handleYandexImport(req, res, inputUrl) {
+  const send = (status, body) => {
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(body));
+  };
+  const fail = (status) => {
+    if (status === 401 || status === 403) return send(403, { success: false, error: 'private', status: 403 });
+    if (status === 404) return send(404, { success: false, error: 'not found', status: 404 });
+    if (status === 429) return send(429, { success: false, error: 'too many requests', status: 429 });
+    return send(status || 502, { success: false, error: 'Failed to fetch from Yandex Music', status: status || 502 });
+  };
+
+  const link = parseYandexLink(inputUrl);
+  if (!link) return send(400, { success: false, error: 'unsupported link', status: 400 });
 
   try {
-    const response = await fetch(`https://api.music.yandex.net${apiPath}`, {
-      headers: {
-        'User-Agent': 'Yandex-Music-API',
-        'X-Yandex-Music-Client': 'YandexMusicAndroid/24023231',
-        'Accept': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      res.writeHead(response.status, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ success: false, error: 'Failed to fetch playlist from Yandex Music', status: response.status }));
-    }
-
-    const data = await response.json();
-    const r = data && data.result ? data.result : (data || {});
+    let name = 'Yandex Music Playlist';
     let cover = '';
-    if (r.ogImage) {
-      cover = 'https://' + r.ogImage.replace('%%', '400x400');
-    } else if (r.coverUrl) {
-      cover = r.coverUrl.startsWith('http') ? r.coverUrl : ('https://' + r.coverUrl.replace('%%', '400x400'));
-    } else if (r.cover && r.cover.uri) {
-      cover = 'https://' + r.cover.uri.replace('%%', '400x400');
-    } else if (typeof r.cover === 'string') {
-      cover = r.cover.startsWith('http') ? r.cover : ('https://' + r.cover.replace('%%', '400x400'));
+    let rawTracks = [];
+
+    if (link.type === 'playlist') {
+      const response = await yandexRequest(link.path);
+      if (!response.ok) return fail(response.status);
+      const data = await response.json();
+      const r = data && data.result ? data.result : (data || {});
+      name = r.title || r.name || name;
+      cover = yandexCoverUrl(r.ogImage || r.coverUrl || (r.cover && r.cover.uri) || (typeof r.cover === 'string' ? r.cover : ''));
+      const items = Array.isArray(r.tracks) ? r.tracks : [];
+      const resolved = new Array(items.length).fill(null);
+      const missing = [];
+      items.forEach((item, idx) => {
+        const t = item && item.track ? item.track : (item && item.title ? item : null);
+        if (t && t.title) resolved[idx] = t;
+        else if (item && item.id != null) missing.push({ idx, id: String(item.id), key: item.albumId != null ? `${item.id}:${item.albumId}` : String(item.id) });
+      });
+      if (missing.length) {
+        const found = await fetchYandexTracksByIds(missing.map(m => m.key));
+        for (const m of missing) resolved[m.idx] = found.get(m.id) || null;
+      }
+      rawTracks = resolved;
+    } else if (link.type === 'album') {
+      const response = await yandexRequest(`/albums/${link.id}/with-tracks`);
+      if (!response.ok) return fail(response.status);
+      const data = await response.json();
+      const r = data && data.result ? data.result : {};
+      name = r.title || 'Yandex Music Album';
+      cover = yandexCoverUrl(r.ogImage || r.coverUri);
+      rawTracks = (Array.isArray(r.volumes) ? r.volumes : []).flat();
+      rawTracks = rawTracks.map(t => (t && !t.albums ? Object.assign({}, t, { albums: [{ title: r.title, coverUri: r.coverUri }] }) : t));
+    } else {
+      const found = await fetchYandexTracksByIds(link.ids);
+      rawTracks = Array.from(found.values());
+      if (!rawTracks.length) return fail(404);
+      const first = normalizeYandexTrack(rawTracks[0]);
+      name = first ? first.title : 'Yandex Music Track';
+      cover = first ? first.cover : '';
     }
 
-    const rawTracks = Array.isArray(r.tracks) ? r.tracks : [];
-    const tracks = rawTracks.map(item => {
-      const t = (item && item.track) ? item.track : item;
-      if (!t) return null;
-      const title = t.title || '';
-      let artist = '';
-      if (Array.isArray(t.artists) && t.artists.length > 0) {
-        artist = t.artists.map(a => a && a.name).filter(Boolean).join(', ');
-      } else if (typeof t.artist === 'string') {
-        artist = t.artist;
-      }
-      const duration = t.durationMs ? Math.round(t.durationMs / 1000) : (t.duration ? Math.round(t.duration) : 0);
-      let trackCover = '';
-      if (t.ogImage) trackCover = 'https://' + t.ogImage.replace('%%', '400x400');
-      else if (t.coverUri) trackCover = 'https://' + t.coverUri.replace('%%', '400x400');
-      else if (t.albums && t.albums[0] && t.albums[0].coverUri) trackCover = 'https://' + t.albums[0].coverUri.replace('%%', '400x400');
-      else if (typeof t.cover === 'string') trackCover = t.cover.startsWith('http') ? t.cover : ('https://' + t.cover.replace('%%', '400x400'));
-      else if (t.thumbnail) trackCover = t.thumbnail;
-      else if (t.image) trackCover = t.image;
-      return { title, artist, duration, cover: trackCover, thumbnail: trackCover, image: trackCover };
-    }).filter(t => t && t.title);
-
-    const name = r.title || r.name || 'Yandex Music Playlist';
-
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({
-      success: true,
-      name,
-      cover,
-      tracks
-    }));
+    const tracks = rawTracks.map(t => normalizeYandexTrack(t)).filter(Boolean);
+    if (!tracks.length) return fail(404);
+    return send(200, { success: true, name, cover, tracks, total: rawTracks.length, skipped: rawTracks.length - tracks.length });
   } catch (err) {
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ success: false, error: err.message || 'Server error' }));
+    try { logger.error('Yandex import failed: ' + inputUrl, err); } catch (_) {}
+    const isNet = err && (err.name === 'TimeoutError' || err.name === 'AbortError' || /fetch|network|dns|econnrefused|etimedout|timeout/i.test(err.message || ''));
+    return send(isNet ? 504 : 500, { success: false, error: isNet ? 'network' : (err.message || 'unknown'), status: isNet ? 504 : 500 });
   }
 }
 

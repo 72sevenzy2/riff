@@ -17,6 +17,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pickLocalFiles: () => ipcRenderer.invoke('pick-local-files'),
   pickLocalFolder: () => ipcRenderer.invoke('pick-local-folder'),
   rescanLocalMetadata: (paths) => ipcRenderer.invoke('rescan-local-metadata', paths),
+  getDefaultMusicDir: () => ipcRenderer.invoke('get-default-music-dir'),
+  pickScanFolder: () => ipcRenderer.invoke('pick-scan-folder'),
+  scanLocalFolders: (opts) => ipcRenderer.invoke('scan-local-folders', opts),
   onWindowVisibility: (callback) => {
     ipcRenderer.on('window-visibility', (event, visible) => callback(visible));
   },
@@ -108,5 +111,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   accountImport: () => ipcRenderer.invoke('account-import'),
   storageInitSync: () => ipcRenderer.sendSync('storage-get-all-sync'),
   storageSaveBatch: (data) => ipcRenderer.send('storage-save-batch', data),
-  storageSaveSync: (data) => ipcRenderer.sendSync('storage-save-sync'),
+  storageSaveSync: (data) => ipcRenderer.sendSync('storage-save-sync', data),
 });

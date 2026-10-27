@@ -1703,6 +1703,21 @@
               </div>
             </div>
 
+            <div class="setting-item" id="setting-auto-scan">
+              <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
+                <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+                  <span class="setting-name">Show music from this device</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Automatically add audio files from these folders to Local</span>
+                </div>
+                <button class="effect-switch-btn active" id="btn-auto-scan"><span class="thumb"></span></button>
+              </div>
+              <div id="auto-scan-folders" style="display: flex; flex-direction: column; gap: 6px; margin-top: 10px;"></div>
+              <div style="display: flex; gap: 8px; margin-top: 10px;">
+                <button class="btn-outline-pill" id="btn-auto-scan-add" style="padding: 6px 14px; font-size: calc(12px * var(--font-scale, 1));">Add folder</button>
+                <button class="btn-outline-pill" id="btn-auto-scan-now" style="padding: 6px 14px; font-size: calc(12px * var(--font-scale, 1));">Scan now</button>
+              </div>
+            </div>
+
             <div class="setting-item" id="download-folder-item">
               <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
                 <div style="display: flex; align-items: center; gap: 12px;">
@@ -1877,8 +1892,8 @@
                   <div class="setting-item" id="setting-win-media-keys" style="display: none;">
                     <div class="setting-item-top" style="align-items: center;">
                       <div style="display: flex; flex-direction: column; gap: 2px;">
-                        <span class="setting-name">Capture media keys (Windows)</span>
-                        <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Turn off if another app should receive your media keys</span>
+                        <span class="setting-name">Legacy media key capture (Windows)</span>
+                        <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Leave off to use the Windows media overlay and lock screen controls. Turning this on takes media keys away from the overlay</span>
                       </div>
                       <button class="effect-switch-btn active" id="btn-win-media-keys"><span class="thumb"></span></button>
                     </div>

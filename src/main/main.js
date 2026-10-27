@@ -61,7 +61,7 @@ if (process.platform === 'linux') {
 }
 
 if (process.platform === 'win32') {
-  enabledFeatures.push('HardwareMediaKeyHandling');
+  enabledFeatures.push('HardwareMediaKeyHandling', 'MediaSessionService');
   app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 }
 
@@ -197,6 +197,7 @@ function runGUI() {
 
   let storageFlushTimer = null;
   let latestStorageSnapshot = null;
+  let storageDirty = false;
 
   ipcMain.on('storage-get-all-sync', (event) => {
     event.returnValue = latestStorageSnapshot || readStorageDiskSync();
@@ -205,17 +206,20 @@ function runGUI() {
   ipcMain.on('storage-save-batch', (event, data) => {
     if (!data || typeof data !== 'object') return;
     latestStorageSnapshot = data;
+    storageDirty = true;
     if (storageFlushTimer) clearTimeout(storageFlushTimer);
     storageFlushTimer = setTimeout(() => {
       storageFlushTimer = null;
+      storageDirty = false;
       writeStorageDiskSync(latestStorageSnapshot);
     }, 250);
   });
 
   ipcMain.on('storage-save-sync', (event, data) => {
-    if (storageFlushTimer) { clearTimeout(storageFlushTimer); storageFlushTimer = null; }
     if (data && typeof data === 'object') {
+      if (storageFlushTimer) { clearTimeout(storageFlushTimer); storageFlushTimer = null; }
       latestStorageSnapshot = data;
+      storageDirty = false;
       writeStorageDiskSync(latestStorageSnapshot);
     }
     event.returnValue = true;
@@ -225,7 +229,10 @@ function runGUI() {
     if (storageFlushTimer) {
       clearTimeout(storageFlushTimer);
       storageFlushTimer = null;
-      if (latestStorageSnapshot) writeStorageDiskSync(latestStorageSnapshot);
+    }
+    if (storageDirty && latestStorageSnapshot) {
+      storageDirty = false;
+      writeStorageDiskSync(latestStorageSnapshot);
     }
   });
 
@@ -973,6 +980,94 @@ function runGUI() {
         return tracks;
       });
 
+      const SCAN_AUDIO_EXT = new Set(['.mp3', '.flac', '.wav', '.ogg', '.m4a', '.aac', '.opus', '.wma']);
+      const SCAN_BATCH_LIMIT = 1500;
+      const pathKey = (p) => {
+        const n = path.normalize(String(p));
+        return process.platform === 'win32' ? n.toLowerCase() : n;
+      };
+
+      async function collectAudioFiles(dir, out, status, depth) {
+        let entries;
+        try {
+          entries = await fs.promises.readdir(dir, { withFileTypes: true });
+        } catch (e) {
+          status.partial = true;
+          return;
+        }
+        for (const entry of entries) {
+          if (entry.name.startsWith('.')) continue;
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            if (depth < 12) await collectAudioFiles(full, out, status, depth + 1);
+          } else if (entry.isFile() && SCAN_AUDIO_EXT.has(path.extname(entry.name).toLowerCase())) {
+            out.push(full);
+          }
+        }
+      }
+
+      ipcMain.handle('get-default-music-dir', () => {
+        try { return app.getPath('music'); } catch (e) { return ''; }
+      });
+
+      ipcMain.handle('pick-scan-folder', async () => {
+        const r = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] });
+        return r.canceled || !r.filePaths || !r.filePaths[0] ? null : r.filePaths[0];
+      });
+
+      let scanInFlight = null;
+      ipcMain.handle('scan-local-folders', (event, opts) => {
+        if (scanInFlight) return scanInFlight;
+        scanInFlight = (async () => {
+          const dirs = Array.isArray(opts && opts.dirs) ? opts.dirs.filter(d => typeof d === 'string' && path.isAbsolute(d)) : [];
+          const known = Array.isArray(opts && opts.known) ? opts.known.filter(p => typeof p === 'string') : [];
+          const skip = Array.isArray(opts && opts.skip) ? opts.skip.filter(p => typeof p === 'string') : [];
+          const skipKeys = new Set([...known, ...skip].map(pathKey));
+          const foundKeys = new Set();
+          const roots = [];
+          const fresh = [];
+
+          for (const dir of dirs) {
+            try {
+              if (!(await fs.promises.stat(dir)).isDirectory()) continue;
+            } catch (e) { continue; }
+            const files = [];
+            const status = { partial: false };
+            await collectAudioFiles(dir, files, status, 0);
+            roots.push({ key: pathKey(dir), complete: !status.partial });
+            for (const fp of files) {
+              const k = pathKey(fp);
+              if (foundKeys.has(k)) continue;
+              foundKeys.add(k);
+              if (!skipKeys.has(k)) fresh.push(fp);
+            }
+          }
+
+          const batch = fresh.slice(0, SCAN_BATCH_LIMIT);
+          const tracks = [];
+          let cursor = 0;
+          const worker = async () => {
+            while (cursor < batch.length) {
+              const fp = batch[cursor++];
+              try {
+                const meta = await extractLocalTrackMetadata(fp);
+                if (meta) tracks.push(meta);
+              } catch (e) {}
+            }
+          };
+          await Promise.all([worker(), worker(), worker(), worker()]);
+
+          const completeRoots = roots.filter(r => r.complete).map(r => r.key + path.sep);
+          const missing = known.filter(p => {
+            const k = pathKey(p);
+            return !foundKeys.has(k) && completeRoots.some(prefix => k.startsWith(prefix));
+          });
+
+          return { tracks, missing, more: fresh.length > batch.length };
+        })().finally(() => { scanInFlight = null; });
+        return scanInFlight;
+      });
+
       ipcMain.handle('get-data-dir', () => {
         const platform = require('../shared/platform');
         return {
@@ -1090,7 +1185,7 @@ function runGUI() {
       ipcMain.on('set-multi-instance', (e, value) => { writeStartupConfig({ multiInstance: !!value }); });
 
       const MEDIA_KEYS = { MediaPlayPause: 'toggle', MediaNextTrack: 'next', MediaPreviousTrack: 'prev', MediaStop: 'stop' };
-      let mediaKeysWanted = true;
+      let mediaKeysWanted = false;
       let mediaKeysActive = false;
       const sendMedia = (cmd) => {
         if (process.env.RIFF_DEBUG === '1') console.log('[media] globalShortcut', cmd);
@@ -1774,17 +1869,6 @@ function runGUI() {
           );
         } catch (_) {}
         createWindow();
-        try {
-          globalShortcut.register('MediaPlayPause', () => {
-            mainWindow?.webContents.send('media-control', 'play-pause');
-          });
-          globalShortcut.register('MediaNextTrack', () => {
-            mainWindow?.webContents.send('media-control', 'next');
-          });
-          globalShortcut.register('MediaPreviousTrack', () => {
-            mainWindow?.webContents.send('media-control', 'prev');
-          });
-        } catch (e) {}
         if (tutorialDone()) require('./updater').initUpdater(() => mainWindow);
         app.on('activate', () => {
           if (BrowserWindow.getAllWindows().length === 0) createWindow();

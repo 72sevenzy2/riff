@@ -1652,7 +1652,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (el.themeSwatches) {
       el.themeSwatches.forEach(sw => sw.classList.toggle('active', !!(state.themeAccent && sw.dataset.color && sw.dataset.color.toLowerCase() === state.themeAccent.toLowerCase())));
     }
-    if (el.customColorInput) el.customColorInput.value = hexColor;
+    if (el.customColorInput && document.activeElement !== el.customColorInput) el.customColorInput.value = hexColor;
 
     const rgb = hexToRgb(hexColor);
     const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
@@ -11298,14 +11298,20 @@ function renderClickableArtists(container, rawArtist) {
     updateQueueBadge();
   }
 
-  function mergeLocalFiles(newTracks) {
+  function mergeLocalFiles(newTracks, opts = {}) {
     if (!Array.isArray(newTracks) || newTracks.length === 0) return;
     if (!Array.isArray(state.localFiles)) state.localFiles = [];
     if (!Array.isArray(state.localTracks)) state.localTracks = [];
 
+    if (opts.auto) {
+      const blocked = new Set(safeJson('riff_removed_local_paths', []).map(String));
+      newTracks = newTracks.filter(t => t && !blocked.has(String(t.path || '')) && !blocked.has(String(t.id || '')));
+      if (newTracks.length === 0) return;
+    }
+
     // Remove explicitly added tracks from riff_removed_local_paths blacklist
     try {
-      const removedBlacklist = safeJson('riff_removed_local_paths', []);
+      const removedBlacklist = opts.auto ? [] : safeJson('riff_removed_local_paths', []);
       if (Array.isArray(removedBlacklist) && removedBlacklist.length > 0) {
         const addedSet = new Set();
         for (const t of newTracks) {
@@ -11345,8 +11351,71 @@ function renderClickableArtists(container, rawArtist) {
     } catch (_) {}
     renderLocalFiles();
     if (added > 0) {
-      showToast(`Added ${added} track${added === 1 ? '' : 's'}`);
+      showToast(opts.auto
+        ? `Found ${added} new track${added === 1 ? '' : 's'} on this device`
+        : `Added ${added} track${added === 1 ? '' : 's'}`);
     }
+  }
+
+  const AUTO_SCAN_FOLDERS_KEY = 'riff_auto_scan_folders';
+  const AUTO_SCAN_ENABLED_KEY = 'riff_auto_scan_enabled';
+  let autoScanBusy = false;
+  let lastAutoScanAt = 0;
+
+  function isAutoScanEnabled() {
+    return localStorage.getItem(AUTO_SCAN_ENABLED_KEY) !== '0';
+  }
+
+  async function getAutoScanFolders() {
+    const saved = safeJson(AUTO_SCAN_FOLDERS_KEY, null);
+    if (Array.isArray(saved)) return saved.filter(f => typeof f === 'string' && f);
+    let defaultDir = '';
+    try {
+      if (window.electronAPI && window.electronAPI.getDefaultMusicDir) defaultDir = await window.electronAPI.getDefaultMusicDir();
+    } catch (_) {}
+    const folders = defaultDir ? [defaultDir] : [];
+    localStorage.setItem(AUTO_SCAN_FOLDERS_KEY, JSON.stringify(folders));
+    return folders;
+  }
+
+  function pruneMissingLocalFiles(paths) {
+    const gone = new Set(paths.map(String));
+    const keep = (t) => !t || !gone.has(String(t.path || t.filePath || ''));
+    state.localFiles = (state.localFiles || []).filter(keep);
+    state.localTracks = state.localFiles;
+    saveLocalTracks();
+    renderLocalFiles();
+  }
+
+  async function runAutoScan(manual = false) {
+    const api = window.electronAPI;
+    if (!api || !api.scanLocalFolders || autoScanBusy) return;
+    if (!manual && (!isAutoScanEnabled() || Date.now() - lastAutoScanAt < 60000)) return;
+    autoScanBusy = true;
+    let continueScan = false;
+    try {
+      const folders = await getAutoScanFolders();
+      if (!folders.length) {
+        if (manual) showToast('Add a folder to scan first');
+        return;
+      }
+      if (!Array.isArray(state.localFiles)) state.localFiles = safeArray('riff_local_files');
+      const known = state.localFiles.map(t => t && (t.path || t.filePath)).filter(Boolean);
+      const skip = safeJson('riff_removed_local_paths', []).map(String);
+      if (manual) showToast('Scanning folders...');
+      const res = await api.scanLocalFolders({ dirs: folders, known, skip });
+      lastAutoScanAt = Date.now();
+      if (!res) return;
+      if (Array.isArray(res.missing) && res.missing.length > 0) pruneMissingLocalFiles(res.missing);
+      if (Array.isArray(res.tracks) && res.tracks.length > 0) mergeLocalFiles(res.tracks, { auto: true });
+      else if (manual) showToast('No new tracks found');
+      continueScan = !!res.more;
+    } catch (e) {
+      console.warn('Auto scan error:', e);
+    } finally {
+      autoScanBusy = false;
+    }
+    if (continueScan) setTimeout(() => { lastAutoScanAt = 0; runAutoScan(manual); }, 800);
   }
 
   async function addLocalFolder() {
@@ -12451,6 +12520,7 @@ function renderClickableArtists(container, rawArtist) {
             if (el.viewLocal) el.viewLocal.classList.add('active');
             if (el.navLocal) el.navLocal.classList.add('active');
             renderLocalView();
+            runAutoScan(false);
           } else if (viewName === 'history') {
             if (el.viewHistory) el.viewHistory.classList.add('active');
             if (el.navHistory) el.navHistory.classList.add('active');
@@ -14110,8 +14180,9 @@ function bindCoverHoldZoom(wrapEl) {
   }
 
   if (el.customColorInput) {
-    el.customColorInput.addEventListener('input', (e) => {
-      state.themeAccent = e.target.value;
+    const applyCustomAccent = (value) => {
+      if (!/^#[0-9a-f]{6}$/i.test(value)) return;
+      state.themeAccent = value.toLowerCase();
       localStorage.setItem('riff_theme_accent', state.themeAccent);
       if (state.themeMode === 'auto') {
         const targetMode = currentEffectiveMode || 'dark';
@@ -14120,7 +14191,9 @@ function bindCoverHoldZoom(wrapEl) {
       }
       updateThemeFromState();
       if (el.themeSwatches) el.themeSwatches.forEach(sw => sw.classList.remove('active'));
-    });
+    };
+    el.customColorInput.addEventListener('input', (e) => applyCustomAccent(e.target.value));
+    el.customColorInput.addEventListener('change', (e) => applyCustomAccent(e.target.value));
   }
 
   if (el.sliderHue) {
@@ -16651,13 +16724,13 @@ function bindCoverHoldZoom(wrapEl) {
     settingWinMediaKeys.style.display = isWindows ? '' : 'none';
   }
 
-  const savedWinMediaKeys = localStorage.getItem('riff_global_media_keys') !== 'false';
+  const savedWinMediaKeys = localStorage.getItem('riff_win_global_media_keys') === 'true';
   if (btnWinMediaKeys) {
     btnWinMediaKeys.classList.toggle('active', savedWinMediaKeys);
     btnWinMediaKeys.addEventListener('click', () => {
       const next = !btnWinMediaKeys.classList.contains('active');
       btnWinMediaKeys.classList.toggle('active', next);
-      localStorage.setItem('riff_global_media_keys', next ? 'true' : 'false');
+      localStorage.setItem('riff_win_global_media_keys', next ? 'true' : 'false');
       if (window.electronAPI && window.electronAPI.setMediaKeys) {
         window.electronAPI.setMediaKeys(next);
       }
@@ -19801,7 +19874,7 @@ function bindCoverHoldZoom(wrapEl) {
       } else if (platform === 'soundcloud') {
         linkImportUrl.placeholder = 'Paste a SoundCloud playlist or track link';
       } else if (platform === 'yandex') {
-        linkImportUrl.placeholder = 'Paste a Yandex Music playlist link';
+        linkImportUrl.placeholder = 'Paste a Yandex Music playlist, album or track link';
       } else {
         linkImportUrl.placeholder = 'Paste a YouTube, YouTube Music, SoundCloud or Yandex Music link';
       }
@@ -24799,6 +24872,67 @@ function bindCoverHoldZoom(wrapEl) {
     });
   }
 
+  function initAutoScanSettings() {
+    const item = document.getElementById('setting-auto-scan');
+    const toggle = document.getElementById('btn-auto-scan');
+    const list = document.getElementById('auto-scan-folders');
+    const btnAdd = document.getElementById('btn-auto-scan-add');
+    const btnNow = document.getElementById('btn-auto-scan-now');
+    if (!item || !toggle || !list) return;
+    const api = window.electronAPI;
+    if (!api || !api.scanLocalFolders) {
+      item.style.display = 'none';
+      return;
+    }
+    toggle.classList.toggle('active', isAutoScanEnabled());
+
+    const saveFolders = (folders) => localStorage.setItem(AUTO_SCAN_FOLDERS_KEY, JSON.stringify(folders));
+    const renderFolders = async () => {
+      const folders = await getAutoScanFolders();
+      list.innerHTML = '';
+      folders.forEach(folder => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
+        const label = document.createElement('span');
+        label.textContent = folder;
+        label.style.cssText = 'font-size:calc(12px * var(--font-scale, 1));color:var(--md-sys-color-outline);word-break:break-all;';
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'btn-outline-pill';
+        remove.textContent = 'Remove';
+        remove.style.cssText = 'padding:4px 10px;font-size:calc(12px * var(--font-scale, 1));flex-shrink:0;';
+        remove.addEventListener('click', async () => {
+          saveFolders((await getAutoScanFolders()).filter(f => f !== folder));
+          renderFolders();
+        });
+        row.append(label, remove);
+        list.appendChild(row);
+      });
+    };
+
+    toggle.addEventListener('click', () => {
+      const next = !toggle.classList.contains('active');
+      toggle.classList.toggle('active', next);
+      localStorage.setItem(AUTO_SCAN_ENABLED_KEY, next ? '1' : '0');
+      if (next) runAutoScan(true);
+    });
+    if (btnAdd) {
+      btnAdd.addEventListener('click', async () => {
+        const picked = await api.pickScanFolder();
+        if (!picked) return;
+        const folders = await getAutoScanFolders();
+        if (!folders.includes(picked)) {
+          folders.push(picked);
+          saveFolders(folders);
+        }
+        await renderFolders();
+        runAutoScan(true);
+      });
+    }
+    if (btnNow) btnNow.addEventListener('click', () => runAutoScan(true));
+    renderFolders();
+  }
+
   function initLikeAlbumTracksSetting() {
     const btn = document.getElementById('btn-like-album-tracks');
     if (!btn) return;
@@ -24823,6 +24957,8 @@ function bindCoverHoldZoom(wrapEl) {
   initMouseNavInterceptor();
   initDesktopShortcutSetting();
   initLikeAlbumTracksSetting();
+  initAutoScanSettings();
+  setTimeout(() => runAutoScan(false), 3000);
   resizeCanvases();
   updateOfflineStorageUI();
   updateMusicFolderUI();
