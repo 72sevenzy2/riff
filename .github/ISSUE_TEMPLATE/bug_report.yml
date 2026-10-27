@@ -10,7 +10,8 @@ body:
         > ### DO NOT REPORT MOBILE BUGS HERE!
         > The mobile version is developed by third parties and is not maintained in this repository.
         > Any issues related to mobile devices (iOS / Android) will be closed immediately without review.
-
+        > ### PROVIDE LOGS!!!
+        > If you aren't providing logs and reporting e.g a streaming issue we can not help you.
   - type: checkboxes
     id: terms
     attributes:
