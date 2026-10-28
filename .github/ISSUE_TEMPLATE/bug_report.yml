@@ -11,7 +11,7 @@ body:
         > 1. **DO NOT REPORT MOBILE BUGS!** iOS / Android builds are third-party ports and unsupported here. Issues will be instantly closed.
         > 2. **SEARCH EXISTING ISSUES FIRST!** Check both **open and closed** issues before posting duplicates.
         > 3. **CHANGE THE TITLE!** Do not leave just `[BUG]: `. Provide a clear, short summary.
-        > 4. **ATTACH LOGS!** Reports without terminal/console logs will be rejected.
+        > 4. **ATTACH LOGS!** Reports without terminal/console logs will be rejected. If the issue doesn't contain logs or any errors in it, please do not provide them and replace with a placeholder 'no'
 
   - type: checkboxes
     id: pre-check
