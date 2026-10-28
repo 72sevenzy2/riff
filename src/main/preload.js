@@ -112,28 +112,3 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readCacheFile: () => ipcRenderer.invoke('cache-read'),
   writeCacheFile: (data) => ipcRenderer.send('cache-write', data),
 });
-
-
-
-
-
-
-
-if (process.platform === 'darwin') {
-  window.addEventListener('DOMContentLoaded', () => {
-    document.documentElement.classList.add('platform-darwin');
-    const body = document.body;
-    if (!body) return;
-    let last = null;
-    const sync = () => {
-      const c = body.classList;
-      const visible = !c.contains('mini') &&
-        (!c.contains('hide-titlebar') || c.contains('titlebar-peek') || c.contains('titlebar-reveal'));
-      if (visible === last) return;
-      last = visible;
-      ipcRenderer.send('set-window-buttons-visible', visible);
-    };
-    new MutationObserver(sync).observe(body, { attributes: true, attributeFilter: ['class'] });
-    sync();
-  });
-}

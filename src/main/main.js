@@ -365,13 +365,8 @@ function runGUI() {
                                    backgroundColor: firstRun ? '#8d5ef2' : '#000000',
                                    title: 'Riff',
                                    icon: path.join(__dirname, '../../assets', 'icon.png'),
-                                   
-
-                                   
-
-                                   ...(process.platform === 'darwin'
-                                     ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: 14 } }
-                                     : { frame: false, titleBarStyle: 'hidden' }),
+                                   frame: false,
+                                   titleBarStyle: 'hidden',
                                    show: false,
                                    useContentSize: true,
                                    webPreferences: {
@@ -497,11 +492,6 @@ function runGUI() {
 
     ipcMain.on('window-close', () => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
-    });
-
-    ipcMain.on('set-window-buttons-visible', (e, visible) => {
-      if (process.platform !== 'darwin' || !mainWindow || mainWindow.isDestroyed()) return;
-      try { mainWindow.setWindowButtonVisibility(!!visible); } catch (_) {}
     });
 
     ipcMain.on('open-external', (e, u) => {
@@ -1025,94 +1015,6 @@ function runGUI() {
         return tracks;
       });
 
-      const SCAN_AUDIO_EXT = new Set(['.mp3', '.flac', '.wav', '.ogg', '.m4a', '.aac', '.opus', '.wma']);
-      const SCAN_BATCH_LIMIT = 1500;
-      const pathKey = (p) => {
-        const n = path.normalize(String(p));
-        return process.platform === 'win32' ? n.toLowerCase() : n;
-      };
-
-      async function collectAudioFiles(dir, out, status, depth) {
-        let entries;
-        try {
-          entries = await fs.promises.readdir(dir, { withFileTypes: true });
-        } catch (e) {
-          status.partial = true;
-          return;
-        }
-        for (const entry of entries) {
-          if (entry.name.startsWith('.')) continue;
-          const full = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            if (depth < 12) await collectAudioFiles(full, out, status, depth + 1);
-          } else if (entry.isFile() && SCAN_AUDIO_EXT.has(path.extname(entry.name).toLowerCase())) {
-            out.push(full);
-          }
-        }
-      }
-
-      ipcMain.handle('get-default-music-dir', () => {
-        try { return app.getPath('music'); } catch (e) { return ''; }
-      });
-
-      ipcMain.handle('pick-scan-folder', async () => {
-        const r = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] });
-        return r.canceled || !r.filePaths || !r.filePaths[0] ? null : r.filePaths[0];
-      });
-
-      let scanInFlight = null;
-      ipcMain.handle('scan-local-folders', (event, opts) => {
-        if (scanInFlight) return scanInFlight;
-        scanInFlight = (async () => {
-          const dirs = Array.isArray(opts && opts.dirs) ? opts.dirs.filter(d => typeof d === 'string' && path.isAbsolute(d)) : [];
-          const known = Array.isArray(opts && opts.known) ? opts.known.filter(p => typeof p === 'string') : [];
-          const skip = Array.isArray(opts && opts.skip) ? opts.skip.filter(p => typeof p === 'string') : [];
-          const skipKeys = new Set([...known, ...skip].map(pathKey));
-          const foundKeys = new Set();
-          const roots = [];
-          const fresh = [];
-
-          for (const dir of dirs) {
-            try {
-              if (!(await fs.promises.stat(dir)).isDirectory()) continue;
-            } catch (e) { continue; }
-            const files = [];
-            const status = { partial: false };
-            await collectAudioFiles(dir, files, status, 0);
-            roots.push({ key: pathKey(dir), complete: !status.partial });
-            for (const fp of files) {
-              const k = pathKey(fp);
-              if (foundKeys.has(k)) continue;
-              foundKeys.add(k);
-              if (!skipKeys.has(k)) fresh.push(fp);
-            }
-          }
-
-          const batch = fresh.slice(0, SCAN_BATCH_LIMIT);
-          const tracks = [];
-          let cursor = 0;
-          const worker = async () => {
-            while (cursor < batch.length) {
-              const fp = batch[cursor++];
-              try {
-                const meta = await extractLocalTrackMetadata(fp);
-                if (meta) tracks.push(meta);
-              } catch (e) {}
-            }
-          };
-          await Promise.all([worker(), worker(), worker(), worker()]);
-
-          const completeRoots = roots.filter(r => r.complete).map(r => r.key + path.sep);
-          const missing = known.filter(p => {
-            const k = pathKey(p);
-            return !foundKeys.has(k) && completeRoots.some(prefix => k.startsWith(prefix));
-          });
-
-          return { tracks, missing, more: fresh.length > batch.length };
-        })().finally(() => { scanInFlight = null; });
-        return scanInFlight;
-      });
-
       ipcMain.handle('get-data-dir', () => {
         const platform = require('../shared/platform');
         return {
@@ -1230,7 +1132,7 @@ function runGUI() {
       ipcMain.on('set-multi-instance', (e, value) => { writeStartupConfig({ multiInstance: !!value }); });
 
       const MEDIA_KEYS = { MediaPlayPause: 'toggle', MediaNextTrack: 'next', MediaPreviousTrack: 'prev', MediaStop: 'stop' };
-      let mediaKeysWanted = false;
+      let mediaKeysWanted = true;
       let mediaKeysActive = false;
       const sendMedia = (cmd) => {
         if (process.env.RIFF_DEBUG === '1') console.log('[media] globalShortcut', cmd);
@@ -1457,8 +1359,6 @@ function runGUI() {
         fs.mkdirSync(DATA_DIR, { recursive: true });
         if (hasValidYtCookiesFile()) return true;
 
-        
-
         const tmpTestCookie = '/tmp/test-yt-cookies.txt';
         try {
           if (fs.existsSync(tmpTestCookie)) {
@@ -1529,18 +1429,12 @@ function runGUI() {
           if (fs.existsSync(YT_LOGOUT_FLAG)) fs.unlinkSync(YT_LOGOUT_FLAG);
         } catch (_) {}
 
-        
-
         const alreadyInBrowser = await exportYoutubeCookiesToDisk();
         if (alreadyInBrowser && hasValidYtCookiesFile()) {
           return { success: true, loggedIn: true };
         }
 
-        
-
         shell.openExternal('https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F');
-
-        
 
         const start = Date.now();
         while (Date.now() - start < 90000) {
@@ -1992,15 +1886,19 @@ function runGUI() {
           );
         } catch (_) {}
         createWindow();
+        try {
+          globalShortcut.register('MediaPlayPause', () => {
+            mainWindow?.webContents.send('media-control', 'play-pause');
+          });
+          globalShortcut.register('MediaNextTrack', () => {
+            mainWindow?.webContents.send('media-control', 'next');
+          });
+          globalShortcut.register('MediaPreviousTrack', () => {
+            mainWindow?.webContents.send('media-control', 'prev');
+          });
+        } catch (e) {}
         if (tutorialDone()) require('./updater').initUpdater(() => mainWindow);
         app.on('activate', () => {
-          
-
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            if (!mainWindow.isVisible()) mainWindow.show();
-            mainWindow.focus();
-            return;
-          }
           if (BrowserWindow.getAllWindows().length === 0) createWindow();
         });
       });

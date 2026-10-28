@@ -3116,9 +3116,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           try {
             if (barBgCtx && barBgCanvas && isBehindVizVisible && !state.isTvKaraokeOpen) {
-              if (isVizConnectedMode()) {
-                barBgCanvas.style.display = 'block';
-              }
               const bw = Math.max(200, (barBgCanvas.width / (window.devicePixelRatio || 1)) || (el.playbar ? el.playbar.clientWidth - 32 : 200));
               const bh = 36;
               barBgCtx.clearRect(0, 0, bw, bh);
@@ -5611,21 +5608,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   function customBezierEase(t) {
     if (t <= 0) return 0;
     if (t >= 1) return 1;
-    let s = t;
-    for (let i = 0; i < 8; i++) {
+    let lo = 0, hi = 1, s = t;
+    for (let i = 0; i < 14; i++) {
+      s = (lo + hi) / 2;
       const inv = 1 - s;
-      const currentX = (3 * inv * inv * s * 0.722) + (s * s * s);
-      const dx = (3 * inv * inv * 0.722) - (6 * inv * s * 0.722) + (3 * s * s);
-      if (Math.abs(currentX - t) < 1e-5 || Math.abs(dx) < 1e-5) break;
-      s -= (currentX - t) / dx;
+      const x = (3 * inv * inv * s * 0.786) + (s * s * s);
+      if (x < t) lo = s; else hi = s;
     }
-    s = Math.max(0, Math.min(1, s));
     const inv = 1 - s;
-    return (3 * inv * inv * s * 0.679) + (3 * inv * s * s * 1.008) + (s * s * s);
+    return (3 * inv * inv * s * 0.648) + (3 * inv * s * s * 0.935) + (s * s * s);
   }
 
   const LYRIC_EASINGS = {
-    inout: { css: 'cubic-bezier(0.722, 0.679, 0, 1.008)', fn: customBezierEase },
+    inout: { css: 'cubic-bezier(0.786, 0.648, 0, 0.935)', fn: customBezierEase },
     quad: { css: 'cubic-bezier(0.45, 0, 0.55, 1)', fn: (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2) },
     sine: { css: 'cubic-bezier(0.37, 0, 0.63, 1)', fn: (t) => -(Math.cos(Math.PI * t) - 1) / 2 },
     out: { css: 'cubic-bezier(0.22, 1, 0.36, 1)', fn: (t) => 1 - Math.pow(1 - t, 4) },
@@ -5664,12 +5659,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const from = container.scrollTop;
     const delta = target - from;
     if (Math.abs(delta) < 1) return;
-    const isInOut = getLyricsEase() === 'inout';
     const ease = (LYRIC_EASINGS[getLyricsEase()] || LYRIC_EASINGS.inout).fn;
     const speed = getLyricsSpeed();
-    const baseDur = isInOut ? 480 : 420;
-    const maxDur = isInOut ? 700 : 750;
-    const duration = Math.max(120, Math.min(maxDur, Math.max(baseDur, Math.abs(delta) * 1.15)) / speed);
+    const duration = Math.max(160, Math.min(480, 320 + Math.abs(delta) * 0.28)) / speed;
     const start = performance.now();
     const step = (now) => {
       const t = Math.min(1, (now - start) / duration);
@@ -11806,7 +11798,12 @@ function renderClickableArtists(container, rawArtist) {
     const o = getTrackArt(track).cover;
     if (o) return proxiedThumb(o, track);
     if (track.localThumbnail) return track.localThumbnail;
-    return proxiedThumb(track.thumbnail || track.cover || track.image || track.artworkUrl || '', track);
+    const base = track.thumbnail || track.cover || track.image || track.artworkUrl || '';
+    if (base) return proxiedThumb(base, track);
+    if (track.id && /^[a-zA-Z0-9_-]{11}$/.test(track.id)) {
+      return `https://i.ytimg.com/vi/${track.id}/hqdefault.jpg`;
+    }
+    return '';
   }
 
   function renderPlaylistCover(container, playlist, size = 64) {
@@ -12752,102 +12749,44 @@ function moveNavIndicator(targetBtn, animate = true) {
   const isReduced = !animate || document.body.classList.contains('perf') || document.documentElement.classList.contains('force-reduced-motion');
 
   if (!targetBtn || targetBtn.id === 'nav-discover' || targetBtn.classList.contains('nav-collapsed')) {
-    if (!isReduced && navIndicatorCurTop !== null && !indicator.classList.contains('is-hidden')) {
-      const startTop = navIndicatorCurTop;
-      const startH = Math.max(48, (navIndicatorCurBot ?? (startTop + 48)) - startTop);
-      const shrinkTop = startTop + (startH - 48) * 0.5;
-      const t0 = performance.now();
-      const dur = 260;
-      const fadeStep = (now) => {
-        const p = Math.min(1, (now - t0) / dur);
-        const e = 1 - Math.pow(1 - p, 3);
-        const sc = 1 - 0.55 * e;
-        const curY = startTop + (shrinkTop - startTop) * e;
-        indicator.style.height = (startH - (startH - 48) * e).toFixed(1) + 'px';
-        indicator.style.transform = `translate3d(0, ${curY.toFixed(1)}px, 0) scale(${sc.toFixed(3)})`;
-        indicator.style.opacity = String((1 - e).toFixed(3));
-        if (p < 1) {
-          navIndicatorAnimId = requestAnimationFrame(fadeStep);
-        } else {
-          navIndicatorAnimId = 0;
-          indicator.classList.add('is-hidden');
-          indicator.style.opacity = '';
-          navIndicatorCurTop = null;
-          navIndicatorCurBot = null;
-        }
-      };
-      navIndicatorAnimId = requestAnimationFrame(fadeStep);
-    } else {
-      indicator.classList.add('is-hidden');
-      indicator.style.opacity = '';
-      navIndicatorCurTop = null;
-      navIndicatorCurBot = null;
-    }
+    indicator.classList.add('is-hidden');
+    targetBtn?.classList.add('indicator-arrived');
     return;
   }
 
+  indicator.classList.remove('is-hidden');
   const box = getNavItemOffsetInSidebar(targetBtn, nav);
   const destTop = box.top;
   const destBot = box.top + box.height;
 
-  const wasHidden = indicator.classList.contains('is-hidden') || navIndicatorCurTop === null;
-  indicator.classList.remove('is-hidden');
-  indicator.style.opacity = '1';
-
-  if (isReduced) {
+  if (isReduced || navIndicatorCurTop === null) {
     navIndicatorCurTop = destTop;
     navIndicatorCurBot = destBot;
-    indicator.style.transform = `translate3d(0, ${destTop.toFixed(1)}px, 0) scale(1)`;
+    indicator.style.transform = `translate3d(0, ${destTop.toFixed(1)}px, 0)`;
     indicator.style.height = (destBot - destTop).toFixed(1) + 'px';
     targetBtn.classList.add('indicator-arrived');
-    return;
-  }
-
-  if (wasHidden) {
-    navIndicatorCurTop = destTop;
-    navIndicatorCurBot = destBot;
-    indicator.style.height = (destBot - destTop).toFixed(1) + 'px';
-    const t0 = performance.now();
-    const dur = 280;
-    const popStep = (now) => {
-      const p = Math.min(1, (now - t0) / dur);
-      const e = 1 - Math.pow(1 - p, 3);
-      const sc = 0.45 + 0.55 * e;
-      indicator.style.transform = `translate3d(0, ${destTop.toFixed(1)}px, 0) scale(${sc.toFixed(3)})`;
-      indicator.style.opacity = String(e.toFixed(3));
-      if (p >= 0.65) targetBtn.classList.add('indicator-arrived');
-      if (p < 1) {
-        navIndicatorAnimId = requestAnimationFrame(popStep);
-      } else {
-        navIndicatorAnimId = 0;
-        indicator.style.transform = `translate3d(0, ${destTop.toFixed(1)}px, 0) scale(1)`;
-        indicator.style.opacity = '';
-        targetBtn.classList.add('indicator-arrived');
-      }
-    };
-    navIndicatorAnimId = requestAnimationFrame(popStep);
     return;
   }
 
   const startTop = navIndicatorCurTop;
   const startBot = navIndicatorCurBot;
   const dist = Math.abs(destTop - startTop);
-  if (dist < 2) {
+  if (dist < 1.5) {
     navIndicatorCurTop = destTop;
     navIndicatorCurBot = destBot;
-    indicator.style.transform = `translate3d(0, ${destTop.toFixed(1)}px, 0) scale(1)`;
+    indicator.style.transform = `translate3d(0, ${destTop.toFixed(1)}px, 0)`;
     indicator.style.height = (destBot - destTop).toFixed(1) + 'px';
     targetBtn.classList.add('indicator-arrived');
     return;
   }
 
   const movingDown = destTop > startTop;
-  const totalDur = Math.min(580, Math.max(480, 460 + dist * 0.22));
+  const totalDur = Math.min(360, Math.max(260, 240 + dist * 0.28));
   const startTime = performance.now();
   let arrivedSet = false;
 
-  const easeLead = (t) => 1 - Math.pow(1 - Math.min(1, t / 0.72), 3.2);
-  const easeTrail = (t) => t < 0.34 ? 0 : 1 - Math.pow(1 - (t - 0.34) / 0.66, 2.4);
+  const easeLead = (t) => 1 - Math.pow(1 - t, 3.2);
+  const easeTrail = (t) => t < 0.16 ? 0 : 1 - Math.pow(1 - (t - 0.16) / 0.84, 2.6);
 
   const step = (now) => {
     const rawT = Math.min(1, (now - startTime) / totalDur);
@@ -12861,11 +12800,9 @@ function moveNavIndicator(targetBtn, animate = true) {
       navIndicatorCurBot = startBot + (destBot - startBot) * kTrail;
     }
     const h = Math.max(48, navIndicatorCurBot - navIndicatorCurTop);
-    const stretchRatio = Math.min(1, (h - 48) / 140);
-    const scaleX = 1 - stretchRatio * 0.08;
-    indicator.style.transform = `translate3d(0, ${navIndicatorCurTop.toFixed(1)}px, 0) scaleX(${scaleX.toFixed(3)})`;
+    indicator.style.transform = `translate3d(0, ${navIndicatorCurTop.toFixed(1)}px, 0)`;
     indicator.style.height = h.toFixed(1) + 'px';
-    if (!arrivedSet && rawT >= 0.62) {
+    if (!arrivedSet && rawT >= 0.65) {
       arrivedSet = true;
       targetBtn.classList.add('indicator-arrived');
     }
@@ -12875,7 +12812,7 @@ function moveNavIndicator(targetBtn, animate = true) {
       navIndicatorAnimId = 0;
       navIndicatorCurTop = destTop;
       navIndicatorCurBot = destBot;
-      indicator.style.transform = `translate3d(0, ${destTop.toFixed(1)}px, 0) scale(1)`;
+      indicator.style.transform = `translate3d(0, ${destTop.toFixed(1)}px, 0)`;
       indicator.style.height = (destBot - destTop).toFixed(1) + 'px';
       targetBtn.classList.add('indicator-arrived');
     }
@@ -15884,9 +15821,6 @@ function bindCoverHoldZoom(wrapEl) {
     if (btnTvkVizConnected) btnTvkVizConnected.classList.toggle('active', isConn);
     document.body.classList.toggle('viz-connected', isConn);
     const bottomViz = document.getElementById('bottom-visualizer') || document.getElementById('playbar-bg-visualizer');
-    if (bottomViz && isConn) {
-      bottomViz.style.display = 'block';
-    }
   }
   function toggleVizConnected() {
     const isConn = localStorage.getItem('riff_viz_connected') === '1';
@@ -15894,13 +15828,6 @@ function bindCoverHoldZoom(wrapEl) {
     localStorage.setItem('riff_viz_connected', next ? '1' : '0');
     syncVizConnectedUI();
     const bottomViz = document.getElementById('bottom-visualizer') || document.getElementById('playbar-bg-visualizer');
-    if (bottomViz) {
-      if (next) {
-        bottomViz.style.display = 'block';
-      } else if (!document.body.classList.contains('bar-viz-behind')) {
-        bottomViz.style.display = '';
-      }
-    }
   }
   if (btnVizConnected) btnVizConnected.addEventListener('click', toggleVizConnected);
   if (btnTvkVizConnected) btnTvkVizConnected.addEventListener('click', toggleVizConnected);
@@ -17677,7 +17604,7 @@ function bindCoverHoldZoom(wrapEl) {
   (function initUpdateUI() {
     const api = window.electronAPI;
     const $ = (id) => document.getElementById(id);
-    let currentAppVersion = '43.2.1';
+    let currentAppVersion = '43.2.2';
     if (api && api.getAppVersion) {
       api.getAppVersion().then((v) => {
         if (v) {
@@ -19916,8 +19843,8 @@ function bindCoverHoldZoom(wrapEl) {
     const btnAdvLogout = document.getElementById('btn-adv-yt-logout');
     if (advStatus) {
       advStatus.textContent = googleConnected
-        ? 'Connected — all YouTube & 18+ tracks unlocked'
-        : 'Sign in to bypass IP blocks and age restrictions (18+)';
+        ? 'Signed in'
+        : 'Sign in to bypass IP blocks and age restrictions for yt api';
       advStatus.style.color = googleConnected ? 'var(--md-sys-color-primary)' : '';
     }
     if (btnAdvLogin) {
@@ -20460,7 +20387,7 @@ function bindCoverHoldZoom(wrapEl) {
       if (typeof showToast === 'function') showToast('No playlists to export', 'error');
       return;
     }
-    let appVer = '43.2.1';
+    let appVer = '43.2.2';
     try {
       if (window.electronAPI && window.electronAPI.getAppVersion) {
         const v = await window.electronAPI.getAppVersion();

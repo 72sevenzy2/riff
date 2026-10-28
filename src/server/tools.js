@@ -10,21 +10,10 @@ const logger = require('../shared/logger');
 const state = { status: 'idle', tool: '', percent: 0, error: '' };
 const STAMP = path.join(BIN_DIR, '.ytdlp-update-stamp');
 
-
-
-
-
-
-
-
-
-const MAC_YTDLP_DIR = path.join(BIN_DIR, 'yt-dlp_macos');
-const MAC_YTDLP_EXE = path.join(MAC_YTDLP_DIR, 'yt-dlp_macos');
-
 function ytDlpAsset() {
   const a = process.arch;
   if (IS_WIN) return a === 'arm64' ? 'yt-dlp_arm64.exe' : a === 'ia32' ? 'yt-dlp_x86.exe' : 'yt-dlp.exe';
-  if (process.platform === 'darwin') return 'yt-dlp_macos.zip';
+  if (process.platform === 'darwin') return 'yt-dlp_macos';
   return a === 'arm64' ? 'yt-dlp_linux_aarch64' : 'yt-dlp_linux';
 }
 
@@ -166,45 +155,8 @@ async function installYtDlp() {
   const tmp = `${target}.download`;
   const got = await downloadFile(`${base}/${asset}`, tmp);
   if (got !== want) { fs.rmSync(tmp, { force: true }); throw new Error('yt-dlp checksum mismatch'); }
-  if (process.platform === 'darwin') return installMacYtDlpDir(tmp, target);
   if (!IS_WIN) fs.chmodSync(tmp, 0o755);
   fs.renameSync(tmp, target);
-}
-
-
-
-
-
-async function installMacYtDlpDir(archive, target) {
-  const work = fs.mkdtempSync(path.join(BIN_DIR, '.yt-dlp-unpack-'));
-  try {
-    await run('/usr/bin/ditto', ['-x', '-k', archive, work]);
-    const exe = path.join(work, 'yt-dlp_macos');
-    if (!fs.existsSync(exe)) throw new Error('yt-dlp_macos not found inside the archive');
-    fs.chmodSync(exe, 0o755);
-    
-
-    
-
-    try { await run(exe, ['--version'], 180000); } catch (_) {}
-    fs.rmSync(MAC_YTDLP_DIR, { recursive: true, force: true });
-    fs.renameSync(work, MAC_YTDLP_DIR);
-    fs.rmSync(target, { force: true });
-    fs.symlinkSync(MAC_YTDLP_EXE, target);
-  } finally {
-    fs.rmSync(work, { recursive: true, force: true });
-    fs.rmSync(archive, { force: true });
-  }
-}
-
-
-
-
-
-function hasSlowMacYtDlp() {
-  if (process.platform !== 'darwin') return false;
-  const target = path.join(BIN_DIR, 'yt-dlp');
-  try { return fs.lstatSync(target).isFile(); } catch (_) { return false; }
 }
 
 async function installFfmpeg() {
@@ -287,7 +239,7 @@ async function ensureTools() {
   state.status = 'downloading';
   state.error = '';
   try {
-    if (!resolveBinary('yt-dlp') || hasSlowMacYtDlp()) { state.tool = 'yt-dlp'; state.percent = 0; await installYtDlp(); clearBinaryCache(); }
+    if (!resolveBinary('yt-dlp')) { state.tool = 'yt-dlp'; state.percent = 0; await installYtDlp(); clearBinaryCache(); }
     if (!resolveBinary('ffmpeg')) {
       state.tool = 'ffmpeg';
       state.percent = 0;
@@ -310,25 +262,12 @@ async function ensureTools() {
 async function updateYtDlpIfManaged() {
   const bin = resolveBinary('yt-dlp');
   if (!bin || path.dirname(bin) !== BIN_DIR) return false;
-  if (hasSlowMacYtDlp()) {
-    try {
-      await installYtDlp();
-      clearBinaryCache();
-      fs.writeFileSync(STAMP, String(Date.now()));
-      return true;
-    } catch (e) {
-      try { logger.error('yt-dlp macOS folder build install failed', e); } catch (_) {}
-      return false;
-    }
-  }
   try {
     const last = Number(fs.readFileSync(STAMP, 'utf8')) || 0;
     if (Date.now() - last < 24 * 3600 * 1000) return false;
   } catch (e) {}
   try {
-    
-
-    await run(fs.realpathSync(bin), ['-U'], 120000);
+    await run(bin, ['-U'], 120000);
     fs.writeFileSync(STAMP, String(Date.now()));
     return true;
   } catch (e) {
