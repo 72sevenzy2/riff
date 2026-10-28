@@ -519,6 +519,9 @@
         } catch (_) {}
       }
       const vol = this.isMuted ? 0 : Math.max(0, Math.min(1, Number.isFinite(this.volume) ? this.volume : 0.85));
+      // Remember what we wrote so the element's volumechange listener can tell our own
+      // changes (mute writes volume 0) apart from changes made outside the app.
+      this.appliedElementVolume = vol;
       if (this._attachedElement) {
         try {
           this._attachedElement.volume = vol;

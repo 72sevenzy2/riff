@@ -956,8 +956,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     localStorage.setItem(`riff_adv_${name}`, boolVal ? 'true' : 'false');
   }
 
+  function systemPrefersReducedMotion() {
+    try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; }
+  }
+
   function applyReducedMotionSetting() {
-    const reduced = getAdv('reduce_motion', false);
+    const reduced = getAdv('reduce_motion', systemPrefersReducedMotion());
     document.documentElement.classList.toggle('force-reduced-motion', reduced);
   }
 
@@ -7655,6 +7659,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!el.nativeAudio) return;
       const extMuted = !!el.nativeAudio.muted;
       const extVol = Math.round(el.nativeAudio.volume * 100) / 100;
+      // Muting writes volume 0 to the element; without this check that echo was read back as
+      // "unmuted at volume 0", so the mute button lost the volume and unmute did nothing.
+      if (audioEngine && Number.isFinite(audioEngine.appliedElementVolume) &&
+          Math.abs(el.nativeAudio.volume - audioEngine.appliedElementVolume) < 0.005) return;
       if (extMuted !== state.isMuted || (!extMuted && Math.abs(extVol - state.volume) > 0.015)) {
         state.isMuted = extMuted;
         if (!extMuted) state.volume = extVol;
@@ -7714,6 +7722,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       cur._errorRetryStage = 0;
       state.isPlaying = false;
       updatePlayPauseButton(false, false);
+      // Stop auto-skipping after a few failures in a row. Without a cap, a network or source
+      // outage (e.g. every stream returning 403) skipped through the queue forever, since the
+      // queue wraps around, and pressing pause could not stop it.
+      state.consecutivePlayFailures = (state.consecutivePlayFailures || 0) + 1;
+      const maxAutoSkips = Math.min(5, Math.max(1, (state.queue && state.queue.length) || 1));
+      if (state.consecutivePlayFailures >= maxAutoSkips) {
+        state.consecutivePlayFailures = 0;
+        showToast('Could not play several tracks in a row. Check your connection and try again.', 'error');
+        return;
+      }
       showToast('Could not play this track, trying next...', 'warning');
       if (state.queue && state.queue.length > 1) {
         setTimeout(() => {
@@ -7741,6 +7759,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     el.nativeAudio.addEventListener('playing', () => {
       state.isPlaying = true;
+      state.consecutivePlayFailures = 0;
       document.body.classList.add('is-playing');
       updatePlayPauseButton(true, false);
     });
@@ -15092,7 +15111,7 @@ function bindCoverHoldZoom(wrapEl) {
   const advButtons = document.querySelectorAll('.effect-switch-btn[data-adv]');
   advButtons.forEach(btn => {
     const key = btn.dataset.adv;
-    const defaultVal = (key === 'reduce_motion' || key === 'mesh_gradient' || key === 'mesh_cover_color' || key === 'clip_fx' || key === 'intensity_bg' || key === 'hide_titlebar' || key === 'classic_sidebar') ? false : true;
+    const defaultVal = key === 'reduce_motion' ? systemPrefersReducedMotion() : (key === 'mesh_gradient' || key === 'mesh_cover_color' || key === 'clip_fx' || key === 'intensity_bg' || key === 'hide_titlebar' || key === 'classic_sidebar') ? false : true;
     const currentVal = getAdv(key, defaultVal);
     btn.classList.toggle('active', currentVal);
 
@@ -15836,7 +15855,9 @@ function bindCoverHoldZoom(wrapEl) {
   const initialPerfMode = localStorage.getItem('riff_perf_mode') === '1';
   applyPerfMode(initialPerfMode);
   document.body.classList.toggle('perf', initialPerfMode);
-  document.documentElement.classList.remove('force-reduced-motion');
+  // Re-apply the saved "Reduce motion" setting; this line used to remove the class
+  // unconditionally, so the setting stopped working after every restart.
+  applyReducedMotionSetting();
   localStorage.setItem('riff_perf_mode', initialPerfMode ? '1' : '0');
   if (btnPerfMode) btnPerfMode.classList.toggle('active', initialPerfMode);
   applyLyricsEase();
@@ -22932,11 +22953,10 @@ function bindCoverHoldZoom(wrapEl) {
       const tile = document.createElement('div');
       tile.className = 'sp-tile';
       const thumb = (typeof getTrackThumbUrl === 'function' ? getTrackThumbUrl(track) : '') || track.thumbnail || track.cover || '';
-      const img = document.createElement('img');
-      img.loading = 'lazy';
-      img.decoding = 'async';
-      img.src = thumb;
-      img.alt = '';
+      const tileCover = document.createElement('div');
+      tileCover.className = 'sp-tile-cover';
+      appendCoverImage(tileCover, thumb);
+      tile.appendChild(tileCover);
       const text = document.createElement('div');
       text.className = 'sp-tile-text';
       const title = document.createElement('div');
@@ -22947,7 +22967,6 @@ function bindCoverHoldZoom(wrapEl) {
       sub.textContent = track.artist || track.uploader || 'Unknown artist';
       text.appendChild(title);
       text.appendChild(sub);
-      tile.appendChild(img);
       tile.appendChild(text);
       tile.addEventListener('click', () => {
         playTrack(track);
@@ -23011,6 +23030,28 @@ function bindCoverHoldZoom(wrapEl) {
     return covers;
   }
 
+  // Cover art helper: show a music-note placeholder instead of the browser's broken-image
+  // icon when there is no cover or the image fails to load.
+  function showCoverPlaceholder(wrap) {
+    wrap.classList.add('sp-card-cover-empty');
+    wrap.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>';
+  }
+
+  function appendCoverImage(wrap, cover) {
+    if (!cover) {
+      showCoverPlaceholder(wrap);
+      return null;
+    }
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.alt = '';
+    img.addEventListener('error', () => showCoverPlaceholder(wrap), { once: true });
+    img.src = cover;
+    wrap.appendChild(img);
+    return img;
+  }
+
   function spCard({ cover, gridCovers, title, sub, onClick, isExplicit = false }) {
     const card = document.createElement('div');
     card.className = 'sp-card';
@@ -23030,12 +23071,7 @@ function bindCoverHoldZoom(wrapEl) {
       });
       coverWrap.appendChild(grid);
     } else {
-      const img = document.createElement('img');
-      img.loading = 'lazy';
-      img.decoding = 'async';
-      img.src = cover || '';
-      img.alt = '';
-      coverWrap.appendChild(img);
+      appendCoverImage(coverWrap, cover);
     }
 
     const titleEl = document.createElement('div');

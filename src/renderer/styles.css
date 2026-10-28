@@ -9008,7 +9008,10 @@ body:not(.home-spotify) #sp-home { display: none; }
 @media (max-width: 900px) { .sp-quick { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .sp-tile { display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 12px 0 0; border-radius: 12px; overflow: hidden; cursor: pointer; background: color-mix(in srgb, var(--md-sys-color-surface-container-high) 70%, transparent); transition: background .2s; }
 .sp-tile:hover { background: var(--md-sys-color-surface-container-highest); }
-.sp-tile img, .sp-tile .sp-heart, .sp-tile .playlist-cover-art { width: 64px; height: 64px; flex: 0 0 64px; object-fit: cover; }
+.sp-tile img, .sp-tile .sp-heart, .sp-tile .playlist-cover-art, .sp-tile .sp-tile-cover { width: 64px; height: 64px; flex: 0 0 64px; object-fit: cover; }
+.sp-tile .sp-tile-cover { display: flex; align-items: center; justify-content: center; background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant); }
+.sp-tile .sp-tile-cover img { width: 100%; height: 100%; }
+.sp-tile .sp-tile-cover.sp-card-cover-empty svg { width: 26px; height: 26px; opacity: 0.6; }
 .sp-heart { display: grid; place-items: center; background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
 .sp-tile-text { min-width: 0; flex: 1; }
 .sp-tile-title { font-weight: 600; font-size: 15px; }
@@ -9024,6 +9027,8 @@ body:not(.home-spotify) #sp-home { display: none; }
 .sp-card-cover { position: relative; width: 100%; aspect-ratio: 1; border-radius: 14px; overflow: hidden; background: var(--md-sys-color-surface-container-high); transition: transform .2s; }
 .sp-card:hover .sp-card-cover { transform: translateY(-2px); }
 .sp-card-cover img { width: 100%; height: 100%; object-fit: cover; -webkit-user-drag: none; user-select: none; pointer-events: none; }
+.sp-card-cover-empty { display: flex; align-items: center; justify-content: center; color: var(--md-sys-color-on-surface-variant); }
+.sp-card-cover-empty svg { width: 30%; height: 30%; opacity: 0.6; }
 .sp-card-title { margin-top: 10px; font-weight: 600; font-size: 15px; }
 .sp-card-sub { margin-top: 2px; font-size: 13px; color: var(--md-sys-color-on-surface-variant); }
 
