@@ -17,9 +17,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pickLocalFiles: () => ipcRenderer.invoke('pick-local-files'),
   pickLocalFolder: () => ipcRenderer.invoke('pick-local-folder'),
   rescanLocalMetadata: (paths) => ipcRenderer.invoke('rescan-local-metadata', paths),
-  getDefaultMusicDir: () => ipcRenderer.invoke('get-default-music-dir'),
-  pickScanFolder: () => ipcRenderer.invoke('pick-scan-folder'),
-  scanLocalFolders: (opts) => ipcRenderer.invoke('scan-local-folders', opts),
   onWindowVisibility: (callback) => {
     ipcRenderer.on('window-visibility', (event, visible) => callback(visible));
   },
@@ -112,11 +109,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   storageInitSync: () => ipcRenderer.sendSync('storage-get-all-sync'),
   storageSaveBatch: (data) => ipcRenderer.send('storage-save-batch', data),
   storageSaveSync: (data) => ipcRenderer.sendSync('storage-save-sync', data),
+  readCacheFile: () => ipcRenderer.invoke('cache-read'),
+  writeCacheFile: (data) => ipcRenderer.send('cache-write', data),
 });
 
-// macOS: the window uses the native traffic-light buttons instead of the drawn ones. Tag the
-// page so CSS can hide the drawn minimize/maximize/close, and hide the traffic lights whenever
-// the titlebar itself is hidden (mini player, or "Hide top titlebar" until it is revealed).
+
+
+
+
+
+
 if (process.platform === 'darwin') {
   window.addEventListener('DOMContentLoaded', () => {
     document.documentElement.classList.add('platform-darwin');

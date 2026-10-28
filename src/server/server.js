@@ -11,6 +11,7 @@ const url = require('url');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const { spawn } = require("child_process");
 const { StringDecoder } = require("string_decoder");
 const dns = require('dns');
@@ -18,6 +19,45 @@ const net = require('net');
 
 const PORT = 38472;
 const { DATA_DIR, CACHE_DIR, CUSTOM_LYRICS_DIR, LYRICS_DIR, THUMBNAILS_DIR, METADATA_PATH, LIBRARY_DIR, LIBRARY_PATH, ytDlpCommand, resolveDownloadDir, resolveBinary } = require('../shared/platform');
+const YT_COOKIES_FILE = path.join(DATA_DIR, 'yt-cookies.txt');
+
+function getYtAuthHeaders(origin = 'https://www.youtube.com') {
+  try {
+    if (!fs.existsSync(YT_COOKIES_FILE)) return null;
+    const raw = fs.readFileSync(YT_COOKIES_FILE, 'utf8');
+    const cookiePairs = [];
+    let sapisid = '';
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const parts = trimmed.split('\t');
+      if (parts.length >= 7) {
+        const domain = parts[0];
+        const name = parts[5];
+        const val = parts[6];
+        if (domain.includes('youtube.com')) {
+          cookiePairs.push(`${name}=${val}`);
+          if (name === 'SAPISID' || (!sapisid && name === '__Secure-3PAPISID')) {
+            sapisid = val;
+          }
+        }
+      }
+    }
+    if (!sapisid || !cookiePairs.length) return null;
+    const ts = Math.floor(Date.now() / 1000);
+    const hash = crypto.createHash('sha1').update(`${ts} ${sapisid} ${origin}`).digest('hex');
+    return {
+      'Cookie': cookiePairs.join('; '),
+      'Authorization': `SAPISIDHASH ${ts}_${hash}`,
+      'Origin': origin,
+      'X-Origin': origin,
+      'X-Goog-AuthUser': '0'
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
 const I18N_DIR = path.join(DATA_DIR, 'i18n');
 try { fs.mkdirSync(I18N_DIR, { recursive: true }); } catch (_) {}
 
@@ -87,10 +127,6 @@ function ipv4IsPrivate(a, b) {
   if (a === 169 && b === 254) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;
-  if (a === 192 && b === 0) return true;
-  if (a === 198 && (b === 18 || b === 19)) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a >= 224) return true;
   return false;
 }
 
@@ -263,7 +299,15 @@ function cacheSet(map, key, value, max = MAX_CACHE_ENTRIES) {
 
 let currentAppState = {};
 const sseClients = new Set();
-const YT_PLAYER_CLIENTS = [null];
+const YT_PLAYER_CLIENTS = ['default', 'android_vr'];
+const YT_EXTRACTOR_ARGS = 'youtube:player_client=' + YT_PLAYER_CLIENTS.join(',');
+const ytContentLengthByUrl = new Map();
+function rememberYtContentLength(u, len) {
+  const n = parseInt(len, 10);
+  if (!u || !n) return;
+  ytContentLengthByUrl.set(u, n);
+  if (ytContentLengthByUrl.size > 300) ytContentLengthByUrl.delete(ytContentLengthByUrl.keys().next().value);
+}
 let lastGoodYtClient = null;
 
 let _bgYtDlpActive = 0;
@@ -492,36 +536,108 @@ function extractYtIdFromAny(urlOrId) {
   return m ? m[1] : '';
 }
 
+function evictStreamCache(rawUrl) {
+  if (!rawUrl) return;
+  for (const [k, v] of streamUrlCache.entries()) {
+    if (v && v.data && (v.data.rawStreamUrl === rawUrl || v.data.streamUrl === rawUrl || (typeof v.data.streamUrl === 'string' && v.data.streamUrl.includes(encodeURIComponent(rawUrl))))) {
+      streamUrlCache.delete(k);
+    }
+  }
+}
+
+function verifyStreamPlayable(streamUrl, userAgent, redirectsLeft = 3) {
+  return new Promise((resolve) => {
+    if (!streamUrl || typeof streamUrl !== 'string') return resolve(false);
+    if (streamUrl.includes('.m3u8')) return resolve(true);
+    let settled = false;
+    const done = (ok) => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+    try {
+      const parsed = new URL(streamUrl);
+      const cParam = (parsed.searchParams.get('c') || '').toUpperCase();
+      let ua = userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+      if (!userAgent) {
+        if (cParam === 'IOS') ua = 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)';
+        else if (cParam === 'ANDROID_VR') ua = 'com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip';
+      }
+      const req = https.request(streamUrl, {
+        method: 'GET',
+        agent: keepAliveHttpsAgent,
+        family: 4,
+        timeout: 2500,
+        headers: {
+          'Host': parsed.host,
+          'Range': 'bytes=0-',
+          'User-Agent': ua
+        }
+      }, (res) => {
+        if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirectsLeft > 0) {
+          res.resume();
+          const nextUrl = new URL(res.headers.location, streamUrl).toString();
+          return verifyStreamPlayable(nextUrl, ua, redirectsLeft - 1).then(done);
+        }
+        if (res.statusCode !== 200 && res.statusCode !== 206) {
+          res.destroy();
+          return done(false);
+        }
+        let received = 0;
+        res.on('data', (chunk) => {
+          received += chunk.length;
+          if (received >= 16384) {
+            res.destroy();
+            done(true);
+          }
+        });
+        res.on('end', () => done(received >= 16384 || received > 0));
+        res.on('error', () => done(false));
+      });
+      req.on('timeout', () => { req.destroy(); done(false); });
+      req.on('error', () => done(false));
+      req.end();
+    } catch (_) {
+      done(false);
+    }
+  });
+}
+const verifyGoogleVideoStream = verifyStreamPlayable;
+
 async function fetchDirectYoutubeStreamServer(videoId, quality = 'medium') {
   const vid = extractYtIdFromAny(videoId);
   if (!vid) return null;
   const clients = [
     {
       clientName: 'ANDROID_VR',
-      clientVersion: '1.60.19',
-      androidSdkVersion: 34,
-      userAgent: 'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 14; eureka-user Build/SQ3A.220605.009.A1) gzip',
+      clientVersion: '1.61.48',
+      androidSdkVersion: 32,
+      deviceMake: 'Oculus',
+      deviceModel: 'Quest 3',
+      userAgent: 'com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip',
       osName: 'Android',
-      osVersion: '14'
-    },
-    {
-      clientName: 'ANDROID_TESTSUITE',
-      clientVersion: '1.9',
-      androidSdkVersion: 34,
-      userAgent: 'com.google.android.youtube/1.9 (Linux; U; Android 14; en_US) gzip',
-      osName: 'Android',
-      osVersion: '14'
+      osVersion: '12L'
     },
     {
       clientName: 'IOS',
-      clientVersion: '20.03.02',
+      clientVersion: '20.10.4',
       deviceMake: 'Apple',
       deviceModel: 'iPhone16,2',
-      userAgent: 'com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X;)',
+      userAgent: 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
       osName: 'iOS',
-      osVersion: '18.2.1.22C161'
+      osVersion: '18.3.2.22D60'
     }
   ];
+
+  const authHeaders = getYtAuthHeaders('https://www.youtube.com');
+  if (authHeaders) {
+    clients.push({
+      clientName: 'WEB_REMIX',
+      clientVersion: '1.20250922.01.00',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      extraHeaders: authHeaders
+    });
+  }
 
   const queryClient = (c) => new Promise((resolve, reject) => {
     const clientPayload = {
@@ -543,40 +659,57 @@ async function fetchDirectYoutubeStreamServer(videoId, quality = 'medium') {
       racyCheckOk: true
     });
 
+    const reqHeaders = Object.assign({
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(bodyPayload),
+      'User-Agent': c.userAgent,
+      'X-Goog-Api-Format-Version': '2'
+    }, c.extraHeaders || {});
+
     const req = https.request({
       hostname: 'www.youtube.com',
       path: '/youtubei/v1/player?prettyPrint=false',
       method: 'POST',
       agent: keepAliveHttpsAgent,
       family: 4,
-      timeout: 2800,
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(bodyPayload),
-        'User-Agent': c.userAgent
-      }
+      timeout: 4000,
+      headers: reqHeaders
     }, (res) => {
       let raw = '';
       res.setEncoding('utf8');
       res.on('data', chunk => { raw += chunk; });
-      res.on('end', () => {
+      res.on('end', async () => {
         if (res.statusCode !== 200) return reject(new Error('status ' + res.statusCode));
         try {
           const data = JSON.parse(raw);
-          const formats = [
-            ...((data.streamingData && data.streamingData.adaptiveFormats) || []),
-            ...((data.streamingData && data.streamingData.formats) || [])
-          ];
-          const audioFormats = formats.filter(f => f && f.url && typeof f.mimeType === 'string' && f.mimeType.startsWith('audio/'));
+          if (data.playabilityStatus && data.playabilityStatus.status !== 'OK') {
+            return reject(new Error('playability: ' + (data.playabilityStatus.status || 'UNPLAYABLE')));
+          }
+          const adaptive = (data.streamingData && data.streamingData.adaptiveFormats) || [];
+          const muxed = (data.streamingData && data.streamingData.formats) || [];
+          const allFormats = [...adaptive, ...muxed];
+          const audioFormats = allFormats.filter(f => f && f.url && !f.signatureCipher && !f.cipher && typeof f.mimeType === 'string' && f.mimeType.startsWith('audio/'));
           if (audioFormats.length > 0) {
+            let pool = audioFormats;
             if (quality === 'low') {
-              audioFormats.sort((a, b) => (a.bitrate || 0) - (b.bitrate || 0));
-              return resolve(audioFormats[0].url);
+              pool.sort((a, b) => (a.bitrate || 0) - (b.bitrate || 0));
+            } else if (quality === 'high' || quality === 'max') {
+              pool.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+            } else {
+              const m4a = audioFormats.filter(f => f.mimeType.includes('mp4') || f.mimeType.includes('m4a'));
+              const webm = audioFormats.filter(f => f.mimeType.includes('webm') || f.mimeType.includes('opus'));
+              pool = m4a.length > 0 ? m4a : webm.length > 0 ? webm : audioFormats;
+              pool.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
             }
-            const m4a = audioFormats.filter(f => f.mimeType.includes('mp4') || f.mimeType.includes('m4a'));
-            const pool = m4a.length > 0 ? m4a : audioFormats;
-            pool.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-            return resolve(pool[0].url);
+            const chosenUrl = pool[0].url;
+            if (await verifyStreamPlayable(chosenUrl, c.userAgent)) return resolve(chosenUrl);
+          }
+          const itag18 = muxed.find(f => f && f.itag === 18 && f.url && !f.signatureCipher && !f.cipher);
+          if (itag18) {
+            if (await verifyStreamPlayable(itag18.url, c.userAgent)) return resolve(itag18.url);
+          }
+          if (data.streamingData && typeof data.streamingData.hlsManifestUrl === 'string' && data.streamingData.hlsManifestUrl.startsWith('http')) {
+            return resolve(data.streamingData.hlsManifestUrl);
           }
           reject(new Error('no audio formats'));
         } catch (e) {
@@ -935,14 +1068,13 @@ async function dzRadioTracks(artist) {
 const ytMixCache = new Map();
 
 async function ytMixTracks(seed) {
-  if (!seed || seed.platform !== 'youtube') return [];
-  let id = cleanTrackId(seed.id || '');
-  if (id.length > 11 && (id.startsWith('yt_') || id.startsWith('youtube_'))) {
-    id = id.replace(/^(yt_|youtube_)/, '');
-  }
-  if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return [];
+  if (!seed || (!seed.artist && !seed.title)) return [];
+  const cleanArtist = stripYoutubeTopic(seed.artist || '').trim();
+  const cleanTitle = String(seed.title || '').trim();
+  const cacheKey = `${cleanArtist}::${cleanTitle}`.toLowerCase();
+  if (!cacheKey || cacheKey === '::') return [];
 
-  const cached = ytMixCache.get(id);
+  const cached = ytMixCache.get(cacheKey);
   if (cached && Date.now() < cached.expires) {
     return cached.tracks;
   }
@@ -952,62 +1084,38 @@ async function ytMixTracks(seed) {
 
   const lookupPromise = (async () => {
     try {
-      const args = [
-        '--flat-playlist',
-        '--dump-single-json',
-        '--no-warnings',
-        '--no-check-certificates',
-        '--playlist-end',
-        '25',
-        '--extractor-args',
-        'youtube:player_client=android',
-        `https://www.youtube.com/watch?v=${id}&list=RD${id}`
-      ];
-      const raw = await executeYtDlp(args, 25000);
-      const data = JSON.parse(raw);
-      const entries = Array.isArray(data?.entries) ? data.entries : [];
+      const q = cleanArtist ? `${cleanArtist} ${cleanTitle} mix` : cleanTitle;
+      const songs = await searchYtmTracks(q, 14).catch(() => []);
       const results = [];
-
-      entries.forEach((entry, index) => {
-        if (!entry || !entry.id || entry.id === id) return;
+      (songs || []).forEach((entry, index) => {
+        if (!entry || !entry.id || entry.id === seed.id) return;
         const duration = Number(entry.duration) || 0;
         if (duration > 480) return;
-        const artist = stripYoutubeTopic(entry.uploader || entry.channel || 'unknown artist');
+        const artist = stripYoutubeTopic(entry.artist || 'unknown artist');
         const title = entry.title || 'untitled';
         if (isSpamOrUnofficial(title, duration, artist)) return;
-
-        let thumbnail = '';
-        if (Array.isArray(entry.thumbnails) && entry.thumbnails.length > 0) {
-          thumbnail = entry.thumbnails[entry.thumbnails.length - 1].url || '';
-        } else if (entry.thumbnail) {
-          thumbnail = entry.thumbnail;
-        }
-
         results.push({
           id: entry.id,
           title,
           artist,
           duration,
-          thumbnail,
+          thumbnail: entry.thumbnail || '',
           url: `https://www.youtube.com/watch?v=${entry.id}`,
           platform: 'youtube',
           isCached: false,
-          match: 1 - (index / 25) * 0.5,
+          match: 1 - (index / 20) * 0.5,
           source: 'ytmix',
           playable: true
         });
       });
-
-      ytMixCache.set(id, { expires: Date.now() + 30 * 60 * 1000, tracks: results });
+      ytMixCache.set(cacheKey, { expires: Date.now() + 30 * 60 * 1000, tracks: results });
       return results;
     } catch (_) {
-      if (ytMixCache.get(id)?.promise === lookupPromise) {
-        ytMixCache.delete(id);
-      }
+      ytMixCache.delete(cacheKey);
       return [];
     }
   })();
-  ytMixCache.set(id, { expires: 0, promise: lookupPromise });
+  ytMixCache.set(cacheKey, { expires: 0, promise: lookupPromise });
   return lookupPromise;
 }
 
@@ -1420,7 +1528,7 @@ function directYoutubeSearch(query, isMusic = false, limit = 40) {
       method: 'POST',
       agent: keepAliveHttpsAgent,
       family: 4,
-      timeout: 5000,
+      timeout: 8000,
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(bodyPayload),
@@ -1502,6 +1610,13 @@ function executeYtDlp(args, timeoutMs = 15000, opts = {}) {
     const prependFlags = [];
     if (!finalArgs.includes('--force-ipv4')) prependFlags.push('--force-ipv4');
     if (!finalArgs.includes('--geo-bypass')) prependFlags.push('--geo-bypass');
+    if (!finalArgs.includes('--js-runtimes')) {
+      prependFlags.push('--js-runtimes', 'node');
+    }
+    if (!finalArgs.includes('--remote-components')) prependFlags.push('--remote-components', 'ejs:github');
+    if (fs.existsSync(YT_COOKIES_FILE) && !finalArgs.includes('--cookies')) {
+      prependFlags.push('--cookies', YT_COOKIES_FILE);
+    }
     if (prependFlags.length > 0) {
       finalArgs.unshift(...prependFlags);
     }
@@ -1548,7 +1663,8 @@ function executeYtDlp(args, timeoutMs = 15000, opts = {}) {
       } else {
         const firstArgs = (args || []).slice(0, 3).join(' ');
         const errSnippet = String(stderr || `code ${code}`).slice(0, 300);
-        try { logger.log('error', `yt-dlp failed: ${firstArgs} - ${errSnippet}`); } catch (_) {}
+        const isWarn = !stderr || /not available|unavailable|private video|timed out/i.test(errSnippet);
+        try { logger.log(isWarn ? 'warn' : 'error', `yt-dlp failed: ${firstArgs} - ${errSnippet}`); } catch (_) {}
         reject(new Error(stderr || `yt-dlp exited with code ${code}`));
       }
     });
@@ -1653,7 +1769,7 @@ async function downloadTrackToDisk(trackUrl, trackId, platform, meta = {}) {
   ];
 
   if (platform === 'youtube') {
-    args.push('--extractor-args', 'youtube:player_client=android');
+    args.push('--extractor-args', YT_EXTRACTOR_ARGS);
   }
 
   args.push(trackUrl);
@@ -1746,12 +1862,14 @@ async function prefetchTrack(trackUrl, trackId, platform) {
     }
     if (streamUrl) {
       const isHls = streamUrl.includes('.m3u8');
+      const proxied = 'http://127.0.0.1:' + PORT + '/api/audio-proxy?url=' + encodeURIComponent(streamUrl);
       const data = {
         success: true,
         isLocal: false,
-        streamUrl,
-        isHls,
-        proxyUrl: `http://127.0.0.1:${PORT}/api/audio-proxy?url=${encodeURIComponent(streamUrl)}`
+        streamUrl: isHls ? streamUrl : proxied,
+        rawStreamUrl: streamUrl,
+        proxyUrl: proxied,
+        isHls
       };
       cacheSet(streamUrlCache, cacheKey, { timestamp: Date.now(), data });
       if (cleanId) cacheSet(streamUrlCache, cleanId + '_' + quality, { timestamp: Date.now(), data });
@@ -1767,7 +1885,7 @@ const YTM_CLIENT_VERSION = '1.20250101.01.00';
 let ytmFailUntil = 0;
 let ytmFailCount = 0;
 
-async function ytmSearchRequest(query, params = YTM_SONGS_PARAMS) {
+async function ytmSearchRequest(query, params = YTM_SONGS_PARAMS, attempt = 0) {
   const reqBody = {
     context: { client: { clientName: 'WEB_REMIX', clientVersion: YTM_CLIENT_VERSION, hl: 'en', gl: 'US' } },
     query
@@ -1780,9 +1898,9 @@ async function ytmSearchRequest(query, params = YTM_SONGS_PARAMS) {
       hostname: 'music.youtube.com',
       path: '/youtubei/v1/search?prettyPrint=false',
       method: 'POST',
-      agent: keepAliveHttpsAgent,
+      agent: attempt === 0 ? keepAliveHttpsAgent : false,
       family: 4,
-      timeout: 7000,
+      timeout: 10000,
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(body),
@@ -1810,11 +1928,17 @@ async function ytmSearchRequest(query, params = YTM_SONGS_PARAMS) {
     });
     req.on('timeout', () => {
       req.destroy();
+      if (attempt < 2) {
+        return resolve(ytmSearchRequest(query, params, attempt + 1));
+      }
       const timeoutErr = new Error('The operation was aborted due to timeout');
       try { logger.log('warn', `ytmusic search error: ${timeoutErr.message}`); } catch (_) {}
       reject(timeoutErr);
     });
     req.on('error', (err) => {
+      if (attempt < 2 && /ECONNRESET|socket hang up|EPIPE|ETIMEDOUT/i.test(err && err.message || '')) {
+        return resolve(ytmSearchRequest(query, params, attempt + 1));
+      }
       try { logger.log('warn', `ytmusic search error: ${err.message}`); } catch (_) {}
       reject(err);
     });
@@ -2006,8 +2130,17 @@ async function fetchSoundCloudSearch(query, limit = 20) {
 }
 
 async function ytmusicSearch(query) {
+  let json;
   try {
-    const json = await ytmSearchRequest(query);
+    json = await ytmSearchRequest(query);
+  } catch (_) {
+    try {
+      json = await ytmSearchRequest(query);
+    } catch (_) {
+      return [];
+    }
+  }
+  try {
     const songs = parseYtmSongs(json);
     if (songs && songs.length > 0) {
       return songs.map(s => {
@@ -2183,6 +2316,7 @@ let serverTrendingCache = { ts: 0, tracks: [] };
 function fetchItunesTopSongs(limit = 24) {
   return new Promise((resolve) => {
     const req = https.get('https://itunes.apple.com/us/rss/topsongs/limit=' + limit + '/json', {
+      family: 4,
       headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
       timeout: 6000
     }, (res) => {
@@ -2226,18 +2360,36 @@ async function handleTrending(req, res) {
   let tracks = await fetchItunesTopSongs(24);
   if (!tracks || tracks.length === 0) {
     try {
-      const raw = await executeYtDlp(['--no-config', '--flat-playlist', '-J', '--no-warnings', 'ytsearch20:top hits music chart'], 12000);
-      const parsed = JSON.parse(raw);
-      const entries = Array.isArray(parsed?.entries) ? parsed.entries : [];
+      const dzChart = await httpGetJson('https://api.deezer.com/chart/0/tracks?limit=24', 5000);
+      const entries = Array.isArray(dzChart?.data) ? dzChart.data : [];
+      tracks = entries.map(item => {
+        const cover = item.album?.cover_xl || item.album?.cover_big || item.album?.cover_medium || '';
+        return {
+          id: item.id ? `dz-${item.id}` : '',
+          title: item.title || 'Untitled',
+          artist: item.artist?.name || 'Unknown artist',
+          thumbnail: cover,
+          cover: cover,
+          duration: Number(item.duration) || 0,
+          platform: 'ytmusic',
+          url: ''
+        };
+      }).filter(t => t.title && (t.id || t.artist));
+    } catch (_) { tracks = []; }
+  }
+  if (!tracks || tracks.length === 0) {
+    try {
+      const ytmSongs = await searchYtmTracks('Top Hits 2026', 20);
+      const entries = Array.isArray(ytmSongs) ? ytmSongs : [];
       tracks = entries.map(item => ({
         id: item.id || '',
         title: item.title || 'Untitled',
-        artist: item.uploader || item.channel || 'Unknown artist',
-        thumbnail: (item.thumbnails && item.thumbnails.length) ? item.thumbnails[item.thumbnails.length - 1].url : (item.id ? 'https://i.ytimg.com/vi/' + item.id + '/hqdefault.jpg' : ''),
-        cover: (item.thumbnails && item.thumbnails.length) ? item.thumbnails[item.thumbnails.length - 1].url : (item.id ? 'https://i.ytimg.com/vi/' + item.id + '/hqdefault.jpg' : ''),
+        artist: item.artist || 'Unknown artist',
+        thumbnail: item.thumbnail || '',
+        cover: item.thumbnail || '',
         duration: Number(item.duration) || 0,
         platform: 'ytmusic',
-        url: item.id ? 'https://www.youtube.com/watch?v=' + item.id : (item.url || '')
+        url: item.url || (item.id ? `https://www.youtube.com/watch?v=${item.id}` : '')
       })).filter(t => t.title && (t.id || t.artist));
     } catch (_) { tracks = []; }
   }
@@ -2287,11 +2439,11 @@ function scoreImportedCandidate(targetTitle, targetArtist, targetDur, cand) {
     }
   }
 
-  const modifiers = ['slowed', 'reverb', 'sped up', 'nightcore', '8d', 'karaoke', 'instrumental', 'cover', 'live', 'tribute'];
+  const modifiers = ['slowed', 'reverb', 'sped up', 'speed up', 'nightcore', 'hardstyle', 'remix', 'bootleg', 'mashup', '8d', 'karaoke', 'instrumental', 'cover', 'live', 'tribute', 'bass boosted', 'phonk remix', 'edit'];
   for (const mod of modifiers) {
     const inTarget = tTitle.includes(mod) || norm(targetArtist).includes(mod);
     const inCand = cFull.includes(mod);
-    if (inCand && !inTarget) score -= 42;
+    if (inCand && !inTarget) score -= 95;
     else if (inCand && inTarget) score += 22;
   }
 
@@ -2307,6 +2459,25 @@ function scoreImportedCandidate(targetTitle, targetArtist, targetDur, cand) {
   if (tDur > 45 && cDur > 0 && cDur < 35) return -500;
 
   return score;
+}
+
+function makeCleanSearchQuery(artist, title) {
+  const cleanA = String(artist || '')
+    .replace(/\s*-\s*Topic$/i, '')
+    .replace(/\bVEVO$/i, '')
+    .split(/[,;&\/]|feat\.?|ft\.?/i)[0]
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const cleanT = String(title || '')
+    .replace(/\s*[\(\[]\s*(?:feat\.?|ft\.?|prod\.?|featuring)[^)]*[\)\]]/gi, '')
+    .replace(/\s*[\(\[]\s*(?:official\s*(?:music\s*)?(?:video|audio|lyric\s*video|visualizer)|lyrics?\s*video|lyrics?|visualizer|hd|hq|4k|mv|clip)\s*[\)\]]/gi, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return `${cleanA} ${cleanT}`.trim();
 }
 
 async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube', title = '', artist = '', duration = 0, thumbnail = '', timeoutSec = 12) {
@@ -2364,6 +2535,10 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
   }
 
   const cacheKey = (cleanId || trackUrl || queryQ || `${artist}_${title}`).toLowerCase() + '_' + quality;
+  if (forceYtDlp) {
+    if (cacheKey) streamUrlCache.delete(cacheKey);
+    if (cleanId) streamUrlCache.delete(cleanId + '_' + quality);
+  }
   if (!forShare && !forceYtDlp && cacheKey && (streamUrlCache.has(cacheKey) || (cleanId && streamUrlCache.has(cleanId + '_' + quality)))) {
     const cached = streamUrlCache.get(cacheKey) || (cleanId ? streamUrlCache.get(cleanId + '_' + quality) : null);
     if (cached && (Date.now() - cached.timestamp < 7200000)) {
@@ -2377,8 +2552,15 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
     const inflightUrl = await streamInfoInflight.get(cacheKey).catch(() => null);
     if (inflightUrl) {
       const isHls = inflightUrl.includes('.m3u8');
-      const proxyUrl = `http://127.0.0.1:${PORT}/api/audio-proxy?url=${encodeURIComponent(inflightUrl)}`;
-      const data = { success: true, isLocal: false, streamUrl: inflightUrl, isHls, proxyUrl };
+      const proxied = 'http://127.0.0.1:' + PORT + '/api/audio-proxy?url=' + encodeURIComponent(inflightUrl);
+      const data = {
+        success: true,
+        isLocal: false,
+        streamUrl: isHls ? inflightUrl : proxied,
+        rawStreamUrl: inflightUrl,
+        proxyUrl: proxied,
+        isHls
+      };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify(data));
     }
@@ -2389,25 +2571,23 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
   }
 
   let streamUrl = null;
+  let needYtAuth = false;
   let resolveInflight, rejectInflight;
   const inflightPromise = new Promise((res, rej) => { resolveInflight = res; rejectInflight = rej; });
   streamInfoInflight.set(cacheKey, inflightPromise);
 
   try {
-    const isYt = platform === 'youtube' || platform === "ytmusic" || (trackUrl && (trackUrl.includes("youtube.com") || trackUrl.includes("youtu.be")));
-    let ytDlpQualityFormat = 'ba[abr<=160]/bestaudio[ext=m4a]/bestaudio/best';
+    needYtAuth = false;
+    const isYt = platform === 'youtube' || platform === 'ytmusic' || (trackUrl && (trackUrl.includes('youtube.com') || trackUrl.includes('youtu.be')));
+    let ytDlpQualityFormat = 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/18/best';
     if (quality === 'low') {
-      ytDlpQualityFormat = 'ba[abr<=64]/worstaudio/bestaudio/best';
-    } else if (quality === 'medium') {
-      ytDlpQualityFormat = 'ba[abr<=160]/bestaudio[ext=m4a]/bestaudio/best';
-    } else if (quality === 'high') {
-      ytDlpQualityFormat = 'bestaudio[ext=m4a]/bestaudio/best';
-    } else if (quality === 'max') {
-      ytDlpQualityFormat = 'bestaudio/best';
+      ytDlpQualityFormat = 'worstaudio[ext=m4a]/worstaudio/bestaudio/18/best';
+    } else if (quality === 'high' || quality === 'max') {
+      ytDlpQualityFormat = 'bestaudio/18/best';
     }
 
     const audioFormat = (forShare || platform === 'soundcloud' || isSc)
-      ? "http_mp3_128/bestaudio[ext=mp3][protocol^=http][protocol!=http_dash_segments]/bestaudio[ext=m4a][protocol^=http]/bestaudio[protocol=https]/bestaudio"
+      ? 'http_mp3_128/bestaudio[ext=mp3][protocol^=http][protocol!=http_dash_segments]/bestaudio[ext=m4a][protocol^=http]/bestaudio[protocol=https]/bestaudio/18/best'
       : ytDlpQualityFormat;
 
     const q = ((artist ? artist + ' - ' : '') + (title || '')).trim() || queryQ;
@@ -2422,77 +2602,64 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
         return res.end(JSON.stringify({ success: true, streamUrl: url, shareWebUrl }));
       }
       const isHls = url.includes('.m3u8');
-      const proxyUrl = `http://127.0.0.1:${PORT}/api/audio-proxy?url=${encodeURIComponent(url)}`;
+      const proxied = 'http://127.0.0.1:' + PORT + '/api/audio-proxy?url=' + encodeURIComponent(url);
       const data = {
         success: true,
         isLocal: false,
-        streamUrl: url,
-        isHls: isHls,
-        proxyUrl: proxyUrl
+        streamUrl: isHls ? url : proxied,
+        rawStreamUrl: url,
+        proxyUrl: proxied,
+        isHls: isHls
       };
       if (resolvedId) data.resolvedId = resolvedId;
       if (cacheKey) streamUrlCache.set(cacheKey, { timestamp: Date.now(), data });
-      if (finalId && finalId !== cacheKey) streamUrlCache.set(finalId, { timestamp: Date.now(), data });
+      if (finalId && finalId !== cacheKey) streamUrlCache.set(finalId + '_' + quality, { timestamp: Date.now(), data });
       if (finalId) setTimeout(() => downloadTrackToDisk(trackUrl || `https://www.youtube.com/watch?v=${finalId}`, finalId, 'youtube', meta), 45000);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify(data));
     };
 
-    if (isRealYtId && !forceYtDlp) {
-      try {
-        streamUrl = await fetchDirectYoutubeStreamServer(cleanId, quality);
-        if (streamUrl) {
-          return sendStreamResponse(streamUrl);
-        }
-      } catch (_) {}
-    }
-
-    if (!isRealYtId && !(platform === 'soundcloud' || isSc) && q) {
-      try {
-        const ytmHits = await ytmusicSearch(q);
-        if (Array.isArray(ytmHits) && ytmHits.length > 0) {
-          const scored = ytmHits
-            .map(c => ({ cand: c, score: scoreImportedCandidate(title, artist, duration, c) }))
-            .sort((a, b) => b.score - a.score);
-          const bestHit = scored[0]?.cand;
-          if (bestHit && bestHit.id) {
-            streamUrl = await fetchDirectYoutubeStreamServer(bestHit.id, quality);
-            if (streamUrl) {
-              return sendStreamResponse(streamUrl, bestHit.id);
-            }
-          }
-        }
-      } catch (_) {}
-    }
-
     const resolveYtCandidateStream = async (candId) => {
-      if (!candId) return null;
+      const vid = extractYtIdFromAny(candId);
+      if (!vid) return null;
       let s = null;
       if (!forceYtDlp) {
-        try { s = await fetchDirectYoutubeStreamServer(candId, quality); } catch (_) {}
+        try { s = await fetchDirectYoutubeStreamServer(vid, quality); } catch (_) {}
+        if (s) return s;
       }
-      if (!s) {
-        const vUrl = `https://www.youtube.com/watch?v=${candId}`;
-        const clients = lastGoodYtClient
-          ? [lastGoodYtClient, ...YT_PLAYER_CLIENTS.filter(c => c !== lastGoodYtClient)]
-          : YT_PLAYER_CLIENTS;
-        for (const client of clients) {
-          if (s) break;
-          try {
-            const args = [
-              "--no-config", "-g", "--no-warnings", "--no-playlist", "--no-check-certificates",
-              "--socket-timeout", "5", "--retries", "1",
-              ...(client ? ["--extractor-args", "youtube:player_client=" + client] : []),
-              "-f", (forShare ? audioFormat : ytDlpQualityFormat),
-              "--", vUrl
-            ];
-            const raw = await executeYtDlp(args, 7000);
-            const lines = raw.trim().split(String.fromCharCode(10)).map(l => l.trim()).filter(l => l.startsWith("http"));
-            if (lines.length > 0) {
-              s = lines[0];
-              lastGoodYtClient = client;
+      const vUrl = `https://www.youtube.com/watch?v=${vid}`;
+      const hasCookies = fs.existsSync(YT_COOKIES_FILE);
+      const clientSpecs = hasCookies
+        ? ['web,tv,ios', 'default']
+        : ['web_embedded,web,tv', 'ios'];
+      for (const clientSpec of clientSpecs) {
+        if (s) break;
+        try {
+          const args = [
+            '--no-config', '-g', '--no-warnings', '--no-playlist', '--no-check-certificates',
+            '--js-runtimes', 'node', '--remote-components', 'ejs:github',
+            '--socket-timeout', '6', '--retries', '1',
+            '--extractor-args', 'youtube:player_client=' + clientSpec,
+            '-f', (forShare ? audioFormat : ytDlpQualityFormat),
+            '--', vUrl
+          ];
+          const raw = await executeYtDlp(args, 7500);
+          const lines = raw.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
+          for (const lineUrl of lines) {
+            if (await verifyStreamPlayable(lineUrl)) {
+              s = lineUrl;
+              break;
             }
-          } catch (_) {}
+          }
+        } catch (err) {
+          const msg = String((err && err.message) || err || '');
+          if (/confirm your age|not a bot|Sign in to confirm|age-restricted|LOGIN_REQUIRED/i.test(msg)) {
+            needYtAuth = true;
+            break;
+          }
+          if (/Video unavailable|This video is not available|Private video/i.test(msg)) {
+            break;
+          }
         }
       }
       return s;
@@ -2506,13 +2673,13 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
       if (!s && candUrl && isSafeMediaUrl(candUrl)) {
         try {
           const args = [
-            "--no-config", "-g", "--no-warnings", "--no-playlist", "--no-check-certificates",
-            "--socket-timeout", "5", "--retries", "1",
-            "-f", audioFormat,
-            "--", candUrl
+            '--no-config', '-g', '--no-warnings', '--no-playlist', '--no-check-certificates',
+            '--socket-timeout', '8', '--retries', '1',
+            '-f', audioFormat,
+            '--', candUrl
           ];
-          const raw = await executeYtDlp(args, 8000);
-          const lines = raw.trim().split(String.fromCharCode(10)).map(l => l.trim()).filter(l => l.startsWith("http"));
+          const raw = await executeYtDlp(args, 10000);
+          const lines = raw.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
           const nonDrm = lines.find(l => !/preview|drm|cf-preview-media/i.test(l));
           if (nonDrm && !nonDrm.includes('/preview/') && !nonDrm.includes('cf-preview-media')) s = nonDrm;
         } catch (_) {}
@@ -2520,186 +2687,85 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
       return s;
     };
 
+    const failedYtIds = new Set();
+
     if (platform === 'soundcloud' || isSc) {
-      // If platform === 'soundcloud' (or isSc):
-      // 1. Try direct SoundCloud stream (fetchDirectSoundCloudStreamServer / yt-dlp on trackUrl)
       streamUrl = await resolveScCandidateStream(trackUrl, cleanId);
-
-      // 2. Fallback to ytmusicSearch(q) scored by scoreImportedCandidate
-      if (!streamUrl && q) {
-        try {
-          const ytmCandidates = await ytmusicSearch(q);
-          if (Array.isArray(ytmCandidates) && ytmCandidates.length > 0) {
-            const scored = ytmCandidates
-              .map(c => ({ cand: c, score: scoreImportedCandidate(title, artist, duration, c) }))
-              .filter(x => x.score >= 20)
-              .sort((a, b) => b.score - a.score);
-            for (const item of scored) {
-              streamUrl = await resolveYtCandidateStream(item.cand.id);
-              if (streamUrl) {
-                cleanId = item.cand.id;
-                break;
-              }
-            }
-          }
-        } catch (_) {}
-      }
-
-      // 3. Fallback to directYoutubeSearch(q) scored by scoreImportedCandidate
-      if (!streamUrl && q) {
-        try {
-          const ytCandidates = await directYoutubeSearch(q, false, 15);
-          if (Array.isArray(ytCandidates) && ytCandidates.length > 0) {
-            const scored = ytCandidates
-              .map(c => ({ cand: c, score: scoreImportedCandidate(title, artist, duration, c) }))
-              .filter(x => x.score > -500)
-              .sort((a, b) => b.score - a.score);
-            for (const item of scored) {
-              streamUrl = await resolveYtCandidateStream(item.cand.id);
-              if (streamUrl) {
-                cleanId = item.cand.id;
-                break;
-              }
-            }
-          }
-        } catch (_) {}
-      }
-    } else if (platform === 'youtube' && isRealYtId) {
-      // If platform === 'youtube' and isRealYtId:
-      // 1. Try YouTube stream for cleanId (fetchDirectYoutubeStreamServer / yt-dlp)
+      if (streamUrl) return sendStreamResponse(streamUrl);
+    } else if (isRealYtId && cleanId) {
       streamUrl = await resolveYtCandidateStream(cleanId);
-      if (!streamUrl && trackUrl && isSafeMediaUrl(trackUrl) && !trackUrl.includes(cleanId)) {
-        try {
-          const args = [
-            "--no-config", "-g", "--no-warnings", "--no-playlist", "--no-check-certificates",
-            "--socket-timeout", "5", "--retries", "1",
-            "-f", (forShare ? audioFormat : ytDlpQualityFormat),
-            "--", trackUrl
-          ];
-          const raw = await executeYtDlp(args, 7000);
-          const lines = raw.trim().split(String.fromCharCode(10)).map(l => l.trim()).filter(l => l.startsWith("http"));
-          if (lines.length > 0) streamUrl = lines[0];
-        } catch (_) {}
-      }
+      if (streamUrl) return sendStreamResponse(streamUrl, cleanId);
+      failedYtIds.add(cleanId);
+    }
 
-      // 2. Fallback to ytmusicSearch(q) scored by scoreImportedCandidate
-      if (!streamUrl && q) {
+    const searchQ = makeCleanSearchQuery(artist, title) || q;
+    if (!streamUrl && searchQ) {
+      const maxCand = needYtAuth ? 1 : 3;
+      try {
+        const ytmHits = await ytmusicSearch(searchQ);
+        if (Array.isArray(ytmHits) && ytmHits.length > 0) {
+          const scored = ytmHits
+            .filter(c => c && c.id && !failedYtIds.has(c.id))
+            .map(c => ({ cand: c, score: scoreImportedCandidate(title || searchQ, artist, duration, c) }))
+            .sort((a, b) => b.score - a.score);
+          for (const item of scored.slice(0, maxCand)) {
+            failedYtIds.add(item.cand.id);
+            streamUrl = await resolveYtCandidateStream(item.cand.id);
+            if (streamUrl) return sendStreamResponse(streamUrl, item.cand.id);
+          }
+        }
+      } catch (_) {}
+
+      if (!streamUrl) {
         try {
-          const ytmCandidates = await ytmusicSearch(q);
-          if (Array.isArray(ytmCandidates) && ytmCandidates.length > 0) {
-            const scored = ytmCandidates
-              .map(c => ({ cand: c, score: scoreImportedCandidate(title, artist, duration, c) }))
-              .filter(x => x.score >= 20)
+          const ytHits = await directYoutubeSearch(searchQ, false, 12);
+          if (Array.isArray(ytHits) && ytHits.length > 0) {
+            const scored = ytHits
+              .filter(c => c && c.id && !failedYtIds.has(c.id))
+              .map(c => ({ cand: c, score: scoreImportedCandidate(title || searchQ, artist, duration, c) }))
               .sort((a, b) => b.score - a.score);
-            for (const item of scored) {
+            for (const item of scored.slice(0, maxCand)) {
+              failedYtIds.add(item.cand.id);
               streamUrl = await resolveYtCandidateStream(item.cand.id);
-              if (streamUrl) {
-                cleanId = item.cand.id;
-                break;
-              }
+              if (streamUrl) return sendStreamResponse(streamUrl, item.cand.id);
             }
           }
         } catch (_) {}
       }
 
-      // 3. Fallback to fetchDirectSoundCloudStreamServer('', q)
-      if (!streamUrl && q) {
+      if (!streamUrl) {
         try {
-          streamUrl = await fetchDirectSoundCloudStreamServer('', q);
-        } catch (_) {}
-      }
-    } else {
-      // If platform === 'ytmusic' or imported from Spotify / Apple Music / Yandex / JSON (!isRealYtId or ^(sp_|it_|dz_|ym_|cand_))
-      if (isRealYtId && cleanId) {
-        streamUrl = await resolveYtCandidateStream(cleanId);
-      }
-
-      // Priority 1 — YouTube Music (ytmusicSearch(q)): score all candidates with scoreImportedCandidate(title, artist, duration, cand)
-      // As soon as a candidate with score >= 15 is found, immediately call fetchDirectYoutubeStreamServer(bestCand.id, quality) and return the stream!
-      if (!streamUrl && q) {
-        try {
-          const ytmCandidates = await ytmusicSearch(q);
-          if (Array.isArray(ytmCandidates) && ytmCandidates.length > 0) {
-            const scored = ytmCandidates
-              .map(c => ({ cand: c, score: scoreImportedCandidate(title, artist, duration, c) }))
-              .filter(x => x.score >= 15)
-              .sort((a, b) => b.score - a.score);
-            for (const item of scored) {
-              if (!forceYtDlp) {
-                try {
-                  streamUrl = await fetchDirectYoutubeStreamServer(item.cand.id, quality);
-                } catch (_) {}
-              }
-              if (streamUrl) {
-                cleanId = item.cand.id;
-                break;
-              }
-            }
-            if (!streamUrl) {
-              for (const item of scored.slice(0, 2)) {
-                streamUrl = await resolveYtCandidateStream(item.cand.id);
-                if (streamUrl) {
-                  cleanId = item.cand.id;
-                  break;
-                }
-              }
-            }
-          }
+          streamUrl = await fetchDirectSoundCloudStreamServer('', q || searchQ);
+          if (streamUrl) return sendStreamResponse(streamUrl);
         } catch (_) {}
       }
 
-      // Priority 2 — YouTube (directYoutubeSearch(q, false, 15)): only if ytmusicSearch + fetchDirectYoutubeStreamServer did not yield a stream
-      if (!streamUrl && q) {
+      if (!streamUrl && !needYtAuth) {
         try {
-          const ytCandidates = await directYoutubeSearch(q, false, 15);
-          if (Array.isArray(ytCandidates) && ytCandidates.length > 0) {
-            const scored = ytCandidates
-              .map(c => ({ cand: c, score: scoreImportedCandidate(title, artist, duration, c) }))
-              .filter(x => x.score > -500)
-              .sort((a, b) => b.score - a.score);
-            for (const item of scored) {
-              if (!forceYtDlp) {
-                try {
-                  streamUrl = await fetchDirectYoutubeStreamServer(item.cand.id, quality);
-                } catch (_) {}
-              }
-              if (streamUrl) {
-                cleanId = item.cand.id;
-                break;
-              }
-            }
-            if (!streamUrl) {
-              for (const item of scored.slice(0, 2)) {
-                streamUrl = await resolveYtCandidateStream(item.cand.id);
-                if (streamUrl) {
-                  cleanId = item.cand.id;
-                  break;
-                }
-              }
+          const fbRaw = await executeYtDlp([
+            '--no-config', '-g', '--no-warnings', '--no-playlist', '--no-check-certificates',
+            '--js-runtimes', 'node',
+            '--socket-timeout', '8', '--retries', '1',
+            '--extractor-args', 'youtube:player_client=default,android_vr',
+            '-f', 'bestaudio/18/best',
+            `ytsearch1:${q || searchQ} audio`
+          ], 10000);
+          const fbLines = fbRaw.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
+          for (const fbUrl of fbLines) {
+            if (await verifyStreamPlayable(fbUrl)) {
+              streamUrl = fbUrl;
+              return sendStreamResponse(streamUrl);
             }
           }
         } catch (_) {}
       }
+    }
 
-      // Priority 3 — SoundCloud (fetchSoundCloudSearch(q, 10)): only if ytmusic and youtube did not yield a stream
-      if (!streamUrl && q) {
-        try {
-          const scCandidates = await fetchSoundCloudSearch(q, 10);
-          if (Array.isArray(scCandidates) && scCandidates.length > 0) {
-            const scored = scCandidates
-              .map(c => ({ cand: c, score: scoreImportedCandidate(title, artist, duration, c) }))
-              .filter(x => x.score > -500)
-              .sort((a, b) => b.score - a.score);
-            for (const item of scored) {
-              streamUrl = await resolveScCandidateStream(item.cand.url, item.cand.id);
-              if (streamUrl) break;
-            }
-          }
-          if (!streamUrl) {
-            streamUrl = await fetchDirectSoundCloudStreamServer('', q);
-          }
-        } catch (_) {}
-      }
+    if (!streamUrl) {
+      try {
+        streamUrl = await fetchDirectSoundCloudStreamServer('', q || searchQ);
+        if (streamUrl) return sendStreamResponse(streamUrl);
+      } catch (_) {}
     }
 
 
@@ -2708,7 +2774,7 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
       try {
         const rawYt = await executeYtDlp([
           '--no-config', '--no-warnings', '--no-playlist',
-          '--extractor-args', 'youtube:player_client=android',
+          '--extractor-args', YT_EXTRACTOR_ARGS,
           '--print', '%(webpage_url)s\n%(url)s',
           '-f', 'bestaudio[ext=m4a]/bestaudio',
           'ytsearch1:' + ((artist ? artist + ' - ' : '') + title).trim() + ' audio'
@@ -2753,17 +2819,18 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
   if (!streamUrl) {
     try { logger.error('Stream resolve failed: ' + (title || trackUrl)); } catch (_) {}
     res.writeHead(500, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ success: false, error: 'could not extract audio stream' }));
+    return res.end(JSON.stringify({ success: false, needAuth: needYtAuth, error: needYtAuth ? 'YouTube sign-in required for this track' : 'could not extract audio stream' }));
   }
 
   const isHls = streamUrl.includes('.m3u8');
-  const proxyUrl = `http://127.0.0.1:${PORT}/api/audio-proxy?url=${encodeURIComponent(streamUrl)}`;
+  const proxied = 'http://127.0.0.1:' + PORT + '/api/audio-proxy?url=' + encodeURIComponent(streamUrl);
   const data = {
     success: true,
     isLocal: false,
-    streamUrl: streamUrl,
-    isHls: isHls,
-    proxyUrl: proxyUrl
+    streamUrl: isHls ? streamUrl : proxied,
+    rawStreamUrl: streamUrl,
+    proxyUrl: proxied,
+    isHls: isHls
   };
 
   if (cacheKey) streamUrlCache.set(cacheKey, { timestamp: Date.now(), data });
@@ -3269,12 +3336,150 @@ async function handleDownloadedTrack(req, res, name) {
   }
 }
 
-async function handleAudioProxy(req, res, targetUrl) {
+const GV_UA = {
+  IOS: 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+  ANDROID_VR: 'com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip',
+  ANDROID_MUSIC: 'com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14; en_US; sdk_gphone64_x86_64 Build/UE1A.230829.036) gzip',
+  TV: 'Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.5) AppleWebKit/537.36 (KHTML, like Gecko) 85.0.4183.93/6.5 TV Safari/537.36',
+  ANDROID_TESTSUITE: 'com.google.android.youtube/1.9 (Linux; U; Android 11; en_US) gzip',
+  ANDROID: 'com.google.android.youtube/19.44.38 (Linux; U; Android 14; en_US; sdk_gphone64_x86_64 Build/UE1A.230829.036) gzip',
+  WEB: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+};
+function googleVideoUserAgent(parsed) {
+  const c = (parsed.searchParams.get('c') || '').toUpperCase();
+  if (c === 'IOS') return GV_UA.IOS;
+  if (c === 'ANDROID_VR') return GV_UA.ANDROID_VR;
+  if (c === 'ANDROID_MUSIC') return GV_UA.ANDROID_MUSIC;
+  if (c.startsWith('TVHTML5')) return GV_UA.TV;
+  if (c === 'ANDROID_TESTSUITE') return GV_UA.ANDROID_TESTSUITE;
+  if (c.startsWith('ANDROID')) return GV_UA.ANDROID;
+  return GV_UA.WEB;
+}
+
+
+
+
+
+
+
+async function handleGoogleVideoChunkedProxy(req, res, targetUrl, initialUrl) {
+  let parsed;
+  try { parsed = new URL(targetUrl); } catch (_) { res.writeHead(400); return res.end('Invalid url'); }
+  const ua = googleVideoUserAgent(parsed);
+  const isVr = (parsed.searchParams.get('c') || '').toUpperCase() === 'ANDROID_VR';
+  const CHUNK = isVr ? 1024 * 1024 : 4 * 1024 * 1024;
+  const mime = (parsed.searchParams.get('mime') || 'audio/mp4').replace(/%2F/i, '/');
+  let total = parseInt(parsed.searchParams.get('clen') || '0', 10) || ytContentLengthByUrl.get(targetUrl) || 0;
+
+  const rm = /bytes=(\d*)-(\d*)/i.exec(req.headers.range || '');
+  let start = rm && rm[1] !== '' ? parseInt(rm[1], 10) : 0;
+  let reqEnd = rm && rm[2] !== '' ? parseInt(rm[2], 10) : null;
+  const hadRange = Boolean(rm);
+
+  let aborted = false;
+  let curReq = null;
+  res.on('close', () => { aborted = true; try { curReq && curReq.destroy(); } catch (_) {} });
+
+  const fetchChunk = (pos, end, useQuery, urlStr) => new Promise((resolve, reject) => {
+    let u = urlStr;
+    const headers = { 'User-Agent': ua, 'Accept': '*/*', 'Accept-Language': 'en-US,en;q=0.9', 'Origin': 'https://www.youtube.com', 'Referer': 'https://www.youtube.com/' };
+    if (useQuery) {
+      const uu = new URL(urlStr);
+      uu.searchParams.set('range', `${pos}-${end}`);
+      u = uu.toString();
+    } else {
+      headers['Range'] = `bytes=${pos}-${end}`;
+    }
+    const r = https.request(u, { method: 'GET', family: 4, agent: keepAliveHttpsAgent, headers, timeout: 20000 }, (pr) => {
+      if ([301, 302, 303, 307, 308].includes(pr.statusCode) && pr.headers.location) {
+        pr.resume();
+        return resolve({ redirect: new URL(pr.headers.location, u).toString() });
+      }
+      resolve({ pr });
+    });
+    curReq = r;
+    r.on('timeout', () => r.destroy(new Error('chunk timeout')));
+    r.on('error', reject);
+    r.end();
+  });
+
+  const getChunk = async (pos, end, state) => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      for (const useQuery of [false, true]) {
+        if (aborted) throw new Error('aborted');
+        let out;
+        try { out = await fetchChunk(pos, end, useQuery, state.url); } catch (e) { continue; }
+        if (out.redirect) { state.url = out.redirect; try { out = await fetchChunk(pos, end, useQuery, state.url); } catch (e) { continue; } }
+        if (out.pr && (out.pr.statusCode === 206 || out.pr.statusCode === 200)) return out.pr;
+        if (out.pr) out.pr.resume();
+      }
+    }
+    throw new Error('chunk refused');
+  };
+
+  const state = { url: targetUrl };
+  try {
+    if (!total) {
+      
+
+      const pr0 = await getChunk(start, start + 1, state);
+      const cr = /\/(\d+)\s*$/.exec(pr0.headers['content-range'] || '');
+      pr0.destroy();
+      if (cr) total = parseInt(cr[1], 10);
+    }
+    if (total && start >= total) { res.writeHead(416, { 'Content-Range': `bytes */${total}`, 'Access-Control-Allow-Origin': '*' }); return res.end(); }
+    const finalEnd = total ? Math.min(reqEnd === null ? total - 1 : reqEnd, total - 1) : (reqEnd === null ? start + CHUNK * 64 : reqEnd);
+
+    const headers = {
+      'Content-Type': mime,
+      'Accept-Ranges': 'bytes',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': '*',
+      'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges'
+    };
+    if (total) headers['Content-Length'] = String(finalEnd - start + 1);
+    if (hadRange && total) { headers['Content-Range'] = `bytes ${start}-${finalEnd}/${total}`; res.writeHead(206, headers); }
+    else res.writeHead(200, headers);
+    if (req.method === 'HEAD') return res.end();
+
+    let pos = start;
+    let first = true;
+    while (pos <= finalEnd && !aborted) {
+      const end = Math.min(pos + CHUNK - 1, finalEnd);
+      let pr;
+      try { pr = await getChunk(pos, end, state); }
+      catch (e) {
+        if (first) { evictStreamCache(initialUrl); evictStreamCache(targetUrl); }
+        try { res.destroy(); } catch (_) {}
+        return;
+      }
+      first = false;
+      let got = 0;
+      await new Promise((resolve) => {
+        pr.on('data', (d) => { got += d.length; if (!res.write(d)) { pr.pause(); res.once('drain', () => pr.resume()); } });
+        pr.on('end', resolve);
+        pr.on('error', resolve);
+        pr.on('aborted', resolve);
+        res.once('close', resolve);
+      });
+      if (got === 0) { evictStreamCache(initialUrl); evictStreamCache(targetUrl); break; }
+      pos += got;
+      if (!total && got < (end - (pos - got) + 1)) break;
+    }
+    if (!res.writableEnded) res.end();
+  } catch (e) {
+    evictStreamCache(initialUrl);
+    if (!res.headersSent) { res.writeHead(502, { 'Access-Control-Allow-Origin': '*' }); res.end('Proxy error'); }
+    else { try { res.destroy(); } catch (_) {} }
+  }
+}
+
+async function handleAudioProxy(req, res, targetUrl, redirectsLeft = 5, origUrl = null) {
+  const initialUrl = origUrl || targetUrl;
   if (!targetUrl) {
     res.writeHead(400);
     return res.end('Missing url');
   }
-
   try {
     let parsed;
     try {
@@ -3287,63 +3492,98 @@ async function handleAudioProxy(req, res, targetUrl) {
       res.writeHead(400);
       return res.end('Unsupported protocol');
     }
-    const isLocalOrPrivateName = parsed.hostname === 'localhost' || parsed.hostname.endsWith('.localhost') || parsed.hostname.endsWith('.local') || parsed.hostname.endsWith('.internal');
-    if (isLocalOrPrivateName || (net.isIP(parsed.hostname) && isPrivateIp(parsed.hostname))) {
+    const hostLower = (parsed.hostname || '').toLowerCase();
+    if (hostLower === 'localhost' || hostLower === '127.0.0.1' || hostLower === '::1') {
       res.writeHead(403);
       return res.end('Blocked target');
     }
-    const isKnownAudioHost = /(?:^|\.)(?:googlevideo\.com|sndcdn\.com|bcbits\.com)$/i.test(parsed.hostname);
-    if (!isKnownAudioHost && parsed.protocol !== 'https:' && (await isPrivateHost(parsed.hostname))) {
-      res.writeHead(403);
-      return res.end('Blocked target');
-    }
-    const client = parsed.protocol === 'https:' ? https : http;
 
-    const forward = {
-      host: parsed.host,
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0 Safari/537.36'
-    };
-    for (const key of ['accept', 'accept-language']) {
+    const client = parsed.protocol === 'https:' ? https : http;
+    const forward = { host: parsed.host };
+    for (const key of ['range', 'accept', 'accept-language']) {
       if (req.headers[key] !== undefined) forward[key] = req.headers[key];
     }
-    if (req.headers['range'] !== undefined) {
-      forward['Range'] = req.headers['range'];
-    }
 
-    if (parsed.hostname.endsWith('googlevideo.com')) {
-      const cParam = parsed.searchParams.get('c') || '';
-      if (cParam === 'IOS') {
-        forward['user-agent'] = 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)';
-      } else if (cParam === 'ANDROID_VR') {
-        forward['user-agent'] = 'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 14; eureka-user Build/SQ3A.220605.009.A1) gzip';
-      } else if (cParam.startsWith('ANDROID')) {
-        forward['user-agent'] = 'com.google.android.youtube/19.44.38 (Linux; U; Android 14) gzip';
+    if (hostLower.endsWith('googlevideo.com')) {
+      if (!forward['range']) {
+        forward['range'] = 'bytes=0-';
       }
-      delete forward['origin'];
-      delete forward['referer'];
+      const cParam = (parsed.searchParams.get('c') || '').toUpperCase();
+      if (cParam === 'IOS') {
+        forward['user-agent'] = 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)';
+      } else if (cParam === 'ANDROID_VR') {
+        forward['user-agent'] = 'com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip';
+      } else if (cParam === 'ANDROID_MUSIC') {
+        forward['user-agent'] = 'com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14; en_US; sdk_gphone64_x86_64 Build/UE1A.230829.036) gzip';
+      } else if (cParam === 'ANDROID_TESTSUITE') {
+        forward['user-agent'] = 'com.google.android.youtube/1.9 (Linux; U; Android 11; en_US) gzip';
+      } else if (cParam.startsWith('ANDROID')) {
+        forward['user-agent'] = 'com.google.android.youtube/19.44.38 (Linux; U; Android 14; en_US; sdk_gphone64_x86_64 Build/UE1A.230829.036) gzip';
+      } else {
+        forward['user-agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+      }
+      if ((cParam === 'WEB' || cParam === 'WEB_REMIX' || cParam === 'TVHTML5') && fs.existsSync(YT_COOKIES_FILE)) {
+        const authHdrs = getYtAuthHeaders();
+        if (authHdrs && authHdrs.Cookie) forward['cookie'] = authHdrs.Cookie;
+      }
+    } else {
+      forward['user-agent'] = req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
     }
 
     const proxyReq = client.request(targetUrl, {
       method: req.method,
       family: 4,
+      agent: parsed.protocol === 'https:' ? keepAliveHttpsAgent : undefined,
       headers: forward
     }, (proxyRes) => {
       if (res.writableEnded) {
         proxyRes.destroy();
         return;
       }
-      res.writeHead(proxyRes.statusCode, proxyRes.headers);
-      proxyRes.on('error', () => { try { res.destroy(); } catch (e) {} });
+      if ([301, 302, 303, 307, 308].includes(proxyRes.statusCode) && proxyRes.headers.location && redirectsLeft > 0) {
+        proxyRes.resume();
+        const nextUrl = new URL(proxyRes.headers.location, targetUrl).toString();
+        return handleAudioProxy(req, res, nextUrl, redirectsLeft - 1, initialUrl);
+      }
+      if (proxyRes.statusCode >= 400) {
+        evictStreamCache(initialUrl);
+        evictStreamCache(targetUrl);
+        proxyRes.resume();
+        res.writeHead(502, { 'Access-Control-Allow-Origin': '*' });
+        return res.end('Upstream error');
+      }
+      const outHeaders = Object.assign({}, proxyRes.headers);
+      delete outHeaders['access-control-allow-origin'];
+      delete outHeaders['Access-Control-Allow-Origin'];
+      delete outHeaders['access-control-allow-credentials'];
+      delete outHeaders['x-frame-options'];
+      outHeaders['Access-Control-Allow-Origin'] = '*';
+      outHeaders['Access-Control-Allow-Headers'] = '*';
+      outHeaders['Access-Control-Expose-Headers'] = 'Content-Length, Content-Range, Accept-Ranges';
+
+      res.writeHead(proxyRes.statusCode || 200, outHeaders);
+      proxyRes.on('aborted', () => {
+        evictStreamCache(initialUrl);
+        evictStreamCache(targetUrl);
+      });
+      proxyRes.on('error', () => {
+        evictStreamCache(initialUrl);
+        evictStreamCache(targetUrl);
+        try { res.destroy(); } catch (e) {}
+      });
       proxyRes.pipe(res);
     });
 
-    proxyReq.setTimeout(60000, () => {
+    proxyReq.setTimeout(30000, () => {
+      evictStreamCache(initialUrl);
       proxyReq.destroy(new Error('Proxy timeout'));
     });
 
-    proxyReq.on('error', (e) => {
+    proxyReq.on('error', () => {
+      evictStreamCache(initialUrl);
+      evictStreamCache(targetUrl);
       if (!res.headersSent) {
-        res.writeHead(502);
+        res.writeHead(502, { 'Access-Control-Allow-Origin': '*' });
         res.end('Proxy error');
       } else {
         try { res.destroy(); } catch (err) {}
@@ -3353,8 +3593,9 @@ async function handleAudioProxy(req, res, targetUrl) {
     req.on('error', () => { try { proxyReq.destroy(); } catch (e) {} });
     req.pipe(proxyReq);
   } catch (e) {
+    evictStreamCache(initialUrl);
     if (!res.headersSent) {
-      res.writeHead(500);
+      res.writeHead(500, { 'Access-Control-Allow-Origin': '*' });
       res.end('Proxy failed');
     }
   }
@@ -3671,7 +3912,7 @@ async function handleDownload(req, res, trackUrl, title, artist, format = 'mp3',
     '--audio-quality', safeQuality,
     '--embed-metadata',
     '-o', tempTemplate,
-    '--extractor-args', 'youtube:player_client=android',
+    '--extractor-args', YT_EXTRACTOR_ARGS,
   ];
   if (canCarryCover) {
     args.push('--embed-thumbnail', '--convert-thumbnails', 'jpg');
@@ -3749,7 +3990,7 @@ async function handleDownload(req, res, trackUrl, title, artist, format = 'mp3',
           '--audio-quality', safeQuality,
           '--embed-metadata',
           '-o', tempTemplate,
-          '--extractor-args', 'youtube:player_client=android',
+          '--extractor-args', YT_EXTRACTOR_ARGS,
         ];
         if (canCarryCover) {
           retryArgs.push('--embed-thumbnail', '--convert-thumbnails', 'jpg');
@@ -3781,7 +4022,7 @@ async function handleDownload(req, res, trackUrl, title, artist, format = 'mp3',
         '--audio-quality', safeQuality,
         '--embed-metadata',
         '-o', tempTemplate,
-        '--extractor-args', 'youtube:player_client=android',
+        '--extractor-args', YT_EXTRACTOR_ARGS,
       ];
       if (canCarryCover) {
         fallbackArgs.push('--embed-thumbnail', '--convert-thumbnails', 'jpg');
@@ -4666,8 +4907,6 @@ function fetchNetEaseWords(title, artist, targetDuration) {
   });
 }
 
-const crypto = require('crypto');
-
 const SERVER_TOKEN = crypto.randomBytes(24).toString('hex');
 
 const TOKEN_PROTECTED_ROUTES = new Set([
@@ -4854,7 +5093,8 @@ async function handleLyrics(req, res, title, artist, allowOnline = true, source 
       } else {
         let plainFallback = '';
 
-        // 1. LRCLIB
+        
+
         const lrcLib = await fetchLrcLib(title, artist);
         if (lrcLib && lrcLib.instrumental) {
           return sendInstrumental();
@@ -4867,7 +5107,8 @@ async function handleLyrics(req, res, title, artist, allowOnline = true, source 
           plainFallback = plainFallback || lrcText;
         }
 
-        // 2. Musixmatch
+        
+
         if (!rawLyrics) {
           const mm = await fetchMusixmatchLyrics(title, artist);
           if (mm?.syncedLyrics && /\[\d{2}:\d{2}/.test(mm.syncedLyrics)) {
@@ -4878,7 +5119,8 @@ async function handleLyrics(req, res, title, artist, allowOnline = true, source 
           }
         }
 
-        // 3. Kugou
+        
+
         if (!rawLyrics) {
           const kg = await fetchKugouLyrics(title, artist, duration);
           if (kg?.syncedLyrics && /\[\d{2}:\d{2}/.test(kg.syncedLyrics)) {
@@ -4889,7 +5131,8 @@ async function handleLyrics(req, res, title, artist, allowOnline = true, source 
           }
         }
 
-        // 4. NetEase
+        
+
         if (!rawLyrics) {
           const ne = await fetchNeteaseLyrics(title, artist, duration);
           if (ne?.syncedLyrics && /\[\d{2}:\d{2}/.test(ne.syncedLyrics)) {
@@ -4900,7 +5143,8 @@ async function handleLyrics(req, res, title, artist, allowOnline = true, source 
           }
         }
 
-        // 5. Genius or plain fallback
+        
+
         if (!rawLyrics) {
           if (plainFallback) {
             rawLyrics = plainFallback;
@@ -4991,7 +5235,9 @@ function pathfinderRequest(accessToken, variables) {
       },
       timeout: 15000
     }, (r) => {
-      try { logger.log(r.statusCode === 200 ? 'warn' : 'error', `api-partner.spotify.com status ${r.statusCode}`); } catch (_) {}
+      if (r.statusCode !== 200) {
+        try { logger.log('error', `api-partner.spotify.com status ${r.statusCode}`); } catch (_) {}
+      }
       let b = '';
       r.on('data', c => b += c);
       r.on('end', () => {
@@ -5095,7 +5341,9 @@ function fetchSpotifyEmbed(playlistId, ua) {
       },
       timeout: 10000
     }, (res) => {
-      try { logger.log(res.statusCode === 200 ? 'warn' : 'error', `open.spotify.com status ${res.statusCode}`); } catch (_) {}
+      if (res.statusCode !== 200) {
+        try { logger.log('error', `open.spotify.com status ${res.statusCode}`); } catch (_) {}
+      }
       let body = '';
       res.on('data', chunk => body += chunk);
       res.on('end', () => resolve({ status: res.statusCode, body }));
@@ -6046,7 +6294,7 @@ async function handlePlaylistImport(req, res, inputUrl) {
   ];
   if (isYouTube) {
     args.unshift('--flat-playlist');
-    args.push('--extractor-args', 'youtube:player_client=web,android');
+    args.push('--extractor-args', YT_EXTRACTOR_ARGS);
   }
   args.push(targetUrl);
 

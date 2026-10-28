@@ -1703,21 +1703,6 @@
               </div>
             </div>
 
-            <div class="setting-item" id="setting-auto-scan">
-              <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
-                <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
-                  <span class="setting-name">Show music from this device</span>
-                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Automatically add audio files from these folders to Local</span>
-                </div>
-                <button class="effect-switch-btn active" id="btn-auto-scan"><span class="thumb"></span></button>
-              </div>
-              <div id="auto-scan-folders" style="display: flex; flex-direction: column; gap: 6px; margin-top: 10px;"></div>
-              <div style="display: flex; gap: 8px; margin-top: 10px;">
-                <button class="btn-outline-pill" id="btn-auto-scan-add" style="padding: 6px 14px; font-size: calc(12px * var(--font-scale, 1));">Add folder</button>
-                <button class="btn-outline-pill" id="btn-auto-scan-now" style="padding: 6px 14px; font-size: calc(12px * var(--font-scale, 1));">Scan now</button>
-              </div>
-            </div>
-
             <div class="setting-item" id="download-folder-item">
               <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
                 <div style="display: flex; align-items: center; gap: 12px;">
@@ -1827,6 +1812,26 @@
                           <span class="setting-hint">Add Riff shortcut to your desktop and system applications menu</span>
                         </div>
                         <button type="button" class="btn-outline-pill" id="btn-create-shortcut" style="height: 32px; padding: 0 14px; font-size: 13px;">Create shortcut</button>
+                      </div>
+                    </div>
+                    <div class="setting-item" id="setting-yt-account">
+                      <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+                          <div style="width: 34px; height: 34px; border-radius: 10px; background: #FFFFFF; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                            <svg viewBox="0 0 28 20" width="20" height="14">
+                              <path d="M27.4 3.1a3.5 3.5 0 0 0-2.5-2.5C22.7 0 14 0 14 0S5.3 0 3.1.6A3.5 3.5 0 0 0 .6 3.1C0 5.3 0 10 0 10s0 4.7.6 6.9a3.5 3.5 0 0 0 2.5 2.5C5.3 20 14 20 14 20s8.7 0 10.9-.6a3.5 3.5 0 0 0 2.5-2.5C28 14.7 28 10 28 10s0-4.7-.6-6.9z" fill="#FF0033"/>
+                              <polygon points="11.2,14.3 18.5,10 11.2,5.7" fill="#FFFFFF"/>
+                            </svg>
+                          </div>
+                          <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+                            <span class="setting-name" data-i18n>YouTube Account</span>
+                            <span class="setting-hint" id="adv-yt-auth-status" data-i18n>Sign in to bypass IP blocks and age restrictions (18+)</span>
+                          </div>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                          <button type="button" class="btn-pill-primary" id="btn-adv-yt-login" style="height: 32px; padding: 0 16px; font-size: 12.5px;" data-i18n>Sign in</button>
+                          <button type="button" class="btn-outline-pill hidden" id="btn-adv-yt-logout" style="height: 32px; padding: 0 14px; font-size: 12.5px;" data-i18n>Sign out</button>
+                        </div>
                       </div>
                     </div>
                     <div class="setting-item" id="setting-proxy-manager">
@@ -2125,7 +2130,7 @@
                   </div>
                   <div style="display: flex; flex-direction: column;">
                     <span class="setting-name">Riff</span>
-                    <span id="about-version" style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Version 43.1.0</span>
+                    <span id="about-version" style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Version 43.2.0</span>
                   </div>
                 </div>
                 <button class="btn-pill-primary" id="btn-check-updates" style="padding: 6px 14px; font-size: calc(12px * var(--font-scale, 1));">Check for updates</button>
@@ -2162,7 +2167,7 @@
               </svg>
               Riff made by rootless, support me: <a href="https://t.me/riffplayer" target="_blank" rel="noopener">t.me/riffplayer</a>
             </span>
-            <span class="settings-version-tag">v43.1.0</span>
+            <span class="settings-version-tag">v43.2.0</span>
           </div>
             </div>
           </div>
@@ -2283,7 +2288,7 @@
               <path class="morph-path-2" d="M 13.5 8.8 L 18 12 L 18 12 L 13.5 15.2 Z"></path>
             </svg>
             <svg id="pause-icon" class="hidden" style="display:none;" width="0" height="0"></svg>
-            <svg id="playbar-spinner" class="hidden m3-circular-progress" viewBox="0 0 48 48" style="width: 24px; height: 24px; position: absolute; margin: auto; inset: 0;"><circle class="m3-spinner-track" cx="24" cy="24" r="18" fill="none" stroke-width="4"></circle><circle class="m3-spinner-head" cx="24" cy="24" r="18" fill="none" stroke-width="4"></circle></svg>
+            <svg id="playbar-spinner" class="hidden m3-btn-shape-spinner" viewBox="-180 -180 360 360" style="width: 24px; height: 24px; position: absolute; margin: auto; inset: 0;"><path fill="currentColor"/></svg>
           </button>
         </div>
         <button class="control-btn" id="btn-next" title="Next">
@@ -3408,7 +3413,7 @@
     <div class="ota-update-sheet" id="update-sheet-card">
       <div class="ota-update-time" id="update-release-time">Just now</div>
       <div class="ota-update-top-row">
-        <span class="ota-update-version" id="update-version-badge">v43.1</span>
+        <span class="ota-update-version" id="update-version-badge">v43.2</span>
         <div class="ota-update-actions">
           <button class="ota-btn-update" id="btn-update-now" type="button" data-i18n>Update</button>
           <button class="ota-btn-ignore" id="btn-update-later" type="button" data-i18n>Ignore</button>
@@ -3629,7 +3634,7 @@
                 <path class="morph-path-2" d="M 13.5 8.8 L 18 12 L 18 12 L 13.5 15.2 Z"></path>
               </svg>
               <svg id="tvk-pause-icon" class="pause-icon hidden" style="display:none;" width="0" height="0"></svg>
-              <svg id="tvk-play-spinner" class="play-spinner hidden m3-circular-progress" viewBox="0 0 48 48" style="width: 26px; height: 26px; position: absolute; margin: auto; inset: 0;"><circle class="m3-spinner-track" cx="24" cy="24" r="18" fill="none" stroke-width="4"></circle><circle class="m3-spinner-head" cx="24" cy="24" r="18" fill="none" stroke-width="4"></circle></svg>
+              <svg id="tvk-play-spinner" class="play-spinner hidden m3-btn-shape-spinner" viewBox="-180 -180 360 360" style="width: 26px; height: 26px; position: absolute; margin: auto; inset: 0;"><path fill="currentColor"/></svg>
             </button>
           </div>
           <button class="control-btn" id="btn-tvk-next" title="Next" aria-label="Next">
@@ -3685,6 +3690,35 @@
           <button type="button" class="btn-pill-primary" id="btn-lastfm-login-direct" data-i18n>Sign in</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div class="yt-auth-sheet hidden" id="yt-auth-sheet" role="dialog" aria-labelledby="yt-auth-sheet-title">
+    <div class="yt-auth-sheet-left">
+      <div class="yt-auth-sheet-title" id="yt-auth-sheet-title" data-i18n>Sign in to YouTube to continue listening</div>
+      <div class="yt-auth-sheet-desc" data-i18n>Some tracks don't load because YouTube blocks your IP if you aren't signed in. To continue listening to every track, sign in.</div>
+      <div class="yt-auth-btn-stack">
+        <button type="button" class="yt-auth-btn-primary" id="btn-yt-sheet-signin">
+          <span data-i18n>Sign in</span>
+        </button>
+        <button type="button" class="yt-auth-btn-secondary" id="btn-yt-sheet-no">
+          <span data-i18n>No</span>
+        </button>
+      </div>
+    </div>
+    <div class="yt-auth-sheet-logo" aria-hidden="true">
+      <svg viewBox="0 0 28 20" width="46" height="32">
+        <path d="M27.4 3.1a3.5 3.5 0 0 0-2.5-2.5C22.7 0 14 0 14 0S5.3 0 3.1.6A3.5 3.5 0 0 0 .6 3.1C0 5.3 0 10 0 10s0 4.7.6 6.9a3.5 3.5 0 0 0 2.5 2.5C5.3 20 14 20 14 20s8.7 0 10.9-.6a3.5 3.5 0 0 0 2.5-2.5C28 14.7 28 10 28 10s0-4.7-.6-6.9z" fill="#FF0033"/>
+        <polygon points="11.2,14.3 18.5,10 11.2,5.7" fill="#FFFFFF"/>
+      </svg>
+    </div>
+  </div>
+
+  <div class="i18n-loading-overlay hidden" id="i18n-loading-overlay" aria-hidden="true">
+    <div class="i18n-shape-box">
+      <svg class="i18n-m3-svg" viewBox="-180 -180 360 360" width="88" height="88">
+        <path fill="var(--md-sys-color-primary)"/>
+      </svg>
     </div>
   </div>
 

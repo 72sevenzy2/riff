@@ -10,10 +10,14 @@ const logger = require('../shared/logger');
 const state = { status: 'idle', tool: '', percent: 0, error: '' };
 const STAMP = path.join(BIN_DIR, '.ytdlp-update-stamp');
 
-// On macOS the single-file yt-dlp_macos build unpacks its whole Python runtime into a fresh
-// temp folder on every launch, and Gatekeeper/XProtect rescans those unsigned libraries each
-// time. That makes every call take 20-60s, so the 15s stream lookups always time out and
-// nothing plays. The folder build (yt-dlp_macos.zip) is scanned once and then starts in ~1s.
+
+
+
+
+
+
+
+
 const MAC_YTDLP_DIR = path.join(BIN_DIR, 'yt-dlp_macos');
 const MAC_YTDLP_EXE = path.join(MAC_YTDLP_DIR, 'yt-dlp_macos');
 
@@ -167,8 +171,10 @@ async function installYtDlp() {
   fs.renameSync(tmp, target);
 }
 
-// Unpack the folder build next to the old location and point bin/yt-dlp at it with a
-// symlink, so resolveBinary() and every existing caller keep working unchanged.
+
+
+
+
 async function installMacYtDlpDir(archive, target) {
   const work = fs.mkdtempSync(path.join(BIN_DIR, '.yt-dlp-unpack-'));
   try {
@@ -176,8 +182,10 @@ async function installMacYtDlpDir(archive, target) {
     const exe = path.join(work, 'yt-dlp_macos');
     if (!fs.existsSync(exe)) throw new Error('yt-dlp_macos not found inside the archive');
     fs.chmodSync(exe, 0o755);
-    // The first launch is slow while macOS scans the bundled libraries; do it now rather than
-    // during the first stream lookup, which would time out.
+    
+
+    
+
     try { await run(exe, ['--version'], 180000); } catch (_) {}
     fs.rmSync(MAC_YTDLP_DIR, { recursive: true, force: true });
     fs.renameSync(work, MAC_YTDLP_DIR);
@@ -189,8 +197,10 @@ async function installMacYtDlpDir(archive, target) {
   }
 }
 
-// Earlier versions installed the slow single-file build on macOS. Swap it for the folder
-// build once; a yt-dlp the user installed themselves (Homebrew, pip) is left alone.
+
+
+
+
 function hasSlowMacYtDlp() {
   if (process.platform !== 'darwin') return false;
   const target = path.join(BIN_DIR, 'yt-dlp');
@@ -316,7 +326,8 @@ async function updateYtDlpIfManaged() {
     if (Date.now() - last < 24 * 3600 * 1000) return false;
   } catch (e) {}
   try {
-    // Update the real file, not the bin/yt-dlp symlink, so the macOS folder build updates in place.
+    
+
     await run(fs.realpathSync(bin), ['-U'], 120000);
     fs.writeFileSync(STAMP, String(Date.now()));
     return true;

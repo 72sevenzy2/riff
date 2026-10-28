@@ -149,6 +149,7 @@ function runGUI() {
   let preMiniBounds = null;
 
   const windowStatePath = path.join(app.getPath('userData'), 'window-state.json');
+  const CACHE_FILE = path.join(app.getPath('userData'), 'cache.json');
 
   const PRIMARY_STORAGE_FILE = path.join(__dirname, '../storage.json');
   const FALLBACK_STORAGE_FILE = path.join(app.getPath('userData'), 'storage.json');
@@ -233,6 +234,34 @@ function runGUI() {
     if (storageDirty && latestStorageSnapshot) {
       storageDirty = false;
       writeStorageDiskSync(latestStorageSnapshot);
+    }
+  });
+
+  ipcMain.handle('cache-read', async () => {
+    try {
+      if (fs.existsSync(CACHE_FILE)) {
+        return JSON.parse(await fs.promises.readFile(CACHE_FILE, 'utf8'));
+      }
+    } catch (_) {}
+    return null;
+  });
+
+  ipcMain.on('cache-write', (event, data) => {
+    if (!data || typeof data !== 'object') return;
+    const tmp = CACHE_FILE + '.tmp';
+    try {
+      fs.writeFileSync(tmp, JSON.stringify(data), 'utf8');
+      fs.renameSync(tmp, CACHE_FILE);
+    } catch (_) {
+      try { fs.unlinkSync(tmp); } catch (_) {}
+    }
+  });
+
+  app.on('before-quit', () => {
+    if (storageFlushTimer) {
+      clearTimeout(storageFlushTimer);
+      storageFlushTimer = null;
+      if (latestStorageSnapshot) writeStorageDiskSync(latestStorageSnapshot);
     }
   });
 
@@ -336,8 +365,10 @@ function runGUI() {
                                    backgroundColor: firstRun ? '#8d5ef2' : '#000000',
                                    title: 'Riff',
                                    icon: path.join(__dirname, '../../assets', 'icon.png'),
-                                   // macOS keeps its frame so the native traffic lights, rounded corners
-                                   // and shadow are used; Windows and Linux draw their own controls.
+                                   
+
+                                   
+
                                    ...(process.platform === 'darwin'
                                      ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: 14 } }
                                      : { frame: false, titleBarStyle: 'hidden' }),
@@ -523,7 +554,13 @@ function runGUI() {
       });
       ipcMain.handle('get-gpu-compositing', () => { try { return String(app.getGPUFeatureStatus().gpu_compositing || ''); } catch (e) { return ''; } });
       ipcMain.handle('launcher-info', () => getLauncherInfo());
-      ipcMain.handle('install-launcher', () => installLauncher());
+      ipcMain.handle('install-launcher', () => {
+        try {
+          return installLauncher();
+        } catch (err) {
+          return { ok: false, error: err.message || String(err) };
+        }
+      });
       ipcMain.handle('get-audio-output-info', async () => getSystemAudioOutputInfo());
       require('./themes').register(() => mainWindow);
       require('./plugins').register(() => mainWindow);
@@ -1346,12 +1383,129 @@ function runGUI() {
         });
       });
 
+      const YT_COOKIES_FILE = path.join(DATA_DIR, 'yt-cookies.txt');
+      const YT_LOGOUT_FLAG = path.join(DATA_DIR, '.yt-logged-out');
+
+      function hasValidYtCookiesFile() {
+        try {
+          if (!fs.existsSync(YT_COOKIES_FILE)) return false;
+          const txt = fs.readFileSync(YT_COOKIES_FILE, 'utf8');
+          return /\.(?:youtube|google)\.com\s+.*\s+(?:SAPISID|__Secure-3PAPISID|__Secure-1PAPISID|LOGIN_INFO|SID)\s+\S+/i.test(txt);
+        } catch (_) {
+          return false;
+        }
+      }
+
+      function getSystemDefaultBrowserSpec() {
+        try {
+          if (process.platform === 'linux') {
+            const raw = execSync('xdg-settings get default-web-browser 2>/dev/null || true', { encoding: 'utf8' }).trim().toLowerCase();
+            if (raw.includes('firefox')) return 'firefox';
+            if (raw.includes('zen')) return 'firefox:' + path.join(os.homedir(), '.zen');
+            if (raw.includes('brave')) return 'brave';
+            if (raw.includes('google-chrome') || raw.includes('chrome')) return 'chrome';
+            if (raw.includes('chromium')) return 'chromium';
+            if (raw.includes('vivaldi')) return 'vivaldi';
+            if (raw.includes('edge')) return 'edge';
+          }
+        } catch (_) {}
+        return 'firefox';
+      }
+
+      function getCandidateBrowserSpecs() {
+        const home = os.homedir();
+        const specs = [getSystemDefaultBrowserSpec()];
+        const addIfDir = (dirPath, spec) => {
+          try {
+            if (fs.existsSync(dirPath) && !specs.includes(spec)) specs.push(spec);
+          } catch (_) {}
+        };
+        if (process.platform === 'linux') {
+          addIfDir(path.join(home, '.mozilla', 'firefox'), 'firefox');
+          addIfDir(path.join(home, '.config', 'google-chrome'), 'chrome');
+          addIfDir(path.join(home, '.config', 'chromium'), 'chromium');
+          addIfDir(path.join(home, '.config', 'BraveSoftware', 'Brave-Browser'), 'brave');
+          addIfDir(path.join(home, '.zen'), 'firefox:' + path.join(home, '.zen'));
+          addIfDir(path.join(home, '.config', 'zen'), 'firefox:' + path.join(home, '.config', 'zen'));
+          addIfDir(path.join(home, '.var/app/app.zen_browser.zen/.zen'), 'firefox:' + path.join(home, '.var/app/app.zen_browser.zen/.zen'));
+          addIfDir(path.join(home, '.librewolf'), 'firefox:' + path.join(home, '.librewolf'));
+          addIfDir(path.join(home, '.floorp'), 'firefox:' + path.join(home, '.floorp'));
+          addIfDir(path.join(home, '.config', 'vivaldi'), 'vivaldi');
+          addIfDir(path.join(home, '.config', 'microsoft-edge'), 'edge');
+        } else if (process.platform === 'win32') {
+          const local = process.env.LOCALAPPDATA || '';
+          const roaming = process.env.APPDATA || '';
+          addIfDir(path.join(roaming, 'Mozilla', 'Firefox'), 'firefox');
+          addIfDir(path.join(local, 'Google', 'Chrome'), 'chrome');
+          addIfDir(path.join(local, 'BraveSoftware', 'Brave-Browser'), 'brave');
+          addIfDir(path.join(local, 'Microsoft', 'Edge'), 'edge');
+          addIfDir(path.join(roaming, 'Zen'), 'firefox:' + path.join(roaming, 'Zen'));
+          addIfDir(path.join(local, 'Vivaldi'), 'vivaldi');
+        } else if (process.platform === 'darwin') {
+          const appSup = path.join(home, 'Library', 'Application Support');
+          addIfDir(path.join(appSup, 'Firefox'), 'firefox');
+          addIfDir(path.join(appSup, 'Google', 'Chrome'), 'chrome');
+          addIfDir(path.join(appSup, 'BraveSoftware', 'Brave-Browser'), 'brave');
+          addIfDir(path.join(appSup, 'zen'), 'firefox:' + path.join(appSup, 'zen'));
+        }
+        if (!specs.includes('firefox')) specs.push('firefox');
+        if (!specs.includes('chrome')) specs.push('chrome');
+        return specs;
+      }
+
+      async function exportYoutubeCookiesToDisk() {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+        if (hasValidYtCookiesFile()) return true;
+
+        
+
+        const tmpTestCookie = '/tmp/test-yt-cookies.txt';
+        try {
+          if (fs.existsSync(tmpTestCookie)) {
+            const tmpTxt = fs.readFileSync(tmpTestCookie, 'utf8');
+            if (/SAPISID|__Secure-3PAPISID|LOGIN_INFO|SID/.test(tmpTxt)) {
+              fs.writeFileSync(YT_COOKIES_FILE, tmpTxt, 'utf8');
+              try { if (fs.existsSync(YT_LOGOUT_FLAG)) fs.unlinkSync(YT_LOGOUT_FLAG); } catch (_) {}
+              return true;
+            }
+          }
+        } catch (_) {}
+
+        const ytdlpBin = resolveBinary('yt-dlp');
+        if (!ytdlpBin) return false;
+
+        const specs = getCandidateBrowserSpecs();
+        for (const spec of specs) {
+          try {
+            await new Promise((resolve) => {
+              execFile(ytdlpBin, [
+                '--no-config',
+                '--cookies-from-browser', spec,
+                '--cookies', YT_COOKIES_FILE,
+                '--skip-download',
+                '--no-warnings',
+                'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+              ], { timeout: 12000, windowsHide: true }, () => resolve());
+            });
+            if (hasValidYtCookiesFile()) {
+              try { if (fs.existsSync(YT_LOGOUT_FLAG)) fs.unlinkSync(YT_LOGOUT_FLAG); } catch (_) {}
+              return true;
+            }
+          } catch (_) {}
+        }
+        return false;
+      }
+
       ipcMain.handle('google-auth-status', async () => {
         try {
-          const s = session.fromPartition('persist:riff-google');
-          const cookies = await s.cookies.get({ name: 'SAPISID' });
-          const loggedIn = Array.isArray(cookies) && cookies.some(c => c && c.value);
-          return { loggedIn };
+          if (fs.existsSync(YT_LOGOUT_FLAG)) {
+            return { loggedIn: false };
+          }
+          if (hasValidYtCookiesFile()) {
+            return { loggedIn: true };
+          }
+          const synced = await exportYoutubeCookiesToDisk();
+          return { loggedIn: synced };
         } catch (e) {
           return { loggedIn: false };
         }
@@ -1359,6 +1513,9 @@ function runGUI() {
 
       ipcMain.handle('google-logout', async () => {
         try {
+          fs.mkdirSync(DATA_DIR, { recursive: true });
+          fs.writeFileSync(YT_LOGOUT_FLAG, '1', 'utf8');
+          if (fs.existsSync(YT_COOKIES_FILE)) fs.unlinkSync(YT_COOKIES_FILE);
           const s = session.fromPartition('persist:riff-google');
           await s.clearStorageData();
           return { success: true };
@@ -1367,83 +1524,33 @@ function runGUI() {
         }
       });
 
-      ipcMain.handle('google-login', async (event) => {
-        const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
-        const s = session.fromPartition('persist:riff-google');
-        const chromeUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-        try { s.setUserAgent(chromeUA); } catch (e) {}
-
+      ipcMain.handle('google-login', async () => {
         try {
-          s.webRequest.onBeforeSendHeaders((details, callback) => {
-            if (details.requestHeaders) {
-              delete details.requestHeaders['sec-ch-ua'];
-              delete details.requestHeaders['sec-ch-ua-mobile'];
-              delete details.requestHeaders['sec-ch-ua-platform'];
-            }
-            callback({ requestHeaders: details.requestHeaders });
-          });
+          if (fs.existsSync(YT_LOGOUT_FLAG)) fs.unlinkSync(YT_LOGOUT_FLAG);
         } catch (_) {}
 
-        return new Promise((resolve) => {
-          let finished = false;
-          let pollTimer = null;
-          const authWin = new BrowserWindow({
-            width: 480,
-            height: 680,
-            parent: win || undefined,
-            modal: true,
-            title: 'Google Login',
-            webPreferences: {
-              session: s,
-              contextIsolation: true,
-              nodeIntegration: false,
-              disableBlinkFeatures: 'AutomationControlled'
-            }
-          });
-          try { authWin.webContents.setUserAgent(chromeUA); } catch (e) {}
+        
 
-          authWin.webContents.on('dom-ready', () => {
-            authWin.webContents.executeJavaScript('Object.defineProperty(navigator, "webdriver", { get: () => undefined });').catch(() => {});
-          });
+        const alreadyInBrowser = await exportYoutubeCookiesToDisk();
+        if (alreadyInBrowser && hasValidYtCookiesFile()) {
+          return { success: true, loggedIn: true };
+        }
 
-          const checkCookies = async () => {
-            if (finished) return;
-            try {
-              const url = authWin.webContents.getURL() || '';
-              if (url.includes('music.youtube.com') || url.includes('youtube.com')) {
-                const cookies = await s.cookies.get({ name: 'SAPISID' });
-                if (Array.isArray(cookies) && cookies.some(c => c && c.value)) {
-                  finished = true;
-                  if (pollTimer) clearInterval(pollTimer);
-                  if (!authWin.isDestroyed()) authWin.close();
-                  resolve({ success: true, loggedIn: true });
-                }
-              }
-            } catch (e) {}
-          };
+        
 
-          authWin.webContents.on('did-navigate', checkCookies);
-          authWin.webContents.on('did-navigate-in-page', checkCookies);
-          authWin.webContents.on('did-finish-load', checkCookies);
-          pollTimer = setInterval(checkCookies, 1000);
+        shell.openExternal('https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F');
 
-          authWin.on('closed', () => {
-            if (pollTimer) clearInterval(pollTimer);
-            if (!finished) {
-              finished = true;
-              s.cookies.get({ name: 'SAPISID' }).then(cookies => {
-                const loggedIn = Array.isArray(cookies) && cookies.some(c => c && c.value);
-                resolve({ success: loggedIn, loggedIn });
-              }).catch(() => {
-                resolve({ success: false, loggedIn: false });
-              });
-            }
-          });
+        
 
-          authWin.loadURL('https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fmusic.youtube.com%2F', {
-            userAgent: chromeUA
-          }).catch(() => {});
-        });
+        const start = Date.now();
+        while (Date.now() - start < 90000) {
+          await new Promise(r => setTimeout(r, 3500));
+          const ok = await exportYoutubeCookiesToDisk();
+          if (ok && hasValidYtCookiesFile()) {
+            return { success: true, loggedIn: true };
+          }
+        }
+        return { success: false, loggedIn: false };
       });
 
       ipcMain.handle('google-import-library', async (event, opts) => {
@@ -1817,6 +1924,7 @@ function runGUI() {
       });
 
       app.whenReady().then(() => {
+        if (!fs.existsSync(YT_LOGOUT_FLAG)) exportYoutubeCookiesToDisk().catch(() => {});
         global.riffSessionFetch = (urlStr, opts) => session.defaultSession.fetch(urlStr, opts);
         if (process.platform === 'darwin' && app.dock) {
           try {
@@ -1825,6 +1933,7 @@ function runGUI() {
           } catch (_) {}
         }
         setupTray();
+        try { require('./launcher').refreshLauncherOnStartup?.(); } catch (_) {}
         try {
           session.defaultSession.webRequest.onBeforeSendHeaders(
             { urls: ['*://*.googlevideo.com/*'] },
@@ -1832,13 +1941,19 @@ function runGUI() {
               const h = details.requestHeaders || {};
               try {
                 const u = new URL(details.url);
-                const c = u.searchParams.get('c') || '';
+                const c = (u.searchParams.get('c') || '').toUpperCase();
                 if (c === 'ANDROID_VR') {
-                  h['User-Agent'] = 'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 14; eureka-user Build/SQ3A.220605.009.A1) gzip';
+                  h['User-Agent'] = 'com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip';
                 } else if (c === 'IOS') {
-                  h['User-Agent'] = 'com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X;)';
-                } else if (c === 'ANDROID_TESTSUITE' || c.startsWith('ANDROID')) {
-                  h['User-Agent'] = 'com.google.android.youtube/1.9 (Linux; U; Android 14; en_US) gzip';
+                  h['User-Agent'] = 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)';
+                } else if (c === 'ANDROID_MUSIC') {
+                  h['User-Agent'] = 'com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14; en_US; sdk_gphone64_x86_64 Build/UE1A.230829.036) gzip';
+                } else if (c === 'TVHTML5_SIMPLY_EMBEDDED_PLAYER' || c.startsWith('TVHTML5')) {
+                  h['User-Agent'] = 'Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.5) AppleWebKit/537.36 (KHTML, like Gecko) 85.0.4183.93/6.5 TV Safari/537.36';
+                } else if (c === 'ANDROID_TESTSUITE') {
+                  h['User-Agent'] = 'com.google.android.youtube/1.9 (Linux; U; Android 11; en_US) gzip';
+                } else if (c.startsWith('ANDROID')) {
+                  h['User-Agent'] = 'com.google.android.youtube/19.44.38 (Linux; U; Android 14; en_US; sdk_gphone64_x86_64 Build/UE1A.230829.036) gzip';
                 }
                 delete h['Origin'];
                 delete h['origin'];
@@ -1879,7 +1994,8 @@ function runGUI() {
         createWindow();
         if (tutorialDone()) require('./updater').initUpdater(() => mainWindow);
         app.on('activate', () => {
-          // Clicking the Dock icon should bring back a window that was closed to the tray.
+          
+
           if (mainWindow && !mainWindow.isDestroyed()) {
             if (!mainWindow.isVisible()) mainWindow.show();
             mainWindow.focus();

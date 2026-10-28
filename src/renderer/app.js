@@ -150,7 +150,9 @@ try { window.electronAPI.storageSaveSync(diskMap); } catch (_) {}
   }
   window.__riffLogError = reportError;
   window.addEventListener('error', (e) => {
-    reportError('ERROR', e.message || String(e), e.error ? e.error.stack : null);
+    const msg = e.message || String(e);
+    if (/ResizeObserver loop/i.test(msg)) return;
+    reportError('ERROR', msg, e.error ? e.error.stack : null);
   });
   window.addEventListener('unhandledrejection', (e) => {
     const reason = e.reason;
@@ -217,8 +219,53 @@ function stripYoutubeTopic(artist) {
   return artist.endsWith(' - Topic') ? artist.slice(0, -8).trim() : artist;
 }
 
+const HomeCache = {
+  store: {},
+  async init() {
+    try {
+      if (window.electronAPI && window.electronAPI.readCacheFile) {
+        const disk = await window.electronAPI.readCacheFile();
+        if (disk && typeof disk === 'object') this.store = disk;
+      }
+    } catch (_) {}
+  },
+  get(key, maxAgeMs = 12 * 3600 * 1000) {
+    const item = this.store[key];
+    if (!item || !item.ts || !item.data) return null;
+    if (Date.now() - item.ts > maxAgeMs) return null;
+    return item.data;
+  },
+  set(key, data) {
+    this.store[key] = { ts: Date.now(), data };
+    try {
+      if (window.electronAPI && window.electronAPI.writeCacheFile) {
+        window.electronAPI.writeCacheFile(this.store);
+      }
+    } catch (_) {}
+  }
+};
+window.HomeCache = HomeCache;
+
 document.addEventListener('DOMContentLoaded', async () => {
+  var state = { vibeTracks: [] };
+  var myWaveCurrentTracks = [];
   try { localStorage.removeItem('riff_stats'); } catch (e) {}
+
+  await HomeCache.init();
+
+  const cachedVibe = HomeCache.get('home_vibe') || safeJson('riff_my_wave_cache', null)?.tracks;
+  if (cachedVibe && cachedVibe.length > 0) {
+    state.vibeTracks = cachedVibe;
+    myWaveCurrentTracks = cachedVibe;
+  }
+
+  const cachedMixes = HomeCache.get('daily_mixes', 24 * 3600 * 1000) || safeJson('riff_daily_mixes', null);
+  if (cachedMixes && Array.isArray(cachedMixes.mixes) && cachedMixes.mixes.length > 0) {
+    try {
+      localStorage.setItem('riff_daily_mixes', JSON.stringify(cachedMixes));
+    } catch (_) {}
+  }
+
   var lyricsScrollRaf = 0;
   var gradientRaf = 0;
   var cacheRafId = 0;
@@ -647,7 +694,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (fontOptSystem) fontOptSystem.classList.toggle('active', f === 'system');
   }
 
-  const state = {
+  Object.assign(state, {
     selectedTracks: new Map(),
     lastClickedTrackRow: null,
     platform: localStorage.getItem('riff_platform') || 'ytmusic',
@@ -673,7 +720,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     myWaveActive: false,
     isRadioQueue: false,
     _waveReplenishBusy: false,
-    vibeTracks: [],
+    vibeTracks: (Array.isArray(state.vibeTracks) && state.vibeTracks.length > 0) ? state.vibeTracks : [],
     _isNaturalEnding: false,
     _skipRecordedFor: null,
     isRightPanelOpen: true,
@@ -728,7 +775,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                           syncTimeout: null,
                           scrubberDragTargetTime: undefined,
                           riffFont: localStorage.getItem('riff_font') || 'google'
-  };
+  });
 
   function migrateAddedAt() {
     const favorites = backfillAddedAt(state.favorites, true);
@@ -1054,7 +1101,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const styleKey = state.paletteStyle || 'classic';
     const style = PALETTE_STYLES[styleKey] || PALETTE_STYLES.classic;
-    const surfSat = applyBgIntensity ? Math.min(85, Math.round(s * intensityFactor * (style.surfSatScale * 2.4))) : 0;
+    
+
+    const surfSat = applyBgIntensity ? Math.min(28, Math.round(s * intensityFactor * (style.surfSatScale * 0.65))) : 0;
 
     const hSec = (h + style.secHueShift) % 360;
     const hTert = (h + style.tertHueShift) % 360;
@@ -1065,7 +1114,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (mode === 'light') {
       const LB = (v) => Math.max(0, Math.min(100, Math.round(v + (br - 0.5) * 24)));
       if (isMonochrome) {
-        setToken('--md-sys-color-primary', '#111111');
+        const monoPriL = Math.round(11 + br * 45);
+        const monoPriHex = hslToHex(0, 0, monoPriL);
+        setToken('--md-sys-color-primary', monoPriHex);
         setToken('--md-sys-color-on-primary', '#FFFFFF');
         setSurfaceToken('--md-sys-color-primary-container', hslToHex(0, 0, LB(90)));
         setToken('--md-sys-color-on-primary-container', '#111111');
@@ -1120,16 +1171,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         setToken('--md-sys-color-outline-variant', '#CAC4D0');
       }
     } else {
+      const B = (v) => Math.max(0, Math.min(100, Math.round(v * (br * 2))));
       if (isMonochrome) {
-        const B = (v) => Math.max(0, Math.min(100, Math.round(v * (br * 2))));
-        setToken('--md-sys-color-primary', '#FFFFFF');
+        
+
+        const monoPriL = Math.round(48 + br * 52);
+        const monoPriHex = hslToHex(0, 0, monoPriL);
+        setToken('--md-sys-color-primary', monoPriHex);
         setToken('--md-sys-color-on-primary', '#121212');
         setSurfaceToken('--md-sys-color-primary-container', hslToHex(0, 0, B(24)));
-        setToken('--md-sys-color-on-primary-container', '#FFFFFF');
-        setToken('--md-sys-color-secondary', '#D0D0D0');
+        setToken('--md-sys-color-on-primary-container', monoPriHex);
+        setToken('--md-sys-color-secondary', hslToHex(0, 0, Math.max(40, monoPriL - 12)));
         setSurfaceToken('--md-sys-color-secondary-container', hslToHex(0, 0, B(24)));
-        setToken('--md-sys-color-on-secondary-container', '#FFFFFF');
-        setToken('--md-sys-color-tertiary', '#D0D0D0');
+        setToken('--md-sys-color-on-secondary-container', monoPriHex);
+        setToken('--md-sys-color-tertiary', hslToHex(0, 0, Math.max(40, monoPriL - 12)));
         setSurfaceToken('--md-sys-color-tertiary-container', hslToHex(0, 0, B(24)));
         setToken('--md-sys-color-background', hslToHex(0, 0, B(7)));
         setToken('--md-sys-color-surface', hslToHex(0, 0, B(7)));
@@ -1147,13 +1202,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         setToken('--md-sys-color-error', '#8A8A8A');
         setToken('--md-sys-color-on-error', '#121212');
       } else {
+        
+
         const sat = Math.min(100, Math.round(60 * intensityFactor * style.priSatScale));
-        const satHi = Math.min(100, Math.round(60 * intensityFactor * style.contSatScale));
         const satMed = Math.min(100, Math.round(50 * intensityFactor * style.priSatScale));
         const satLow = Math.min(100, Math.round(15 * intensityFactor * style.contSatScale));
         const satLow2 = Math.min(100, Math.round(30 * intensityFactor * style.contSatScale));
         const priHex = hslToHex(h, sat, 75);
         const priRgb = hexToRgb(priHex);
+        
+
+        const SB = (v) => applyBgIntensity ? Math.max(Math.round(intensityFactor * 4), B(v)) : B(v);
+
         setToken('--md-sys-color-primary', priHex);
         setToken('--md-sys-color-on-primary', hslToHex(h, satMed, 20));
         setToken('--md-sys-color-primary-container', `rgba(${priRgb.r}, ${priRgb.g}, ${priRgb.b}, 0.18)`);
@@ -1163,16 +1223,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         setToken('--md-sys-color-on-secondary-container', hslToHex(hSec, satLow2, 85));
         setToken('--md-sys-color-tertiary', hslToHex(hTert, satLow2, 75));
         setToken('--md-sys-color-tertiary-container', hslToHex(hTert, satLow, 22));
-        const B = (v) => Math.max(0, Math.min(100, Math.round(v * (br * 2))));
-        setToken('--md-sys-color-background', hslToHex(h, surfSat, B(7)));
-        setToken('--md-sys-color-surface', hslToHex(h, surfSat, B(8)));
-        setToken('--md-sys-color-surface-dim', hslToHex(h, surfSat, B(7)));
-        setToken('--md-sys-color-surface-bright', hslToHex(h, surfSat, B(24)));
-        setToken('--md-sys-color-surface-container-lowest', hslToHex(h, surfSat, B(5)));
-        setToken('--md-sys-color-surface-container-low', hslToHex(h, surfSat, B(10)));
-        setToken('--md-sys-color-surface-container', hslToHex(h, surfSat, B(13)));
-        setToken('--md-sys-color-surface-container-high', hslToHex(h, surfSat, B(16)));
-        setToken('--md-sys-color-surface-container-highest', hslToHex(h, surfSat, B(20)));
+        setToken('--md-sys-color-background', hslToHex(h, surfSat, SB(7)));
+        setToken('--md-sys-color-surface', hslToHex(h, surfSat, SB(8)));
+        setToken('--md-sys-color-surface-dim', hslToHex(h, surfSat, SB(7)));
+        setToken('--md-sys-color-surface-bright', hslToHex(h, surfSat, SB(24)));
+        setToken('--md-sys-color-surface-container-lowest', hslToHex(h, surfSat, SB(5)));
+        setToken('--md-sys-color-surface-container-low', hslToHex(h, surfSat, SB(10)));
+        setToken('--md-sys-color-surface-container', hslToHex(h, surfSat, SB(13)));
+        setToken('--md-sys-color-surface-container-high', hslToHex(h, surfSat, SB(16)));
+        setToken('--md-sys-color-surface-container-highest', hslToHex(h, surfSat, SB(20)));
         setToken('--md-sys-color-on-surface', '#e2e2e9');
         setToken('--md-sys-color-on-surface-variant', '#c4c6d0');
         setToken('--md-sys-color-outline', '#8e9099');
@@ -2006,21 +2065,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
   if (el.nativeAudio) el.nativeAudio.preload = 'auto';
 
-  if (el.mainContent && !el.mainContent.parentElement.classList.contains('main-content-wrap')) {
-    const mcWrap = document.createElement('div');
-    mcWrap.className = 'main-content-wrap';
-    el.mainContent.parentNode.insertBefore(mcWrap, el.mainContent);
-    mcWrap.appendChild(el.mainContent);
-  }
-
-  if (el.mainContent) {
-    el.mainContent.addEventListener('scroll', () => updateFade(el.mainContent), { passive: true });
-    window.addEventListener('resize', () => updateFade(el.mainContent), { passive: true });
-    if (window.ResizeObserver) {
-      new ResizeObserver(() => updateFade(el.mainContent)).observe(el.mainContent);
-    }
-    updateFade(el.mainContent);
-  }
 
   var TRANSLATION_LANGUAGES = [
     { code: 'af', name: 'Afrikaans', flag: '🇿🇦' },
@@ -4151,7 +4195,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function playTrack(track, queueList = null, startIndex = -1, context = null) {
-    if (track) track._errorRetryStage = 0;
+    if (track && !track._errorRetryStage) track._errorRetryStage = 0;
     if (track && track.artist) track.artist = stripYoutubeTopic(track.artist);
     preloadedTrack10sFired = false;
     lastDisplayedSec = -1;
@@ -4241,9 +4285,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     state.currentAbortController = new AbortController();
     const signal = state.currentAbortController.signal;
+    let didTimeoutAbort = false;
     const fetchAbortTimeout = setTimeout(() => {
+      didTimeoutAbort = true;
       try { state.currentAbortController?.abort(); } catch (_) {}
-    }, 20000);
+    }, 16000);
 
     state.currentTrack = track;
     emitPluginEvent('trackchange', track);
@@ -4302,7 +4348,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadSyncedLyrics(track.title, track.artist, currentToken);
 
     try {
-      if (track._preloadedStreamUrl) {
+      if (track._preloadedStreamUrl && !(track._errorRetryStage > 0)) {
         if (currentToken !== state.loadToken) return;
         if (hlsInstance) {
           try { hlsInstance.destroy(); } catch (_) {}
@@ -4364,6 +4410,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (currentToken !== state.loadToken) return;
 
       if (!data || !data.success || !data.streamUrl) {
+        if (data && data.needAuth) {
+          maybeShowYtAuthSheet();
+        }
         if (!navigator.onLine) {
           showToast('Offline: this track is not available in local cache');
           throw new Error('Offline: track not cached locally');
@@ -4402,12 +4451,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       applyAudioSettings();
     } catch (err) {
-      if (err.name === 'AbortError') return;
+      if (err.name === 'AbortError' && !didTimeoutAbort) return;
       if (currentToken === state.loadToken) {
         console.warn('Track playback notice:', err);
+        state.isPlaying = false;
         updatePlayPauseButton(false, false);
         if (el.trackLoadingOverlay) el.trackLoadingOverlay.classList.add('hidden');
-        showToast(err.message || 'Could not load audio stream', 'error');
+        if (!track.platform || track.platform === 'youtube' || track.platform === 'ytmusic') {
+          maybeShowYtAuthSheet();
+        }
+        showToast(didTimeoutAbort ? 'Stream request timed out' : (err.message || 'Could not load audio stream'), 'error');
       }
     } finally {
       clearTimeout(fetchAbortTimeout);
@@ -7659,8 +7712,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!el.nativeAudio) return;
       const extMuted = !!el.nativeAudio.muted;
       const extVol = Math.round(el.nativeAudio.volume * 100) / 100;
-      // Muting writes volume 0 to the element; without this check that echo was read back as
-      // "unmuted at volume 0", so the mute button lost the volume and unmute did nothing.
+      
+
+      
+
       if (audioEngine && Number.isFinite(audioEngine.appliedElementVolume) &&
           Math.abs(el.nativeAudio.volume - audioEngine.appliedElementVolume) < 0.005) return;
       if (extMuted !== state.isMuted || (!extMuted && Math.abs(extVol - state.volume) > 0.015)) {
@@ -7677,7 +7732,63 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
 
-    el.nativeAudio.addEventListener('error', async () => {
+    let ytAuthSheetDismissed = false;
+
+    function hideYtAuthSheet() {
+      const sheet = document.getElementById('yt-auth-sheet');
+      if (sheet) sheet.classList.add('hidden');
+    }
+
+    async function maybeShowYtAuthSheet() {
+      if (ytAuthSheetDismissed) return;
+      const sheet = document.getElementById('yt-auth-sheet');
+      if (!sheet) return;
+      try {
+        if (window.electronAPI && window.electronAPI.googleAuthStatus) {
+          const st = await window.electronAPI.googleAuthStatus();
+          if (st && st.loggedIn) return;
+        }
+      } catch (_) {}
+      sheet.classList.remove('hidden');
+    }
+
+    const btnYtSheetNo = document.getElementById('btn-yt-sheet-no');
+    if (btnYtSheetNo) {
+      btnYtSheetNo.addEventListener('click', () => {
+        ytAuthSheetDismissed = true;
+        hideYtAuthSheet();
+      });
+    }
+
+    const btnYtSheetSignin = document.getElementById('btn-yt-sheet-signin');
+    if (btnYtSheetSignin) {
+      btnYtSheetSignin.addEventListener('click', async () => {
+        if (!window.electronAPI || !window.electronAPI.googleLogin) return;
+        const origHtml = btnYtSheetSignin.innerHTML;
+        btnYtSheetSignin.disabled = true;
+        btnYtSheetSignin.innerHTML = '<svg class="m3-btn-shape-spinner" style="width:15px;height:15px;" viewBox="-180 -180 360 360"><path fill="currentColor"/></svg><span>Signing in...</span>';
+        try {
+          const res = await window.electronAPI.googleLogin();
+          if (res && res.loggedIn) {
+            googleConnected = true;
+            if (typeof updateGoogleAuthUI === 'function') updateGoogleAuthUI();
+            hideYtAuthSheet();
+            showToast('Signed in to YouTube!', 'success');
+            if (state.currentTrack) {
+              delete state.currentTrack._preloadedStreamUrl;
+              state.currentTrack._errorRetryStage = 0;
+              playTrack(state.currentTrack, state.queue, state.queueIndex);
+            }
+          }
+        } catch (_) {
+        } finally {
+          btnYtSheetSignin.disabled = false;
+          btnYtSheetSignin.innerHTML = origHtml;
+        }
+      });
+    }
+
+    async function recoverCurrentStream(resumePos = 0) {
       if (el.trackLoadingOverlay) el.trackLoadingOverlay.classList.add('hidden');
       const cur = state.currentTrack;
       if (!cur) {
@@ -7689,20 +7800,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         showToast('File missing from library', 'error');
         return;
       }
-      const currentSrc = el.nativeAudio.src || '';
+      delete cur._preloadedStreamUrl;
       const retryStage = cur._errorRetryStage || 0;
       const myToken = state.loadToken;
 
-      if (retryStage === 0 && currentSrc && !currentSrc.includes('/api/audio-proxy') && !currentSrc.includes('127.0.0.1')) {
-        cur._errorRetryStage = 1;
-        const proxied = `http://127.0.0.1:${state.serverPort}/api/audio-proxy?url=${encodeURIComponent(currentSrc)}`;
-        el.nativeAudio.src = proxied;
-        playSmooth();
-        return;
-      }
-
       if (retryStage <= 1) {
-        cur._errorRetryStage = 2;
+        cur._errorRetryStage = retryStage + 1;
+        updatePlayPauseButton(false, true);
         try {
           const qQuality = encodeURIComponent(localStorage.getItem('riff_audio_quality') || 'medium');
           const qSearch = encodeURIComponent(cur.searchQuery || ((cur.artist ? cur.artist + ' - ' : '') + (cur.title || '')));
@@ -7712,8 +7816,32 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (myToken !== state.loadToken) return;
           if (d && d.success && d.streamUrl) {
             cur._preloadedStreamUrl = d.streamUrl;
-            el.nativeAudio.src = d.proxyUrl || d.streamUrl;
-            playSmooth();
+            if (hlsInstance) {
+              try { hlsInstance.destroy(); } catch (_) {}
+              hlsInstance = null;
+            }
+            if ((d.isHls || d.streamUrl.includes('.m3u8')) && window.Hls && Hls.isSupported()) {
+              hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
+              hlsInstance.loadSource(d.streamUrl);
+              hlsInstance.attachMedia(el.nativeAudio);
+              hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+                if (myToken === state.loadToken) {
+                  if (resumePos > 1) {
+                    try { el.nativeAudio.currentTime = resumePos; } catch (_) {}
+                  }
+                  playSmooth();
+                }
+              });
+            } else {
+              try { el.nativeAudio.pause(); el.nativeAudio.removeAttribute('src'); el.nativeAudio.load(); } catch (_) {}
+              el.nativeAudio.src = d.streamUrl;
+              if (resumePos > 1) {
+                el.nativeAudio.addEventListener('loadedmetadata', () => {
+                  try { el.nativeAudio.currentTime = resumePos; } catch (_) {}
+                }, { once: true });
+              }
+              playSmooth();
+            }
             return;
           }
         } catch (_) {}
@@ -7722,9 +7850,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       cur._errorRetryStage = 0;
       state.isPlaying = false;
       updatePlayPauseButton(false, false);
-      // Stop auto-skipping after a few failures in a row. Without a cap, a network or source
-      // outage (e.g. every stream returning 403) skipped through the queue forever, since the
-      // queue wraps around, and pressing pause could not stop it.
+      
+
+      
+
+      
+
       state.consecutivePlayFailures = (state.consecutivePlayFailures || 0) + 1;
       const maxAutoSkips = Math.min(5, Math.max(1, (state.queue && state.queue.length) || 1));
       if (state.consecutivePlayFailures >= maxAutoSkips) {
@@ -7732,12 +7863,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         showToast('Could not play several tracks in a row. Check your connection and try again.', 'error');
         return;
       }
-      showToast('Could not play this track, trying next...', 'warning');
-      if (state.queue && state.queue.length > 1) {
-        setTimeout(() => {
-          if (myToken === state.loadToken && !state.isPlaying) playNext();
-        }, 600);
+      showToast('Could not load audio stream', 'error');
+      if (!cur.platform || cur.platform === 'youtube' || cur.platform === 'ytmusic') {
+        maybeShowYtAuthSheet();
       }
+    }
+
+    el.nativeAudio.addEventListener('error', () => {
+      const pos = (el.nativeAudio && Number.isFinite(el.nativeAudio.currentTime)) ? el.nativeAudio.currentTime : 0;
+      recoverCurrentStream(pos);
     });
 
     el.nativeAudio.addEventListener('waiting', () => {
@@ -7904,10 +8038,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       } else {
         const expectedDur = getReliableTrackDuration();
         const pos = el.nativeAudio.currentTime || 0;
-        if (state.currentTrack && state.currentTrack.platform !== 'local' && expectedDur > 25 && pos > 2 && pos < expectedDur - 12 && (state._streamRecoverCount || 0) < 2) {
+        if (state.currentTrack && state.currentTrack.platform !== 'local' && expectedDur > 25 && pos < expectedDur - 12 && (state._streamRecoverCount || 0) < 2) {
           state._streamRecoverCount = (state._streamRecoverCount || 0) + 1;
-          el.nativeAudio.currentTime = pos;
-          playSmooth();
+          delete state.currentTrack._preloadedStreamUrl;
+          recoverCurrentStream(pos);
           return;
         }
         state._isNaturalEnding = true;
@@ -8219,7 +8353,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     updatePresetsFade();
     const c = document.querySelector('#view-album .album-tracks-col');
     if (c) updateFade(c);
-    if (el.mainContent) updateFade(el.mainContent);
   });
 
   let activeTweenRaf = null;
@@ -8484,117 +8617,110 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   let currentAlbumForFeedback = null;
+  let mixFeedbackBusy = false;
 
   function getMixFeedback() {
     const defaultVal = { likedArtists: [], dislikedArtists: [], likedTracks: [], dislikedTracks: [], ratingsByMix: {} };
-    const val = safeJson('riff_mix_feedback', defaultVal);
-    if (!val || typeof val !== 'object') return defaultVal;
-    if (!Array.isArray(val.likedArtists)) val.likedArtists = [];
-    if (!Array.isArray(val.dislikedArtists)) val.dislikedArtists = [];
-    if (!Array.isArray(val.likedTracks)) val.likedTracks = [];
-    if (!Array.isArray(val.dislikedTracks)) val.dislikedTracks = [];
-    if (!val.ratingsByMix || typeof val.ratingsByMix !== 'object') val.ratingsByMix = {};
-    return val;
+    try {
+      const raw = localStorage.getItem('riff_mix_feedback');
+      const val = raw ? JSON.parse(raw) : defaultVal;
+      if (!val || typeof val !== 'object') return defaultVal;
+      if (!Array.isArray(val.likedArtists)) val.likedArtists = [];
+      if (!Array.isArray(val.dislikedArtists)) val.dislikedArtists = [];
+      if (!Array.isArray(val.likedTracks)) val.likedTracks = [];
+      if (!Array.isArray(val.dislikedTracks)) val.dislikedTracks = [];
+      if (!val.ratingsByMix || typeof val.ratingsByMix !== 'object') val.ratingsByMix = {};
+      return val;
+    } catch (_) {
+      return defaultVal;
+    }
   }
+  window.getMixFeedback = getMixFeedback;
 
   function saveMixFeedback(data) {
-    localStorage.setItem('riff_mix_feedback', JSON.stringify(data));
+    try {
+      localStorage.setItem('riff_mix_feedback', JSON.stringify(data || {}));
+    } catch (_) {}
   }
+  window.saveMixFeedback = saveMixFeedback;
 
-  function handleDailyMixRating(isLike) {
-    if (!currentAlbumForFeedback || !currentAlbumForFeedback.id) return;
-    const album = currentAlbumForFeedback;
-    const mixFeedbackEl = document.getElementById('daily-mix-feedback');
-    const btnLike = document.getElementById('btn-dm-like');
-    const btnDislike = document.getElementById('btn-dm-dislike');
+  async function handleDailyMixRating(isLike) {
+    if (mixFeedbackBusy) return;
+    const album = currentAlbumForFeedback || state.currentAlbum;
+    if (!album || !album.id) return;
+    mixFeedbackBusy = true;
 
-    const clickedBtn = isLike ? btnLike : btnDislike;
-    const otherBtn = isLike ? btnDislike : btnLike;
-    if (clickedBtn) clickedBtn.classList.add('active');
-    if (otherBtn) otherBtn.classList.remove('active');
+    try {
+      const bLike = document.getElementById('btn-dm-like');
+      const bDislike = document.getElementById('btn-dm-dislike');
+      const mixFeedbackEl = document.getElementById('daily-mix-feedback');
 
-    const feedback = getMixFeedback();
-    feedback.ratingsByMix[album._rateKey || album.id] = isLike ? 'like' : 'dislike';
+      const feedback = getMixFeedback();
+      if (!feedback.ratingsByMix) feedback.ratingsByMix = {};
+      const newRating = isLike ? 'like' : 'dislike';
+      feedback.ratingsByMix[album.id] = newRating;
 
-    const tracks = album.tracks || album._tracks || [];
-    const artists = new Set();
-    if (album.artist && album.artist !== 'Daily Mix') {
-      album.artist.split(',').forEach(a => {
-        const tr = a.trim();
-        if (tr) artists.add(tr);
+      if (bLike) bLike.classList.toggle('active', newRating === 'like');
+      if (bDislike) bDislike.classList.toggle('active', newRating === 'dislike');
+
+      const tracks = album.tracks || album._tracks || [];
+      const artists = new Set();
+      if (album.artist && album.artist !== 'Daily Mix') {
+        album.artist.split(',').forEach(a => { const tr = a.trim(); if (tr) artists.add(tr); });
+      }
+      const keyFn = typeof getTrackNormalizedKey === 'function'
+        ? getTrackNormalizedKey
+        : (art, tit) => String(art || '').toLowerCase().trim() + '::' + String(tit || '').toLowerCase().trim();
+
+      tracks.forEach(t => {
+        if (!t) return;
+        if (t.artist) { const tr = t.artist.trim(); if (tr) artists.add(tr); }
+        const trackObj = {
+          id: t.id || '',
+          title: t.title || '',
+          artist: t.artist || '',
+          key: (t.artist && t.title) ? keyFn(t.artist, t.title) : (t.id || '')
+        };
+        if (newRating === 'like') {
+          if (!feedback.likedTracks.some(lt => (lt.id && lt.id === trackObj.id) || (lt.key && lt.key === trackObj.key))) {
+            feedback.likedTracks.push(trackObj);
+          }
+        } else {
+          if (!feedback.dislikedTracks.some(dt => (dt.id && dt.id === trackObj.id) || (dt.key && dt.key === trackObj.key))) {
+            feedback.dislikedTracks.push(trackObj);
+          }
+        }
       });
-    }
 
-    tracks.forEach(t => {
-      if (!t) return;
-      if (t.artist) {
-        const tr = t.artist.trim();
-        if (tr) artists.add(tr);
-      }
-      const trackObj = {
-        id: t.id || '',
-        title: t.title || '',
-        artist: t.artist || '',
-        key: (typeof getTrackNormalizedKey === 'function' && t.artist && t.title) ? getTrackNormalizedKey(t.artist, t.title) : (t.id || '')
-      };
-      if (isLike) {
-        if (!feedback.likedTracks.some(lt => (lt.id && lt.id === trackObj.id) || (lt.key && lt.key === trackObj.key))) {
-          feedback.likedTracks.push(trackObj);
+      artists.forEach(a => {
+        if (newRating === 'like') {
+          if (!feedback.likedArtists.includes(a)) feedback.likedArtists.push(a);
+        } else {
+          if (!feedback.dislikedArtists.includes(a)) feedback.dislikedArtists.push(a);
         }
-      } else {
-        if (!feedback.dislikedTracks.some(dt => (dt.id && dt.id === trackObj.id) || (dt.key && dt.key === trackObj.key))) {
-          feedback.dislikedTracks.push(trackObj);
-        }
-        if (typeof recordWaveSkip === 'function') {
-          recordWaveSkip(t);
-        }
-      }
-    });
+      });
 
-    artists.forEach(a => {
-      if (isLike) {
-        if (!feedback.likedArtists.includes(a)) {
-          feedback.likedArtists.push(a);
-        }
-      } else {
-        if (!feedback.dislikedArtists.includes(a)) {
-          feedback.dislikedArtists.push(a);
-        }
-      }
-    });
+      saveMixFeedback(feedback);
 
-    saveMixFeedback(feedback);
-
-    if (!isLike) {
-      localStorage.removeItem('riff_my_wave_cache');
-      localStorage.removeItem('riff_daily_mixes');
-      setTimeout(() => {
-        if (typeof generateDailyMixes === 'function') generateDailyMixes(true);
-        if (typeof fetchPersonalVibe === 'function') fetchPersonalVibe(true);
-      }, 300);
-    }
-
-    showToast(isLike ? 'Glad you like this mix!' : 'Feedback saved', 'info');
-
-    setTimeout(() => {
       if (mixFeedbackEl) {
-        mixFeedbackEl.classList.add('fading-out');
         setTimeout(() => {
-          mixFeedbackEl.classList.add('hidden');
-          mixFeedbackEl.classList.remove('fading-out');
-        }, 280);
+          mixFeedbackEl.classList.add('fading-out');
+          setTimeout(() => {
+            mixFeedbackEl.classList.add('hidden');
+          }, 280);
+        }, 320);
       }
-    }, 350);
-  }
 
-  const btnDMLike = document.getElementById('btn-dm-like');
-  const btnDMDislike = document.getElementById('btn-dm-dislike');
-  if (btnDMLike) {
-    btnDMLike.addEventListener('click', () => handleDailyMixRating(true));
+      if (newRating === 'dislike') {
+        showToast('Thanks, we will play this less', 'info');
+      } else {
+        showToast('Glad you like this mix!', 'success');
+      }
+    } finally {
+      setTimeout(() => { mixFeedbackBusy = false; }, 450);
+    }
   }
-  if (btnDMDislike) {
-    btnDMDislike.addEventListener('click', () => handleDailyMixRating(false));
-  }
+  window.handleDailyMixRating = handleDailyMixRating;
 
   function getSavedAlbums() {
     try {
@@ -8664,22 +8790,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     currentAlbumForFeedback = album;
     state.currentAlbum = album;
     const mixFeedbackEl = document.getElementById('daily-mix-feedback');
+    const feedbackData = getMixFeedback();
+    const existingRating = (feedbackData.ratingsByMix && album.id) ? feedbackData.ratingsByMix[album.id] : null;
+    const isDailyMix = album.type === 'Daily Mix';
     if (mixFeedbackEl) {
-      const feedback = getMixFeedback();
-      const isDailyMix = album.type === 'Daily Mix';
-      if (isDailyMix) {
-        const firstTrackId = (album.tracks && album.tracks[0] && (album.tracks[0].id || album.tracks[0].title)) || '';
-        const mixRateKey = `${album.id || 'mix'}_${getLocalDateString()}_${firstTrackId}`;
-        album._rateKey = mixRateKey;
-        const currentRating = feedback.ratingsByMix && feedback.ratingsByMix[mixRateKey];
+      if (isDailyMix && !existingRating) {
         mixFeedbackEl.classList.remove('hidden', 'fading-out');
         const bLike = document.getElementById('btn-dm-like');
         const bDislike = document.getElementById('btn-dm-dislike');
-        if (bLike) bLike.classList.toggle('active', currentRating === 'like');
-        if (bDislike) bDislike.classList.toggle('active', currentRating === 'dislike');
+        if (bLike) {
+          bLike.classList.remove('active');
+          bLike.onclick = (e) => { e.preventDefault(); e.stopPropagation(); handleDailyMixRating(true); };
+        }
+        if (bDislike) {
+          bDislike.classList.remove('active');
+          bDislike.onclick = (e) => { e.preventDefault(); e.stopPropagation(); handleDailyMixRating(false); };
+        }
       } else {
         mixFeedbackEl.classList.add('hidden');
-        mixFeedbackEl.classList.remove('fading-out');
       }
     }
 
@@ -8841,23 +8969,30 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (listEl) {
         listEl.innerHTML = '';
         const currentCanonicalId = state.currentTrack ? getTrackCanonicalId(state.currentTrack) : '';
-        tracks.forEach((t, idx) => {
-          const trackItem = {
-            id: t.id || `${album.id}_${t.disc || 1}_${t.no || (idx + 1)}`,
+        const albumTrackItems = tracks.map((t, idx) => {
+          const cleanTitleNoFeat = String(t.title || '').replace(/\s*[\(\[]\s*(?:feat\.?|ft\.?|prod\.?|featuring)[^)]*[\)\]]/gi, '').trim();
+          const cleanArtistMain = String(t.artist || albumArtist || album.artist || '').split(/[,;&\/]|feat\.?|ft\.?/i)[0].trim();
+          return {
+            id: (t.url || t.platform === 'local') ? t.id : ('alb_' + album.id + '_' + idx),
             title: t.title,
-            artist: t.artist || albumArtist,
-            albumArtist: albumArtist,
+            artist: t.artist || albumArtist || album.artist || 'Unknown artist',
+            albumArtist: albumArtist || album.artist || '',
+            album: album.title || '',
             duration: t.duration || Math.round((t.durationMs || 0) / 1000),
             durationMs: t.durationMs || (t.duration ? t.duration * 1000 : 0),
-            cover: t.cover || t.thumbnail || album.cover,
-            thumbnail: t.thumbnail || t.cover || album.cover,
+            cover: t.cover || t.thumbnail || album.cover || '',
+            thumbnail: t.thumbnail || t.cover || album.cover || '',
             url: t.url || '',
-            platform: t.platform || 'youtube',
+            searchQuery: `${cleanArtistMain} ${cleanTitleNoFeat}`.trim(),
+            platform: t.platform || 'ytmusic',
             no: t.no || (idx + 1),
             disc: t.disc || 1,
             isExplicit: t.isExplicit
           };
-          const row = createTrackRow(trackItem, idx, currentCanonicalId, 'album', tracks, listEl);
+        });
+        album._tracks = albumTrackItems;
+        albumTrackItems.forEach((trackItem, idx) => {
+          const row = createTrackRow(trackItem, idx, currentCanonicalId, 'album', albumTrackItems, listEl);
           row.addEventListener('click', (e) => {
             if (e.target.closest('.track-row-actions')) return;
             if (e.target.classList.contains('track-row-artist')) {
@@ -8866,11 +9001,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               return;
             }
             e.stopImmediatePropagation();
-            if (trackItem.url || trackItem.platform === 'local' || album.type === 'Daily Mix') {
-              playTrack(trackItem, tracks, idx, 'album');
-            } else if (typeof playAlbumFrom === 'function') {
-              playAlbumFrom(album, tracks, idx);
-            }
+            playTrack(trackItem, albumTrackItems, idx, 'album');
           }, true);
           listEl.appendChild(row);
         });
@@ -9125,6 +9256,45 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     requestAnimationFrame(frame);
   }
+
+  function startButtonShapeSpinners() {
+    const S = window.RiffShapes;
+    if (!S || !S.ready()) return;
+    let fromIdx = 0;
+    let toIdx = S.next(0);
+    let stepStart = performance.now();
+    const STEP_MS = 1000;
+    const K = S.K;
+
+    function tick(now) {
+      const spinners = document.querySelectorAll('.m3-btn-shape-spinner:not(.hidden)');
+      if (spinners.length > 0) {
+        if (now - stepStart >= STEP_MS) {
+          fromIdx = toIdx;
+          toIdx = S.next(fromIdx);
+          stepStart = now;
+        }
+        const e = S.ease(Math.min(1, (now - stepStart) / STEP_MS));
+        const a = S.profile(fromIdx);
+        const b = S.profile(toIdx);
+        const rot = ((now % 2400) / 2400) * Math.PI * 2;
+        let d = '';
+        for (let k = 0; k < K; k += 4) {
+          const th = -Math.PI + (Math.PI * 2 * k) / K + rot;
+          const r = a[k] + (b[k] - a[k]) * e;
+          d += `${k === 0 ? 'M' : 'L'}${(Math.cos(th) * r).toFixed(1)},${(Math.sin(th) * r).toFixed(1)}`;
+        }
+        d += 'Z';
+        spinners.forEach(svg => {
+          const p = svg.querySelector('path');
+          if (p) p.setAttribute('d', d);
+        });
+      }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+  startButtonShapeSpinners();
 
   function stopM3SearchLoaderWithError(container, errMessage) {
     if (!container) return;
@@ -10033,7 +10203,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const index = (isAlbum && track.no) ? (Number(track.no) - 1) : idx;
       const albumArtist = (track.albumArtist || '').trim().toLowerCase();
       const trackArtist = (track.artist || '').trim().toLowerCase();
-      const showArtist = isAlbum ? (Boolean(trackArtist) && Boolean(albumArtist) && trackArtist !== albumArtist) : true;
+      const showArtist = true;
       const explicitTag = isTrackExplicit(track) ? '<span class="explicit-badge" title="Explicit">E</span>' : '';
 
       row.innerHTML = `
@@ -11317,20 +11487,15 @@ function renderClickableArtists(container, rawArtist) {
     updateQueueBadge();
   }
 
-  function mergeLocalFiles(newTracks, opts = {}) {
+  function mergeLocalFiles(newTracks) {
     if (!Array.isArray(newTracks) || newTracks.length === 0) return;
     if (!Array.isArray(state.localFiles)) state.localFiles = [];
     if (!Array.isArray(state.localTracks)) state.localTracks = [];
 
-    if (opts.auto) {
-      const blocked = new Set(safeJson('riff_removed_local_paths', []).map(String));
-      newTracks = newTracks.filter(t => t && !blocked.has(String(t.path || '')) && !blocked.has(String(t.id || '')));
-      if (newTracks.length === 0) return;
-    }
+    
 
-    // Remove explicitly added tracks from riff_removed_local_paths blacklist
     try {
-      const removedBlacklist = opts.auto ? [] : safeJson('riff_removed_local_paths', []);
+      const removedBlacklist = safeJson('riff_removed_local_paths', []);
       if (Array.isArray(removedBlacklist) && removedBlacklist.length > 0) {
         const addedSet = new Set();
         for (const t of newTracks) {
@@ -11370,71 +11535,8 @@ function renderClickableArtists(container, rawArtist) {
     } catch (_) {}
     renderLocalFiles();
     if (added > 0) {
-      showToast(opts.auto
-        ? `Found ${added} new track${added === 1 ? '' : 's'} on this device`
-        : `Added ${added} track${added === 1 ? '' : 's'}`);
+      showToast(`Added ${added} track${added === 1 ? '' : 's'}`);
     }
-  }
-
-  const AUTO_SCAN_FOLDERS_KEY = 'riff_auto_scan_folders';
-  const AUTO_SCAN_ENABLED_KEY = 'riff_auto_scan_enabled';
-  let autoScanBusy = false;
-  let lastAutoScanAt = 0;
-
-  function isAutoScanEnabled() {
-    return localStorage.getItem(AUTO_SCAN_ENABLED_KEY) !== '0';
-  }
-
-  async function getAutoScanFolders() {
-    const saved = safeJson(AUTO_SCAN_FOLDERS_KEY, null);
-    if (Array.isArray(saved)) return saved.filter(f => typeof f === 'string' && f);
-    let defaultDir = '';
-    try {
-      if (window.electronAPI && window.electronAPI.getDefaultMusicDir) defaultDir = await window.electronAPI.getDefaultMusicDir();
-    } catch (_) {}
-    const folders = defaultDir ? [defaultDir] : [];
-    localStorage.setItem(AUTO_SCAN_FOLDERS_KEY, JSON.stringify(folders));
-    return folders;
-  }
-
-  function pruneMissingLocalFiles(paths) {
-    const gone = new Set(paths.map(String));
-    const keep = (t) => !t || !gone.has(String(t.path || t.filePath || ''));
-    state.localFiles = (state.localFiles || []).filter(keep);
-    state.localTracks = state.localFiles;
-    saveLocalTracks();
-    renderLocalFiles();
-  }
-
-  async function runAutoScan(manual = false) {
-    const api = window.electronAPI;
-    if (!api || !api.scanLocalFolders || autoScanBusy) return;
-    if (!manual && (!isAutoScanEnabled() || Date.now() - lastAutoScanAt < 60000)) return;
-    autoScanBusy = true;
-    let continueScan = false;
-    try {
-      const folders = await getAutoScanFolders();
-      if (!folders.length) {
-        if (manual) showToast('Add a folder to scan first');
-        return;
-      }
-      if (!Array.isArray(state.localFiles)) state.localFiles = safeArray('riff_local_files');
-      const known = state.localFiles.map(t => t && (t.path || t.filePath)).filter(Boolean);
-      const skip = safeJson('riff_removed_local_paths', []).map(String);
-      if (manual) showToast('Scanning folders...');
-      const res = await api.scanLocalFolders({ dirs: folders, known, skip });
-      lastAutoScanAt = Date.now();
-      if (!res) return;
-      if (Array.isArray(res.missing) && res.missing.length > 0) pruneMissingLocalFiles(res.missing);
-      if (Array.isArray(res.tracks) && res.tracks.length > 0) mergeLocalFiles(res.tracks, { auto: true });
-      else if (manual) showToast('No new tracks found');
-      continueScan = !!res.more;
-    } catch (e) {
-      console.warn('Auto scan error:', e);
-    } finally {
-      autoScanBusy = false;
-    }
-    if (continueScan) setTimeout(() => { lastAutoScanAt = 0; runAutoScan(manual); }, 800);
   }
 
   async function addLocalFolder() {
@@ -12539,7 +12641,6 @@ function renderClickableArtists(container, rawArtist) {
             if (el.viewLocal) el.viewLocal.classList.add('active');
             if (el.navLocal) el.navLocal.classList.add('active');
             renderLocalView();
-            runAutoScan(false);
           } else if (viewName === 'history') {
             if (el.viewHistory) el.viewHistory.classList.add('active');
             if (el.navHistory) el.navHistory.classList.add('active');
@@ -12573,9 +12674,7 @@ function renderClickableArtists(container, rawArtist) {
           highlightPlayingRow();
           if (typeof syncHomeAmbientVisibility === 'function') syncHomeAmbientVisibility();
           updateFxVisibility();
-          if (el.mainContent) updateFade(el.mainContent);
     });
-    if (el.mainContent) updateFade(el.mainContent);
   }
 
   function applyStackedRadius(container, itemSelector, horizontal) {
@@ -14216,15 +14315,10 @@ function bindCoverHoldZoom(wrapEl) {
   }
 
   if (el.sliderHue) {
-    el.sliderHue.addEventListener('input', (e) => {
+    const onHueChange = (e) => {
       const h = parseInt(e.target.value, 10);
       if (el.valHue) el.valHue.textContent = h + '°';
-      if (el.themeSwatches) el.themeSwatches.forEach(sw => sw.classList.remove('active'));
-    });
-    el.sliderHue.addEventListener('change', (e) => {
-      const h = parseInt(e.target.value, 10);
-      if (el.valHue) el.valHue.textContent = h + '°';
-      state.themeAccent = hslToHex(h, 55, 50);
+      state.themeAccent = hslToHex(h, 65, 55);
       localStorage.setItem('riff_theme_accent', state.themeAccent);
       if (state.themeMode === 'auto') {
         const targetMode = currentEffectiveMode || 'dark';
@@ -14233,37 +14327,44 @@ function bindCoverHoldZoom(wrapEl) {
       }
       updateThemeFromState();
       if (el.themeSwatches) el.themeSwatches.forEach(sw => sw.classList.remove('active'));
-    });
+    };
+    el.sliderHue.addEventListener('input', onHueChange);
+    el.sliderHue.addEventListener('change', onHueChange);
   }
 
   if (el.sliderIntensity) {
-    el.sliderIntensity.addEventListener('input', (e) => {
-      const val = parseInt(e.target.value, 10);
-      if (el.valIntensity) el.valIntensity.textContent = val + '%';
-    });
-    el.sliderIntensity.addEventListener('change', (e) => {
-      if (state.themeMode === 'auto') return;
+    const onIntensityChange = (e) => {
       const val = parseInt(e.target.value, 10);
       state.themeIntensity = val;
-      document.body.classList.toggle('intensity-zero', state.themeIntensity < 8);
+      document.body.classList.toggle('intensity-zero', state.themeIntensity < 5);
       if (el.valIntensity) el.valIntensity.textContent = val + '%';
       localStorage.setItem('riff_theme_intensity', val.toString());
+      if (state.themeMode === 'auto') {
+        const targetMode = currentEffectiveMode || 'dark';
+        state.themeMode = targetMode;
+        localStorage.setItem('riff_theme_mode', targetMode);
+      }
       updateThemeFromState();
-    });
+    };
+    el.sliderIntensity.addEventListener('input', onIntensityChange);
+    el.sliderIntensity.addEventListener('change', onIntensityChange);
   }
+
   if (el.sliderBrightness) {
-    el.sliderBrightness.addEventListener('input', (e) => {
-      const val = parseInt(e.target.value, 10);
-      if (el.valBrightness) el.valBrightness.textContent = val + '%';
-    });
-    el.sliderBrightness.addEventListener('change', (e) => {
-      if (state.themeMode === 'auto') return;
+    const onBrightnessChange = (e) => {
       const val = parseInt(e.target.value, 10);
       state.themeBrightness = val;
       if (el.valBrightness) el.valBrightness.textContent = val + '%';
       localStorage.setItem('riff_theme_brightness', val.toString());
+      if (state.themeMode === 'auto') {
+        const targetMode = currentEffectiveMode || 'dark';
+        state.themeMode = targetMode;
+        localStorage.setItem('riff_theme_mode', targetMode);
+      }
       updateThemeFromState();
-    });
+    };
+    el.sliderBrightness.addEventListener('input', onBrightnessChange);
+    el.sliderBrightness.addEventListener('change', onBrightnessChange);
   }
 
   if (el.sliderScale) {
@@ -15855,8 +15956,10 @@ function bindCoverHoldZoom(wrapEl) {
   const initialPerfMode = localStorage.getItem('riff_perf_mode') === '1';
   applyPerfMode(initialPerfMode);
   document.body.classList.toggle('perf', initialPerfMode);
-  // Re-apply the saved "Reduce motion" setting; this line used to remove the class
-  // unconditionally, so the setting stopped working after every restart.
+  
+
+  
+
   applyReducedMotionSetting();
   localStorage.setItem('riff_perf_mode', initialPerfMode ? '1' : '0');
   if (btnPerfMode) btnPerfMode.classList.toggle('active', initialPerfMode);
@@ -17167,13 +17270,18 @@ function bindCoverHoldZoom(wrapEl) {
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
           const prevLang = localStorage.getItem('riff_ui_lang') || 'en';
-          localStorage.setItem('riff_ui_lang', item.code);
-          if (uiLangLabel) uiLangLabel.textContent = text;
+          if (item.code === prevLang) {
+            if (uiLangDropdown) uiLangDropdown.classList.remove('open');
+            return;
+          }
+          if (uiLangDropdown) uiLangDropdown.classList.remove('open');
           uiLangMenu.querySelectorAll('.m3-dropdown-option').forEach(o => o.classList.remove('selected'));
           btn.classList.add('selected');
-          uiLangDropdown.classList.remove('open');
-          if (item.code === prevLang) return;
-          applyI18n(item.code);
+          if (uiLangLabel) uiLangLabel.textContent = text;
+
+          await runWithI18nLoadingOverlay(async () => {
+            await applyI18n(item.code);
+          });
           showLangRestartDialog(item.code);
         });
         frag.appendChild(btn);
@@ -17251,19 +17359,73 @@ function bindCoverHoldZoom(wrapEl) {
 
   const langRestartModal = document.getElementById('lang-restart-modal');
 
+  async function runWithI18nLoadingOverlay(taskFn) {
+    const overlay = document.getElementById('i18n-loading-overlay');
+    if (!overlay) {
+      if (taskFn) taskFn().catch(() => {});
+      return;
+    }
+    overlay.classList.remove('hidden');
+    requestAnimationFrame(() => overlay.classList.add('visible'));
+
+    const S = window.RiffShapes;
+    let animActive = true;
+    if (S && S.ready()) {
+      let fromIdx = 0, toIdx = S.next(0), stepStart = performance.now();
+      const STEP_MS = 1000;
+      const K = S.K;
+      const pathEl = overlay.querySelector('path');
+      const frame = (now) => {
+        if (!animActive || !overlay.isConnected) return;
+        if (now - stepStart >= STEP_MS) {
+          fromIdx = toIdx;
+          toIdx = S.next(fromIdx);
+          stepStart = now;
+        }
+        const e = S.ease(Math.min(1, (now - stepStart) / STEP_MS));
+        const a = S.profile(fromIdx), b = S.profile(toIdx);
+        let d = '';
+        for (let k = 0; k < K; k += 4) {
+          const th = -Math.PI + (Math.PI * 2 * k) / K;
+          const r = a[k] + (b[k] - a[k]) * e;
+          d += `${k === 0 ? 'M' : 'L'}${(Math.cos(th) * r).toFixed(1)},${(Math.sin(th) * r).toFixed(1)}`;
+        }
+        d += 'Z';
+        if (pathEl) pathEl.setAttribute('d', d);
+        requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+    }
+
+    try {
+      await Promise.race([
+        Promise.all([
+          typeof taskFn === 'function' ? taskFn().catch(() => {}) : Promise.resolve(),
+          new Promise(r => setTimeout(r, 600))
+        ]),
+        new Promise(r => setTimeout(r, 1400))
+      ]);
+    } catch (_) {
+    } finally {
+      animActive = false;
+      overlay.classList.remove('visible');
+      setTimeout(() => {
+        overlay.classList.add('hidden');
+      }, 220);
+    }
+  }
+
   function showLangRestartDialog(lang) {
     if (!langRestartModal) return;
-    const t = LANG_RESTART_TEXT[lang];
-    if (t) {
-      const title = langRestartModal.querySelector('h3');
-      const msg = document.getElementById('lang-restart-msg');
-      const cancel = document.getElementById('btn-lang-restart-cancel');
-      const confirm = document.getElementById('btn-lang-restart-confirm');
-      if (title) title.textContent = t.title;
-      if (msg) msg.textContent = t.msg;
-      if (cancel) cancel.textContent = t.cancel;
-      if (confirm) confirm.textContent = t.restart;
-    }
+    const tLang = LANG_RESTART_TEXT[lang] || LANG_RESTART_TEXT.en;
+    const title = langRestartModal.querySelector('h3');
+    const msg = document.getElementById('lang-restart-msg');
+    const cancel = document.getElementById('btn-lang-restart-cancel');
+    const confirm = document.getElementById('btn-lang-restart-confirm');
+    if (title) title.textContent = tLang.title;
+    if (msg) msg.textContent = tLang.msg;
+    if (cancel) cancel.textContent = tLang.cancel;
+    if (confirm) confirm.textContent = tLang.restart;
     openModal(langRestartModal);
   }
 
@@ -17515,7 +17677,7 @@ function bindCoverHoldZoom(wrapEl) {
   (function initUpdateUI() {
     const api = window.electronAPI;
     const $ = (id) => document.getElementById(id);
-    let currentAppVersion = '43.1.0';
+    let currentAppVersion = '43.2.0';
     if (api && api.getAppVersion) {
       api.getAppVersion().then((v) => {
         if (v) {
@@ -17597,7 +17759,7 @@ function bindCoverHoldZoom(wrapEl) {
       if (!manualUpdateCheck && rawVer && ignoredVer === rawVer) return;
 
       const displayVer = rawVer.endsWith('.0.0') ? ('v' + rawVer.slice(0, -4)) : (rawVer.endsWith('.0') ? ('v' + rawVer.slice(0, -2)) : ('v' + rawVer));
-      if (verEl) verEl.textContent = displayVer || 'v43.1';
+      if (verEl) verEl.textContent = displayVer || 'v43.2';
       if (timeEl) timeEl.textContent = formatRelativeReleaseTime(info?.publishedAt || info?.releaseDate || '');
 
       const { cleanText, bannerUrl } = parseGithubReleaseBodyAndBanner(info?.releaseNotes || '');
@@ -17690,7 +17852,7 @@ function bindCoverHoldZoom(wrapEl) {
         if (manualUpdateCheck) return;
         manualUpdateCheck = true;
         btn.disabled = true;
-        btn.innerHTML = `<svg class="g-spinner" style="width:14px;height:14px;margin-right:6px;" viewBox="0 0 48 48"><circle cx="24" cy="24" r="20"/></svg><span>Checking...</span>`;
+        btn.innerHTML = '<svg class="m3-btn-shape-spinner" style="width:16px;height:16px;margin-right:6px;" viewBox="-180 -180 360 360"><path fill="currentColor"/></svg><span>Checking...</span>';
 
         if (!api || !api.checkForUpdates) {
           checkDirectFromRenderer();
@@ -18513,50 +18675,53 @@ function bindCoverHoldZoom(wrapEl) {
 
     for (let i = 0; i < total; i += chunkSize) {
       const chunk = list.slice(i, i + chunkSize);
-      for (const rt of chunk) {
-        if (!rt) continue;
-        const title = String(rt.title || rt.name || '').trim();
-        const artist = String(rt.artist || rt.artists || 'Unknown Artist').trim();
+      for (const t of chunk) {
+        if (!t) continue;
+        if (!t.title && t.name) t.title = t.name;
+        if (!t.artist && t.artists) t.artist = t.artists;
+        const title = String(t.title || t.name || '').trim();
+        const artist = String(t.artist || t.artists || 'Unknown Artist').trim();
         const thumb = String(
-          rt.thumbnail || rt.cover || rt.image || rt.artwork ||
-          rt.album?.images?.[0]?.url || rt.albumCover ||
-          (rt.id && !/^(cand_|dz_|it_|sp_|ym_)/i.test(rt.id) ? 'https://i.ytimg.com/vi/' + rt.id + '/hqdefault.jpg' : '') ||
+          t.thumbnail || t.cover || t.image || t.artwork ||
+          t.album?.images?.[0]?.url || t.albumCover ||
+          (t.id && !/^(cand_|dz_|it_|sp_|ym_)/i.test(t.id) ? 'https://i.ytimg.com/vi/' + t.id + '/hqdefault.jpg' : '') ||
           ''
         ).trim();
 
-        const srcPlat = (rt.platform === 'youtube' || rt.platform === 'ytmusic' || rt.platform === 'soundcloud')
-          ? rt.platform
+        const albumArtist = '';
+        const album = {};
+        const cleanTitleNoFeat = String(t.title || '').replace(/\s*[\(\[]\s*(?:feat\.?|ft\.?|prod\.?|featuring)[^)]*[\)\]]/gi, '').trim();
+        const cleanArtistMain = String(t.artist || albumArtist || album.artist || '').split(/[,;&\/]|feat\.?|ft\.?/i)[0].trim();
+
+        const srcPlat = (t.platform === 'youtube' || t.platform === 'ytmusic' || t.platform === 'soundcloud')
+          ? t.platform
           : (options.sourcePlatform === 'youtube' || options.sourcePlatform === 'ytmusic' || options.sourcePlatform === 'soundcloud' ? options.sourcePlatform : '');
 
         if (srcPlat) {
           converted.push({
-            id: rt.id ? String(rt.id) : ('cand_' + Math.random().toString(36).slice(2, 10)),
+            id: t.id ? String(t.id) : ('cand_' + Math.random().toString(36).slice(2, 10)),
             title,
             artist,
-            duration: Number(rt.duration) || 0,
+            duration: Number(t.duration) || 0,
             thumbnail: thumb,
             cover: thumb,
-            url: rt.url || '',
-            searchQuery: `${artist} - ${title}`,
+            url: t.url || '',
+            searchQuery: `${cleanArtistMain} ${cleanTitleNoFeat}`.trim(),
             platform: srcPlat,
             addedAt: Date.now()
           });
         } else {
-          const lowerTitle = title.toLowerCase();
-          const hasModifier = /slowed|remix|live/i.test(lowerTitle);
-          const baseQuery = `${artist} - ${title}`;
-          const searchQuery = hasModifier ? baseQuery : `${baseQuery} official audio`;
-          const hasDirectUrl = rt.url && /^https?:\/\//i.test(rt.url);
-          const hasRealId = rt.id && !/^(cand_|dz_|it_|sp_|ym_)/i.test(String(rt.id)) && hasDirectUrl;
+          const hasDirectUrl = t.url && /^https?:\/\//i.test(t.url);
+          const hasRealId = t.id && !/^(cand_|dz_|it_|sp_|ym_)/i.test(String(t.id)) && hasDirectUrl;
           converted.push({
-            id: hasRealId ? String(rt.id) : ('sp_' + Math.random().toString(36).slice(2, 10)),
+            id: hasRealId ? String(t.id) : ('sp_' + Math.random().toString(36).slice(2, 10)),
             title,
             artist,
-            duration: Number(rt.duration) || 0,
+            duration: Number(t.duration) || 0,
             thumbnail: thumb,
             cover: thumb,
-            url: hasDirectUrl ? rt.url : '',
-            searchQuery,
+            url: hasDirectUrl ? t.url : '',
+            searchQuery: `${cleanArtistMain} ${cleanTitleNoFeat}`.trim(),
             platform: 'ytmusic',
             addedAt: Date.now()
           });
@@ -19746,6 +19911,21 @@ function bindCoverHoldZoom(wrapEl) {
     if (currentLinkImportMode === 'login' && btnConfirmLinkImport && btnConfirmLinkImport.dataset.action !== 'done') {
       btnConfirmLinkImport.disabled = !googleConnected;
     }
+    const advStatus = document.getElementById('adv-yt-auth-status');
+    const btnAdvLogin = document.getElementById('btn-adv-yt-login');
+    const btnAdvLogout = document.getElementById('btn-adv-yt-logout');
+    if (advStatus) {
+      advStatus.textContent = googleConnected
+        ? 'Connected — all YouTube & 18+ tracks unlocked'
+        : 'Sign in to bypass IP blocks and age restrictions (18+)';
+      advStatus.style.color = googleConnected ? 'var(--md-sys-color-primary)' : '';
+    }
+    if (btnAdvLogin) {
+      btnAdvLogin.textContent = googleConnected ? 'Switch account' : 'Sign in';
+    }
+    if (btnAdvLogout) {
+      btnAdvLogout.classList.toggle('hidden', !googleConnected);
+    }
   }
 
   function setLinkImportMode(mode) {
@@ -19860,6 +20040,44 @@ function bindCoverHoldZoom(wrapEl) {
       updateGoogleAuthUI();
     });
   }
+
+  const btnAdvYtLogin = document.getElementById('btn-adv-yt-login');
+  const btnAdvYtLogout = document.getElementById('btn-adv-yt-logout');
+  if (btnAdvYtLogin) {
+    btnAdvYtLogin.addEventListener('click', async () => {
+      if (!window.electronAPI || !window.electronAPI.googleLogin) return;
+      const orig = btnAdvYtLogin.innerHTML;
+      btnAdvYtLogin.disabled = true;
+      btnAdvYtLogin.innerHTML = '<svg class="m3-btn-shape-spinner" style="width:14px;height:14px;margin-right:6px;" viewBox="-180 -180 360 360"><path fill="currentColor"/></svg><span>Signing in...</span>';
+      try {
+        const res = await window.electronAPI.googleLogin();
+        googleConnected = !!(res && res.loggedIn);
+        updateGoogleAuthUI();
+        if (googleConnected) {
+          hideYtAuthSheet();
+          showToast('Signed in to YouTube!', 'success');
+        }
+      } catch (_) {
+      } finally {
+        btnAdvYtLogin.disabled = false;
+        btnAdvYtLogin.innerHTML = orig;
+        updateGoogleAuthUI();
+      }
+    });
+  }
+  if (btnAdvYtLogout) {
+    btnAdvYtLogout.addEventListener('click', async () => {
+      try {
+        if (window.electronAPI && window.electronAPI.googleLogout) {
+          await window.electronAPI.googleLogout();
+        }
+      } catch (_) {}
+      googleConnected = false;
+      updateGoogleAuthUI();
+      showToast('Signed out of YouTube', 'info');
+    });
+  }
+  checkGoogleAuthStatus();
 
   function openLinkImportModal(platform = '') {
     if (!linkImportModal) return;
@@ -20242,7 +20460,7 @@ function bindCoverHoldZoom(wrapEl) {
       if (typeof showToast === 'function') showToast('No playlists to export', 'error');
       return;
     }
-    let appVer = '43.1.0';
+    let appVer = '43.2.0';
     try {
       if (window.electronAPI && window.electronAPI.getAppVersion) {
         const v = await window.electronAPI.getAppVersion();
@@ -21258,14 +21476,7 @@ function bindCoverHoldZoom(wrapEl) {
       }
       const spinnerEl = el.downloadSpinner || document.getElementById('download-spinner');
       if (spinnerEl) {
-        spinnerEl.innerHTML = `
-          <div class="m3-spinner-container" style="width: 32px; height: 32px; padding: 4px; background: transparent;">
-            <svg class="m3-circular-progress" viewBox="0 0 48 48" style="width: 24px; height: 24px;">
-              <circle class="m3-spinner-track" cx="24" cy="24" r="18" fill="none" stroke-width="4"></circle>
-              <circle class="m3-spinner-head" cx="24" cy="24" r="18" fill="none" stroke-width="4" stroke="var(--md-sys-color-primary)"></circle>
-            </svg>
-          </div>
-        `;
+        spinnerEl.innerHTML = '<div class="m3-spinner-container" style="width: 32px; height: 32px; padding: 4px; background: transparent; color: var(--md-sys-color-primary);"><svg class="m3-btn-shape-spinner" viewBox="-180 -180 360 360" style="width: 24px; height: 24px;"><path fill="currentColor"/></svg></div>';
       }
 
       showToast(`Downloading: ${t.title || 'Track'} (.${selectedFormat})`, 'info');
@@ -21396,7 +21607,7 @@ function bindCoverHoldZoom(wrapEl) {
   applyVisualEffects();
 
   const analysisCache = new Map();
-  let myWaveCurrentTracks = [];
+  myWaveCurrentTracks = (Array.isArray(myWaveCurrentTracks) && myWaveCurrentTracks.length > 0) ? myWaveCurrentTracks : [];
   let jumpBackCurrentTracks = [];
   let homeMode = localStorage.getItem('riff_home_pane') === 'recent' ? 'recent' : 'wave';
   let isExtendingMyWave = false;
@@ -22447,7 +22658,10 @@ function bindCoverHoldZoom(wrapEl) {
       } else if (mode === 'artists') {
         vibeGrid.innerHTML = `<div class="vibe-empty-hint">Follow some artists to see them here</div>`;
       } else {
-        vibeGrid.innerHTML = getWaveSpinnerHtml();
+        const cachedVibe = (window.HomeCache && window.HomeCache.get('home_vibe')) || safeJson('riff_my_wave_cache', null)?.tracks;
+        if (!cachedVibe || cachedVibe.length === 0) {
+          vibeGrid.innerHTML = getWaveSpinnerHtml();
+        }
       }
       updateAmbientLight('my-wave-ambient-light', '');
       return;
@@ -22702,12 +22916,15 @@ function bindCoverHoldZoom(wrapEl) {
   }
 
   async function fetchPersonalVibe(forceRefresh = false) {
-    const cachedWave = safeJson('riff_my_wave_cache', null);
-    if (!forceRefresh && cachedWave && Array.isArray(cachedWave.tracks) && cachedWave.tracks.length > 0) {
-      state.vibeTracks = cachedWave.tracks.filter(t => !isTrackBlocked(t) && !isArtistBlocked(t.artist));
+    const cachedVibe = !forceRefresh && ((window.HomeCache && window.HomeCache.get('home_vibe')) || safeJson('riff_my_wave_cache', null)?.tracks);
+    if (cachedVibe && Array.isArray(cachedVibe) && cachedVibe.length > 0) {
+      state.vibeTracks = cachedVibe.filter(t => !isTrackBlocked(t) && !isArtistBlocked(t.artist));
+      myWaveCurrentTracks = state.vibeTracks;
       renderVibeCards(state.vibeTracks);
       if (typeof renderSpotifyHome === 'function') renderSpotifyHome();
-      if (Date.now() - (cachedWave.ts || 0) < 4 * 3600 * 1000) return true;
+      const item = window.HomeCache && window.HomeCache.store && window.HomeCache.store['home_vibe'];
+      const ts = (item && item.ts) ? item.ts : (safeJson('riff_my_wave_cache', null)?.ts || 0);
+      if (Date.now() - ts < 4 * 3600 * 1000) return true;
     }
     return await loadHomePage(forceRefresh);
   }
@@ -22740,15 +22957,16 @@ function bindCoverHoldZoom(wrapEl) {
 
     const vibeGrid = document.getElementById('home-vibe-grid');
     const focusedMeta = document.getElementById('my-wave-focused-meta');
+    const cachedVibe = (window.HomeCache && window.HomeCache.get('home_vibe')) || safeJson('riff_my_wave_cache', null)?.tracks;
 
-    if (!isRefresh && focusedMeta && homeMode === 'wave' && myWaveCurrentTracks.length === 0) {
+    if (!isRefresh && focusedMeta && homeMode === 'wave' && myWaveCurrentTracks.length === 0 && (!cachedVibe || cachedVibe.length === 0)) {
       focusedMeta.innerHTML = `
         <div class="my-wave-skeleton-title-bar skeleton-shimmer"></div>
         <div class="my-wave-skeleton-artist-bar skeleton-shimmer"></div>
       `;
     }
 
-    if (!isRefresh && vibeGrid && homeMode === 'wave' && myWaveCurrentTracks.length === 0) {
+    if (!isRefresh && vibeGrid && homeMode === 'wave' && myWaveCurrentTracks.length === 0 && (!cachedVibe || cachedVibe.length === 0)) {
       vibeGrid.style.opacity = '1';
       vibeGrid.innerHTML = getWaveSpinnerHtml();
     }
@@ -22792,6 +23010,9 @@ function bindCoverHoldZoom(wrapEl) {
           if (uniqueTracks.length > 0) {
             state.vibeTracks = uniqueTracks;
             try { localStorage.setItem('riff_my_wave_cache', JSON.stringify({ ts: Date.now(), tracks: state.vibeTracks })); } catch (_) {}
+            if (window.HomeCache) {
+              window.HomeCache.set('home_vibe', uniqueTracks);
+            }
           }
         }
       } catch (_) {}
@@ -22842,6 +23063,9 @@ function bindCoverHoldZoom(wrapEl) {
       myWaveCurrentTracks = uniqueTracks;
       state.vibeTracks = uniqueTracks;
       try { localStorage.setItem('riff_my_wave_cache', JSON.stringify({ ts: Date.now(), tracks: state.vibeTracks })); } catch (_) {}
+      if (window.HomeCache) {
+        window.HomeCache.set('home_vibe', uniqueTracks);
+      }
       currentWaveFocusedIndex = 0;
       if (homeMode === 'wave') {
         if (vibeGrid) {
@@ -23030,8 +23254,10 @@ function bindCoverHoldZoom(wrapEl) {
     return covers;
   }
 
-  // Cover art helper: show a music-note placeholder instead of the browser's broken-image
-  // icon when there is no cover or the image fails to load.
+  
+
+  
+
   function showCoverPlaceholder(wrap) {
     wrap.classList.add('sp-card-cover-empty');
     wrap.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>';
@@ -23108,14 +23334,21 @@ function bindCoverHoldZoom(wrapEl) {
       sec.hidden = true;
       return;
     }
-    sec.hidden = false;
 
-    let hasCachedTracks = false;
-    const cached = safeJson('riff_trending_cache', null);
-    if (cached && Array.isArray(cached.tracks) && cached.tracks.length > 0) {
-      renderTrendingCards(row, cached.tracks);
-      hasCachedTracks = true;
+    const cachedTrend = (window.HomeCache && window.HomeCache.get('home_trending')) || safeJson('riff_trending_cache', null)?.tracks;
+    const rawLocal = safeJson('riff_trending_cache', null);
+    const cacheItem = window.HomeCache && window.HomeCache.store && window.HomeCache.store['home_trending'];
+    const cacheTs = (cacheItem && cacheItem.ts) ? cacheItem.ts : (rawLocal?.ts || 0);
+    const isFresh = cacheTs > 0 && (Date.now() - cacheTs < 12 * 3600 * 1000);
+
+    if (cachedTrend && cachedTrend.length > 0) {
+      renderTrendingCards(row, cachedTrend);
+      sec.hidden = false;
+      if (isFresh) {
+        return;
+      }
     } else {
+      sec.hidden = false;
       row.innerHTML = `
         <div class="m3-spinner-container" style="margin: 24px auto; grid-column: 1 / -1;">
           <svg class="m3-circular-progress" viewBox="0 0 48 48">
@@ -23131,16 +23364,19 @@ function bindCoverHoldZoom(wrapEl) {
       const res = await fetch(`http://127.0.0.1:${port}/api/trending`);
       const data = await res.json();
       if (data && data.success && Array.isArray(data.tracks) && data.tracks.length > 0) {
+        if (window.HomeCache) {
+          window.HomeCache.set('home_trending', data.tracks);
+        }
         try {
           localStorage.setItem('riff_trending_cache', JSON.stringify({ ts: Date.now(), tracks: data.tracks }));
         } catch (_) {}
         renderTrendingCards(row, data.tracks);
         sec.hidden = false;
-      } else if (!hasCachedTracks) {
+      } else if (!cachedTrend || cachedTrend.length === 0) {
         sec.hidden = true;
       }
     } catch (_) {
-      if (!hasCachedTracks) {
+      if (!cachedTrend || cachedTrend.length === 0) {
         sec.hidden = true;
       }
     }
@@ -23249,13 +23485,15 @@ function bindCoverHoldZoom(wrapEl) {
     if (!sp) return null;
 
     const today = getLocalDateString();
-    let cached = null;
-    try {
-      const raw = localStorage.getItem(MIX_KEY);
-      if (raw) cached = JSON.parse(raw);
-    } catch (_) {}
+    let cached = (window.HomeCache && window.HomeCache.get('daily_mixes', 24 * 3600 * 1000)) || safeJson(MIX_KEY, null);
+    if (!cached) {
+      try {
+        const raw = localStorage.getItem(MIX_KEY);
+        if (raw) cached = JSON.parse(raw);
+      } catch (_) {}
+    }
 
-    if (!force && cached && cached.day === today && Array.isArray(cached.mixes)) {
+    if (!force && cached && cached.day === today && Array.isArray(cached.mixes) && cached.mixes.length > 0) {
       return cached;
     }
 
@@ -23304,6 +23542,9 @@ function bindCoverHoldZoom(wrapEl) {
               day: today,
               mixes: generatedMixes
             }));
+            if (window.HomeCache) {
+              window.HomeCache.set('daily_mixes', { day: today, mixes: generatedMixes });
+            }
             if (typeof renderMadeForYou === 'function') renderMadeForYou();
           }
         } catch (err) {
@@ -23319,6 +23560,9 @@ function bindCoverHoldZoom(wrapEl) {
         day: today,
         mixes: generatedMixes
       }));
+      if (window.HomeCache && generatedMixes.length > 0) {
+        window.HomeCache.set('daily_mixes', { day: today, mixes: generatedMixes });
+      }
       if (typeof renderMadeForYou === 'function') renderMadeForYou();
     }
     return { day: today, mixes: generatedMixes };
@@ -23335,11 +23579,13 @@ function bindCoverHoldZoom(wrapEl) {
     }
 
     const today = getLocalDateString();
-    let cached = null;
-    try {
-      const raw = localStorage.getItem(MIX_KEY);
-      if (raw) cached = JSON.parse(raw);
-    } catch (_) {}
+    let cached = (window.HomeCache && window.HomeCache.get('daily_mixes', 24 * 3600 * 1000)) || safeJson(MIX_KEY, null);
+    if (!cached) {
+      try {
+        const raw = localStorage.getItem(MIX_KEY);
+        if (raw) cached = JSON.parse(raw);
+      } catch (_) {}
+    }
 
     const mixes = (cached && cached.day === today && Array.isArray(cached.mixes)) ? cached.mixes : [];
     const hasWave = Array.isArray(myWaveCurrentTracks) && myWaveCurrentTracks.length > 0;
@@ -24081,7 +24327,8 @@ function bindCoverHoldZoom(wrapEl) {
     const btnDismiss = document.getElementById('btn-dismiss-tools-modal');
     const btnClose = document.getElementById('btn-close-tools-modal');
 
-    // CANNOT be closed or skipped: hide Cancel / Later / Skip / Close × buttons while missing
+    
+
     if (btnClose) btnClose.style.display = 'none';
     if (btnDismiss) btnDismiss.style.display = 'none';
     if (btnDownload) btnDownload.style.display = 'none';
@@ -24891,10 +25138,10 @@ function bindCoverHoldZoom(wrapEl) {
           btn.disabled = true;
           btn.textContent = 'Creating...';
           const res = await window.electronAPI.installLauncher();
-          if (res && res.success) {
-            showToast('Desktop and app menu shortcut created successfully');
+          if (res && res.ok) {
+            showToast('Shortcut created on Desktop & App Menu', 'success');
           } else {
-            showToast('Failed to create shortcut: ' + ((res && res.error) || 'unknown error'));
+            showToast('Failed to create shortcut: ' + ((res && res.error) || 'unknown error'), 'error');
           }
         } catch (err) {
           showToast('Error creating shortcut: ' + (err.message || err));
@@ -24906,67 +25153,6 @@ function bindCoverHoldZoom(wrapEl) {
         showToast('Shortcut installer is not supported in this environment');
       }
     });
-  }
-
-  function initAutoScanSettings() {
-    const item = document.getElementById('setting-auto-scan');
-    const toggle = document.getElementById('btn-auto-scan');
-    const list = document.getElementById('auto-scan-folders');
-    const btnAdd = document.getElementById('btn-auto-scan-add');
-    const btnNow = document.getElementById('btn-auto-scan-now');
-    if (!item || !toggle || !list) return;
-    const api = window.electronAPI;
-    if (!api || !api.scanLocalFolders) {
-      item.style.display = 'none';
-      return;
-    }
-    toggle.classList.toggle('active', isAutoScanEnabled());
-
-    const saveFolders = (folders) => localStorage.setItem(AUTO_SCAN_FOLDERS_KEY, JSON.stringify(folders));
-    const renderFolders = async () => {
-      const folders = await getAutoScanFolders();
-      list.innerHTML = '';
-      folders.forEach(folder => {
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
-        const label = document.createElement('span');
-        label.textContent = folder;
-        label.style.cssText = 'font-size:calc(12px * var(--font-scale, 1));color:var(--md-sys-color-outline);word-break:break-all;';
-        const remove = document.createElement('button');
-        remove.type = 'button';
-        remove.className = 'btn-outline-pill';
-        remove.textContent = 'Remove';
-        remove.style.cssText = 'padding:4px 10px;font-size:calc(12px * var(--font-scale, 1));flex-shrink:0;';
-        remove.addEventListener('click', async () => {
-          saveFolders((await getAutoScanFolders()).filter(f => f !== folder));
-          renderFolders();
-        });
-        row.append(label, remove);
-        list.appendChild(row);
-      });
-    };
-
-    toggle.addEventListener('click', () => {
-      const next = !toggle.classList.contains('active');
-      toggle.classList.toggle('active', next);
-      localStorage.setItem(AUTO_SCAN_ENABLED_KEY, next ? '1' : '0');
-      if (next) runAutoScan(true);
-    });
-    if (btnAdd) {
-      btnAdd.addEventListener('click', async () => {
-        const picked = await api.pickScanFolder();
-        if (!picked) return;
-        const folders = await getAutoScanFolders();
-        if (!folders.includes(picked)) {
-          folders.push(picked);
-          saveFolders(folders);
-        }
-        await renderFolders();
-        runAutoScan(true);
-      });
-    }
-    if (btnNow) btnNow.addEventListener('click', () => runAutoScan(true));
-    renderFolders();
   }
 
   function initLikeAlbumTracksSetting() {
@@ -24993,8 +25179,6 @@ function bindCoverHoldZoom(wrapEl) {
   initMouseNavInterceptor();
   initDesktopShortcutSetting();
   initLikeAlbumTracksSetting();
-  initAutoScanSettings();
-  setTimeout(() => runAutoScan(false), 3000);
   resizeCanvases();
   updateOfflineStorageUI();
   updateMusicFolderUI();

@@ -12,3 +12,5 @@ bin/ffprobe.exe
 dev-app-update.yml
 plugins/lastfm-scrobbler.js
 test/lastfm-scrobbler.test.js
+yt-cookies.txt
+src/yt-cookies.txt

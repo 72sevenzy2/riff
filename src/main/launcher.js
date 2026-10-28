@@ -113,6 +113,18 @@ function installLinux() {
   return { ok: true };
 }
 
+function refreshLauncherOnStartup() {
+  if (process.platform === 'linux') {
+    if (fs.existsSync(linuxDesktopPath())) {
+      try {
+        installLinux();
+      } catch (e) {
+        console.warn('[launcher] Failed to refresh linux launcher:', e.message);
+      }
+    }
+  }
+}
+
 function installLauncher() {
   let result;
   try {
@@ -130,4 +142,4 @@ function installLauncher() {
   return { ok: !!result.ok, success: !!result.ok, error: result.error || '' };
 }
 
-module.exports = { getLauncherInfo, installLauncher };
+module.exports = { getLauncherInfo, installLauncher, refreshLauncherOnStartup };
