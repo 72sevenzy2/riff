@@ -267,6 +267,13 @@ body.perf .titlebar { transition: none !important; }
   -webkit-app-region: drag;
 }
 
+/* macOS shows native traffic lights (see main.js), so drop the drawn window buttons. */
+.platform-darwin #btn-minimize,
+.platform-darwin #btn-maximize,
+.platform-darwin #btn-close {
+  display: none !important;
+}
+
 .titlebar-controls,
 .window-controls {
   display: flex;
@@ -9550,17 +9557,6 @@ body.rtl-ui .m3-dropdown-trigger,
 body.rtl-ui .search-bar-wrapper input,
 body.rtl-ui .pill-text-input {
   text-align: right;
-}
-
-html.platform-darwin .window-controls,
-body.platform-darwin .window-controls,
-body.mac .window-controls,
-body.darwin .window-controls {
-  display: none !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
-  width: 0 !important;
-  overflow: hidden !important;
 }
 
 .proxy-list-container {

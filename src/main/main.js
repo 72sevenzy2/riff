@@ -336,8 +336,11 @@ function runGUI() {
                                    backgroundColor: firstRun ? '#8d5ef2' : '#000000',
                                    title: 'Riff',
                                    icon: path.join(__dirname, '../../assets', 'icon.png'),
-                                   frame: false,
-                                   titleBarStyle: 'hidden',
+                                   // macOS keeps its frame so the native traffic lights, rounded corners
+                                   // and shadow are used; Windows and Linux draw their own controls.
+                                   ...(process.platform === 'darwin'
+                                     ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: 14 } }
+                                     : { frame: false, titleBarStyle: 'hidden' }),
                                    show: false,
                                    useContentSize: true,
                                    webPreferences: {
@@ -463,6 +466,11 @@ function runGUI() {
 
     ipcMain.on('window-close', () => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+    });
+
+    ipcMain.on('set-window-buttons-visible', (e, visible) => {
+      if (process.platform !== 'darwin' || !mainWindow || mainWindow.isDestroyed()) return;
+      try { mainWindow.setWindowButtonVisibility(!!visible); } catch (_) {}
     });
 
     ipcMain.on('open-external', (e, u) => {
@@ -1871,6 +1879,12 @@ function runGUI() {
         createWindow();
         if (tutorialDone()) require('./updater').initUpdater(() => mainWindow);
         app.on('activate', () => {
+          // Clicking the Dock icon should bring back a window that was closed to the tray.
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            if (!mainWindow.isVisible()) mainWindow.show();
+            mainWindow.focus();
+            return;
+          }
           if (BrowserWindow.getAllWindows().length === 0) createWindow();
         });
       });

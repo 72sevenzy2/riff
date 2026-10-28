@@ -113,3 +113,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
   storageSaveBatch: (data) => ipcRenderer.send('storage-save-batch', data),
   storageSaveSync: (data) => ipcRenderer.sendSync('storage-save-sync', data),
 });
+
+// macOS: the window uses the native traffic-light buttons instead of the drawn ones. Tag the
+// page so CSS can hide the drawn minimize/maximize/close, and hide the traffic lights whenever
+// the titlebar itself is hidden (mini player, or "Hide top titlebar" until it is revealed).
+if (process.platform === 'darwin') {
+  window.addEventListener('DOMContentLoaded', () => {
+    document.documentElement.classList.add('platform-darwin');
+    const body = document.body;
+    if (!body) return;
+    let last = null;
+    const sync = () => {
+      const c = body.classList;
+      const visible = !c.contains('mini') &&
+        (!c.contains('hide-titlebar') || c.contains('titlebar-peek') || c.contains('titlebar-reveal'));
+      if (visible === last) return;
+      last = visible;
+      ipcRenderer.send('set-window-buttons-visible', visible);
+    };
+    new MutationObserver(sync).observe(body, { attributes: true, attributeFilter: ['class'] });
+    sync();
+  });
+}
