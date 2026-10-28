@@ -11,7 +11,7 @@
       mkRiff = pkgs:
         pkgs.buildNpmPackage rec {
           pname = "riff";
-          version = "43.2.0";
+          version = "43.2.1";
           src = self;
 
           npmDepsHash = "sha256-zI2HZkXaF7agGGfqiTjJOLjQ7SCtJkLFiB76pBWCjjI=";
