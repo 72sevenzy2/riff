@@ -2619,51 +2619,51 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
 			return res.end(JSON.stringify(data));
 		};
 
-		const resolveYtCandidateStream = async (candId) => {
-			const vid = extractYtIdFromAny(candId);
-			if (!vid) return null;
-			let s = null;
-			if (!forceYtDlp) {
-				try { s = await fetchDirectYoutubeStreamServer(vid, quality); } catch (_) { }
-				if (s) return s;
-			}
-			const vUrl = `https://www.youtube.com/watch?v=${vid}`;
-			const hasCookies = fs.existsSync(YT_COOKIES_FILE);
-			const clientSpecs = hasCookies
-				? ['web,tv,ios', 'default']
-				: ['web_embedded,web,tv', 'ios'];
-			for (const clientSpec of clientSpecs) {
-				if (s) break;
-				try {
-					const args = [
-						'--no-config', '-g', '--no-warnings', '--no-playlist', '--no-check-certificates',
-						'--js-runtimes', 'node', '--remote-components', 'ejs:github',
-						'--socket-timeout', '6', '--retries', '1',
-						'--extractor-args', 'youtube:player_client=' + clientSpec,
-						'-f', (forShare ? audioFormat : ytDlpQualityFormat),
-						'--', vUrl
-					];
-					const raw = await executeYtDlp(args, 7500);
-					const lines = raw.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
-					for (const lineUrl of lines) {
-						if (await verifyStreamPlayable(lineUrl)) {
-							s = lineUrl;
-							break;
-						}
-					}
-				} catch (err) {
-					const msg = String((err && err.message) || err || '');
-					if (/confirm your age|not a bot|Sign in to confirm|age-restricted|LOGIN_REQUIRED/i.test(msg)) {
-						needYtAuth = true;
-						break;
-					}
-					if (/Video unavailable|This video is not available|Private video/i.test(msg)) {
-						break;
-					}
-				}
-			}
-			return s;
-		};
+    const resolveYtCandidateStream = async (candId) => {
+      const vid = extractYtIdFromAny(candId);
+      if (!vid) return null;
+      let s = null;
+      if (!forceYtDlp) {
+        try { s = await fetchDirectYoutubeStreamServer(vid, quality); } catch (_) {}
+        if (s) return s;
+      }
+      const vUrl = `https://www.youtube.com/watch?v=${vid}`;
+      const hasCookies = fs.existsSync(YT_COOKIES_FILE);
+      const clientSpecs = hasCookies
+        ? ['web,tv,ios', 'default']
+        : ['web_embedded,web,tv', 'ios'];
+      for (const clientSpec of clientSpecs) {
+        if (s) break;
+        try {
+          const args = [
+            '--no-config', '-g', '--no-warnings', '--no-playlist', '--no-check-certificates',
+            '--js-runtimes', 'node', '--remote-components', 'ejs:github',
+            '--socket-timeout', '6', '--retries', '1',
+            '--extractor-args', 'youtube:player_client=' + clientSpec,
+            '-f', (forShare ? audioFormat : ytDlpQualityFormat),
+            '--', vUrl
+          ];
+          const raw = await executeYtDlp(args, 18000);
+          const lines = raw.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
+          for (const lineUrl of lines) {
+            if (await verifyStreamPlayable(lineUrl)) {
+              s = lineUrl;
+              break;
+            }
+          }
+        } catch (err) {
+          const msg = String((err && err.message) || err || '');
+          if (/confirm your age|not a bot|Sign in to confirm|age-restricted|LOGIN_REQUIRED/i.test(msg)) {
+            needYtAuth = true;
+            break;
+          }
+          if (/Video unavailable|This video is not available|Private video/i.test(msg)) {
+            break;
+          }
+        }
+      }
+      return s;
+    };
 
 		const resolveScCandidateStream = async (candUrl, candId) => {
 			let s = null;
@@ -3645,12 +3645,22 @@ async function buildDownloadsIndex() {
 }
 
 async function findDownloadedFile(title, artist) {
-	if (!title && !artist) return null;
-	if (!downloadsIndex || Date.now() - downloadsIndexBuiltAt > DOWNLOADS_INDEX_TTL) {
-		await buildDownloadsIndex();
-	}
-	const key = `${sanitizeFilename(artist || 'unknown artist')} - ${sanitizeFilename(title || 'untitled')}`.toLowerCase();
-	return downloadsIndex.get(key) || null;
+  if (!title && !artist) return null;
+  if (!downloadsIndex || Date.now() - downloadsIndexBuiltAt > DOWNLOADS_INDEX_TTL) {
+    await buildDownloadsIndex();
+  }
+  const key = `${sanitizeFilename(artist || 'unknown artist')} - ${sanitizeFilename(title || 'untitled')}`.toLowerCase();
+  let found = downloadsIndex.get(key);
+  if (!found && (title || artist)) {
+    const sTitle = sanitizeFilename(title || '').toLowerCase();
+    for (const [k, v] of downloadsIndex.entries()) {
+      if (sTitle && (k.includes(sTitle) || sTitle.includes(k))) {
+        found = v;
+        break;
+      }
+    }
+  }
+  return found || null;
 }
 
 async function cleanupDownloadArtifacts(dir, beforeSet, baseName, videoId, chosenExt, keepSuccessFile) {
