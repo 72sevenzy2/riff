@@ -2904,8 +2904,8 @@ body.m3-cover-on .artwork-wrapper {
 
 #btn-shuffle,
 #btn-repeat {
-  width: 32px;
-  height: 48px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   min-width: unset;
   border-radius: var(--md-shape-corner-full, 9999px);
@@ -3076,6 +3076,7 @@ body.m3-cover-on .artwork-wrapper {
   align-items: center;
   gap: 12px;
   width: 100%;
+  min-width: 0;
 }
 .time-label {
   font-size: calc(11px * var(--font-scale, 1));
@@ -3094,6 +3095,7 @@ body.perf .playbar .time-label { transition: none !important; }
 
 .scrubber-track-container {
   flex: 1;
+  min-width: 0;
   height: 40px;
   position: relative;
   cursor: pointer;
@@ -3106,6 +3108,7 @@ body.perf .playbar .time-label { transition: none !important; }
   inset: 0;
   width: 100%;
   height: 100%;
+  max-width: 100%;
   z-index: 1;
   pointer-events: none;
   transform: translateZ(0);
@@ -8260,24 +8263,30 @@ body.no-clip-fx .main-content { background: transparent !important; }
   display: grid;
   grid-template-columns: minmax(280px, 360px) 1fr;
   gap: 48px;
-  align-items: start;
+  align-items: stretch;
   padding: 0 32px 16px;
   flex: 1 1 auto;
   min-height: 0;
+  height: 100%;
   box-sizing: border-box;
 }
 .album-side {
-  align-self: start;
+  align-self: stretch;
   display: flex;
   flex-direction: column;
   gap: 12px;
   max-height: 100%;
   overflow-y: auto;
-  scrollbar-width: none;
-  padding-bottom: 24px;
+  scrollbar-width: thin;
+  padding-bottom: 96px;
+  box-sizing: border-box;
 }
 .album-side::-webkit-scrollbar {
-  display: none;
+  width: 4px;
+}
+.album-side::-webkit-scrollbar-thumb {
+  background: var(--md-sys-color-outline-variant, rgba(255, 255, 255, 0.2));
+  border-radius: 4px;
 }
 .album-cover-wrapper,
 #album-detail-cover {
@@ -8407,14 +8416,22 @@ body.no-clip-fx .main-content { background: transparent !important; }
   display: none !important;
 }
 @media (max-width: 900px) {
+  #view-album {
+    overflow-y: auto !important;
+  }
   .album-layout {
     grid-template-columns: 1fr;
     gap: 24px;
     padding: 0 16px 24px;
+    height: auto;
   }
   .album-side {
     position: static;
     max-width: 360px;
+    height: auto;
+    max-height: none;
+    overflow-y: visible;
+    padding-bottom: 24px;
   }
 }
 

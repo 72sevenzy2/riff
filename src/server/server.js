@@ -2940,7 +2940,10 @@ async function fetchMusicBio(artistName) {
         if (!sumTitle.startsWith(cleanLower)) continue;
         if (/list of |discography|may refer to/i.test(sumTitle) || /list of |discography|may refer to/i.test(ext)) continue;
         if (!/ammunition|cartridge|human face|anatomy|organism/i.test(ext)) {
-          return ext;
+          const extLower = ext.toLowerCase();
+          if (extLower.includes(cleanLower) || cleanLower.split(/\s+/).some(w => w.length >= 3 && extLower.includes(w))) {
+            return ext;
+          }
         }
       }
     }
