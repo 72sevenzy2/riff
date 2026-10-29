@@ -8,15 +8,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Google+Sans+Text:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
+  <script>if (/Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '')) document.documentElement.classList.add('platform-darwin');</script>
 </head>
 <body class="no-nav-transition">
+  <div id="splash"><div id="splash-logo"></div></div>
   <div id="fx-root"></div>
 
-  <div class="m3-organic-bg">
-    <div class="shape shape-pill"></div>
-    <div class="shape shape-egg"></div>
-    <div class="shape shape-triangle"></div>
-  </div>
 
   <div id="bg-mesh-a" class="bg-mesh-layer"></div>
   <div id="bg-mesh-b" class="bg-mesh-layer"></div>
@@ -40,22 +37,22 @@
 
   <header class="titlebar" id="titlebar">
     <div class="titlebar-drag">
-      <div class="app-logo">
-        <span class="logo-dot" id="titlebar-logo-dot"></span>
-        <span class="logo-text">Riff</span>
-      </div>
+      <div class="app-logo" aria-label="Riff"><span class="titlebar-riff-icon"></span></div>
     </div>
-    <div class="titlebar-controls">
-      <button class="titlebar-btn" id="btn-mini-player" title="Compact mini player">
+    <div class="titlebar-controls window-controls">
+      <button class="titlebar-btn win-btn" id="btn-mini-lyrics" title="Lyrics" aria-label="Lyrics">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+      </button>
+      <button class="titlebar-btn win-btn" id="btn-mini-player" title="Compact mini player">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="11" y="11" width="8" height="8" rx="1"/></svg>
       </button>
-      <button class="titlebar-btn" id="btn-minimize" title="Minimize">
+      <button class="titlebar-btn win-btn" id="btn-minimize" title="Minimize">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
       </button>
-      <button class="titlebar-btn" id="btn-maximize" title="Maximize">
+      <button class="titlebar-btn win-btn" id="btn-maximize" title="Maximize">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
       </button>
-      <button class="titlebar-btn close-btn" id="btn-close" title="Close">
+      <button class="titlebar-btn win-btn close-btn" id="btn-close" title="Close">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
       </button>
     </div>
@@ -70,7 +67,7 @@
             <line x1="21" y1="21" x2="16.5" y2="16.5"></line>
           </svg>
         </button>
-        <input type="text" id="search-input" placeholder="Search tracks, artists, or albums..." autocomplete="off">
+        <input type="text" id="search-input" placeholder="Search tracks, artists, or albums..." data-i18n-attr="placeholder" autocomplete="off">
         <button id="search-clear-btn" class="search-clear-btn hidden" title="Clear">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
@@ -79,13 +76,13 @@
 
     <div class="platform-switch-container">
       <div class="platform-pill-switch">
-        <button class="platform-btn active" data-platform="youtube" id="platform-yt" title="YouTube">
+        <button class="platform-btn" data-platform="youtube" id="platform-yt" title="YouTube">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
             <path d="M21.58 7.19c-.23-.86-.91-1.54-1.77-1.77C18.25 5 12 5 12 5s-6.25 0-7.81.42c-.86.23-1.54.91-1.77 1.77C2 8.75 2 12 2 12s0 3.25.42 4.81c.23.86.91 1.54 1.77 1.77C5.75 19 12 19 12 19s6.25 0 7.81-.42c.86-.23 1.54-.91 1.77-1.77C22 15.25 22 12 22 12s0-3.25-.42-4.81zM10 15V9l5.2 3L10 15z"/>
           </svg>
           <span>YouTube</span>
         </button>
-        <button class="platform-btn" data-platform="ytmusic" id="platform-ytm" title="YouTube Music">
+        <button class="platform-btn active" data-platform="ytmusic" id="platform-ytm" title="YouTube Music">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-2-12.5v9l6-4.5-6-4.5z"/>
           </svg>
@@ -106,12 +103,9 @@
       <nav class="sidebar-nav">
         <div class="nav-active-indicator" id="nav-active-indicator"></div>
 
-        <button class="nav-item active" data-view="discover" id="nav-discover" title="Discover">
+        <button class="nav-item active" data-view="discover" id="nav-discover" title="Home">
           <div class="nav-indicator">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"></circle>
-              <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="currentColor"></polygon>
-            </svg>
+            <img id="nav-home-app-icon" class="nav-home-app-icon" src="../../assets/02-editor.svg" alt="Home" draggable="false" />
           </div>
         </button>
 
@@ -123,6 +117,7 @@
             <span class="nav-badge" id="favorites-count">0</span>
           </div>
         </button>
+        <button class="nav-item" data-view="albums" id="nav-albums" title="Albums"><div class="nav-indicator"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg><span class="nav-badge" id="albums-count">0</span></div></button>
 
         <button class="nav-item" data-view="local" id="nav-local" title="My files">
           <div class="nav-indicator">
@@ -139,18 +134,16 @@
               <circle cx="12" cy="12" r="10"></circle>
               <polyline points="12 6 12 12 16 14"></polyline>
             </svg>
+            <span class="nav-badge" id="history-count" hidden>0</span>
           </div>
         </button>
 
         <button class="nav-item" data-view="queue" id="nav-queue" title="Queue">
           <div class="nav-indicator">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="8" y1="6" x2="21" y2="6"></line>
-              <line x1="8" y1="12" x2="21" y2="12"></line>
-              <line x1="8" y1="18" x2="21" y2="18"></line>
-              <line x1="3" y1="6" x2="3.01" y2="6"></line>
-              <line x1="3" y1="12" x2="3.01" y2="12"></line>
-              <line x1="3" y1="18" x2="3.01" y2="18"></line>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="4" y1="7" x2="20" y2="7"></line>
+              <line x1="4" y1="12" x2="20" y2="12"></line>
+              <line x1="4" y1="17" x2="14" y2="17"></line>
             </svg>
             <span class="nav-badge" id="queue-count">0</span>
           </div>
@@ -158,31 +151,31 @@
 
         <div class="rail-divider"></div>
 
+        <div class="rail-action-group">
+          <button class="rail-icon-btn" id="btn-toggle-presets-drawer" title="Audio presets">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line>
+              <line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line>
+              <line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line>
+              <line x1="17" y1="16" x2="23" y2="16"></line>
+            </svg>
+          </button>
+          <button class="rail-icon-btn" id="btn-toggle-playlists-drawer" title="Playlists">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15V6M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM12 12H3M16 6H3M12 18H3"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div class="sidebar-bottom-spacer"></div>
+
         <button class="nav-item" data-view="settings" id="nav-settings" title="Settings">
           <div class="nav-indicator">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
           </div>
         </button>
       </nav>
-
-      <div class="rail-divider"></div>
-
-      <div class="rail-action-group">
-        <button class="rail-icon-btn" id="btn-toggle-presets-drawer" title="Audio presets">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line>
-            <line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line>
-            <line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line>
-            <line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line>
-            <line x1="17" y1="16" x2="23" y2="16"></line>
-          </svg>
-        </button>
-        <button class="rail-icon-btn" id="btn-toggle-playlists-drawer" title="Playlists">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15V6M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM12 12H3M16 6H3M12 18H3"></path>
-          </svg>
-        </button>
-      </div>
 
       <div class="rail-drawer hidden" id="rail-drawer">
         <div class="rail-drawer-header">
@@ -214,20 +207,21 @@
       <section class="content-view active" id="view-discover">
         <div class="home-ambient" id="home-ambient"><div class="home-ambient-layer"></div><div class="home-ambient-layer"></div></div>
         <div class="discover-content" id="discover-empty">
+          <div id="discover-home" style="display: contents;">
 
           <div class="home-hero" id="home-hero">
             <div class="home-hero-track" id="home-hero-track">
 
               <div class="section-block home-pane" id="section-my-wave">
                 <div class="home-pane-header">
-                  <span class="home-pane-label my-wave-title">My Wave</span>
+                  <span class="home-pane-label my-wave-title" data-i18n>For you</span>
                   <div class="my-wave-actions">
                     <button class="btn-icon-pill" id="btn-refresh-vibe" title="Refresh wave">
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
                     </button>
                     <button class="btn-pill-primary" id="btn-play-my-wave">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                      <span>Play wave</span>
+                      <span data-i18n>Radio</span>
                     </button>
                   </div>
                 </div>
@@ -245,7 +239,7 @@
 
               <div class="section-block home-pane" id="section-jump-back">
                 <div class="home-pane-header">
-                  <span class="home-pane-label">Jump back in</span>
+                  <span class="home-pane-label" data-i18n>Jump back in</span>
                 </div>
 
                 <div class="my-wave-carousel-wrapper">
@@ -262,9 +256,17 @@
             </div>
             <div class="home-hero-dots" id="home-hero-dots"></div>
           </div>
+          <div class="sp-home" id="sp-home"><section class="sp-section" id="sp-made-sec"><h2><svg class="sp-ico" viewBox="0 0 24 24"><path d="M4 10a1 1 0 0 1 1 1v2a1 1 0 0 1-2 0v-2a1 1 0 0 1 1-1zm4-4a1 1 0 0 1 1 1v10a1 1 0 1 1-2 0V7a1 1 0 0 1 1-1zm4-4a1 1 0 0 1 1 1v18a1 1 0 1 1-2 0V3a1 1 0 0 1 1-1zm4 4a1 1 0 0 1 1 1v10a1 1 0 1 1-2 0V7a1 1 0 0 1 1-1zm4 4a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1z"/></svg><span data-i18n>For you</span><button class="btn-icon-pill" id="btn-regen-mixes" aria-label="Regenerate mixes" title="Regenerate mixes" style="margin-left: auto; width: 32px; height: 32px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg></button></h2><div class="sp-row" id="sp-made"></div></section><section class="sp-section" id="sp-quick-sec"><h2><svg class="sp-ico" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg><span data-i18n>Home</span></h2><div class="sp-quick" id="sp-quick"></div></section><section class="sp-section" id="sp-trend-sec"><h2><svg class="sp-ico" viewBox="0 0 24 24"><path d="M12 2c1 4 5 5.5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-6 1-9z"/></svg><span data-i18n>Trending now</span></h2><div class="sp-row" id="sp-trend"></div></section><section class="sp-section" id="sp-artists-sec"><h2><svg class="sp-ico" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg><span data-i18n>Favorite artists</span></h2><div class="sp-row fav-artists-row" id="sp-artists"></div></section></div>
+          </div>
         </div>
 
         <div class="search-results-container hidden" id="search-results-container">
+          <div class="search-filter-chips" id="search-filter-chips">
+            <button type="button" class="search-chip active" data-filter="all">All</button>
+            <button type="button" class="search-chip" data-filter="songs">Songs</button>
+            <button type="button" class="search-chip" data-filter="artists">Artists</button>
+            <button type="button" class="search-chip" data-filter="albums">Albums</button>
+          </div>
           <div id="search-artist-card-container"></div>
           <div id="search-albums-container"></div>
           <div class="tracks-list" id="search-tracks-list"></div>
@@ -277,17 +279,22 @@
             <h2>Favorites</h2>
             <span class="view-subtitle" id="favorites-subtitle">0 tracks saved</span>
           </div>
-          <button class="btn-outline-pill" id="btn-select-favorites" title="Select tracks" aria-label="Select tracks">
-            <span>Select</span>
-          </button>
-          <select class="pill-select" id="favorites-sort" title="Sort favorites" aria-label="Sort favorites">
+          <select class="pill-select" id="favorites-sort" title="Sort favorites" aria-label="Sort favorites" style="display:none">
             <option value="manual">Manual order</option>
             <option value="added-desc">Date added (newest)</option>
             <option value="added-asc">Date added (oldest)</option>
-            <option value="title-asc">Title (A-Z)</option>
-            <option value="artist-asc">Artist (A-Z)</option>
-            <option value="duration-asc">Duration (shortest)</option>
           </select>
+          <div class="m3-dropdown" id="favorites-sort-dropdown" style="width: 210px;">
+            <button class="m3-dropdown-trigger" id="favorites-sort-trigger" type="button">
+              <span id="favorites-sort-label">Manual order</span>
+              <svg class="m3-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="m3-dropdown-menu" id="favorites-sort-menu">
+              <button class="m3-dropdown-option selected" data-value="manual" type="button">Manual order</button>
+              <button class="m3-dropdown-option" data-value="added-desc" type="button">Date added (newest)</button>
+              <button class="m3-dropdown-option" data-value="added-asc" type="button">Date added (oldest)</button>
+            </div>
+          </div>
         </div>
         <div class="view-search-box" id="favorites-search-box">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line></svg>
@@ -298,27 +305,31 @@
         </div>
       </section>
 
+      <section class="content-view" id="view-albums"><div class="search-albums-row" id="saved-albums-grid" style="flex-wrap: wrap;"></div></section>
+
       <section class="content-view" id="view-local">
         <div class="view-header">
           <div>
             <h2>My files</h2>
             <span class="view-subtitle" id="local-subtitle">0 tracks in library</span>
           </div>
-          <button class="btn-pill-primary" id="btn-add-local-files">
+          <button class="btn-pill-primary" id="btn-add-local">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            Add files
+            <span>Add files</span>
           </button>
+          <button class="btn-outline-pill" id="btn-add-local-folder" type="button" style="display:inline-flex;align-items:center;gap:6px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg><span data-i18n>Add folder</span></button>
         </div>
         <div class="view-search-box" id="local-search-box">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line></svg>
           <input type="text" class="view-search-input" id="local-search-input" placeholder="Search my files..." autocomplete="off">
         </div>
+        <div class="search-albums-row" id="local-albums-row" style="margin-bottom: 18px; display: none;"></div>
         <div class="tracks-list" id="local-tracks-list">
           <div class="empty-hint" style="display:flex;flex-direction:column;align-items:center;gap:12px;">
             <span>No local tracks in library yet.</span>
             <button class="btn-pill-primary" id="btn-add-local-files-empty">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-              Add files
+              <span>Add files</span>
             </button>
           </div>
         </div>
@@ -354,32 +365,32 @@
           <div class="playlist-meta">
             <span class="playlist-type-badge">Playlist</span>
             <h2 id="playlist-detail-title">Playlist title</h2>
+            <div id="playlist-detail-desc" class="playlist-inline-desc" data-placeholder="Add a description..."></div>
             <span class="view-subtitle" id="playlist-detail-count">0 tracks</span>
             <div class="action-bar playlist-actions">
-              <button class="btn-outline-pill hidden" id="btn-dedupe-playlist" title="Remove duplicate tracks">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                <span id="btn-dedupe-playlist-label">Remove duplicates</span>
-              </button>
-              <select class="pill-select" id="playlist-sort" title="Sort playlist" aria-label="Sort playlist">
+              <select class="pill-select" id="playlist-sort" title="Sort playlist" aria-label="Sort playlist" style="display:none">
                 <option value="manual">Manual order</option>
                 <option value="added-desc">Date added (newest)</option>
                 <option value="added-asc">Date added (oldest)</option>
-                <option value="title-asc">Title (A-Z)</option>
-                <option value="artist-asc">Artist (A-Z)</option>
-                <option value="duration-asc">Duration (shortest)</option>
               </select>
-              <button class="btn-outline-pill" id="btn-select-playlist" title="Select tracks" aria-label="Select tracks">
-                <span>Select</span>
-              </button>
+              <div class="m3-dropdown" id="playlist-sort-dropdown" style="width: 210px;">
+                <button class="m3-dropdown-trigger" id="playlist-sort-trigger" type="button">
+                  <span id="playlist-sort-label">Manual order</span>
+                  <svg class="m3-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                <div class="m3-dropdown-menu" id="playlist-sort-menu">
+                  <button class="m3-dropdown-option selected" data-value="manual" type="button">Manual order</button>
+                  <button class="m3-dropdown-option" data-value="added-desc" type="button">Date added (newest)</button>
+                  <button class="m3-dropdown-option" data-value="added-asc" type="button">Date added (oldest)</button>
+                </div>
+              </div>
               <button class="btn-outline-pill" id="btn-download-playlist" title="Download all songs" aria-label="Download all songs">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                 <span id="btn-download-playlist-label">Download all</span>
               </button>
-              <button class="btn-icon-pill" id="btn-fav-all-playlist" title="Add all to favorites" aria-label="Add all to favorites">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
-              </button>
-              <button class="btn-icon-pill" id="btn-rename-playlist" title="Rename playlist" aria-label="Rename playlist">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+              <button class="btn-outline-pill" id="btn-export-playlist" title="Export as JSON" aria-label="Export as JSON">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                <span>Export as JSON</span>
               </button>
               <button class="btn-icon-pill delete-btn" id="btn-delete-playlist" title="Delete playlist" aria-label="Delete playlist">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
@@ -405,9 +416,8 @@
             <h2 id="album-detail-title">Album title</h2>
             <button class="album-artist-btn" id="album-detail-artist" type="button"></button>
             <div class="album-meta-line" id="album-detail-count">0 tracks</div>
-            <button class="btn-pill-primary" id="btn-play-album" type="button" title="Play" aria-label="Play" style="margin-top:16px;width:64px;height:64px;min-width:64px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;" disabled>
-              <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor" style="margin-left:3px;"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg>
-            </button>
+            <button type="button" class="btn-icon-pill" id="btn-save-album" title="Save album"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg></button>
+            <div class="daily-mix-feedback hidden" id="daily-mix-feedback"><span class="daily-mix-feedback-label" data-i18n>Do you like these tracks?</span><div class="daily-mix-feedback-actions"><button type="button" class="btn-icon-pill daily-mix-rate-btn" id="btn-dm-like" title="I like this mix"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></button><button type="button" class="btn-icon-pill daily-mix-rate-btn" id="btn-dm-dislike" title="Not my taste"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg></button></div></div>
           </aside>
           <div class="album-tracks-col">
             <div class="tracks-list" id="album-tracks-list"></div>
@@ -416,43 +426,56 @@
       </section>
 
       <section class="content-view" id="view-artist">
-        <div class="artist-hero-card">
-          <div class="artist-hero-backdrop hero-fx" id="artist-hero-backdrop"></div>
-          <button class="btn-icon-pill btn-back-artist" id="btn-back-artist" title="Back">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-          </button>
-          <div class="artist-card-body">
-            <div class="artist-avatar-wrap loading" id="artist-avatar-wrap">
-              <img id="artist-avatar-img" class="artist-avatar-img" src="" alt="" onload="this.parentElement.classList.remove('loading')" onerror="this.style.display='none'; this.parentElement.classList.remove('loading')">
-              <div id="artist-avatar-fallback" class="artist-avatar-fallback">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"></path></svg>
+        <div class="artist-hero-wrap">
+          <div class="artist-hero" id="artist-hero">
+            <img id="artist-hero-img" class="artist-hero-img" src="" alt="">
+            <button class="btn-icon-pill btn-back-artist" id="btn-back-artist" title="Back">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            </button>
+            <div class="artist-hero-info">
+              <div class="artist-name-row">
+                <h1 class="artist-title" id="artist-profile-name">Artist</h1>
+                <svg class="artist-verified-check hidden" id="artist-verified-badge" viewBox="0 0 24 24" width="24" height="24">
+                  <circle cx="12" cy="12" r="10" fill="#1d9bf0"/>
+                  <path d="M9 12l2 2 4-4" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                </svg>
+                <button type="button" class="btn-outline-pill artist-follow-btn" id="btn-artist-follow">Follow</button>
+                <button type="button" class="btn-outline-pill artist-block-btn" id="btn-artist-block" style="height:34px;padding:0 14px;font-size:13px;color:#ffb4ab;">Block</button>
               </div>
-            </div>
-            <div class="artist-meta-box">
-              <div class="artist-verified-badge hidden" id="artist-verified-badge">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"></path></svg>
-                <span>Verified artist</span>
-              </div>
-              <h1 class="artist-title" id="artist-profile-name">Artist</h1>
-              <p class="artist-bio-snippet hidden" id="artist-profile-bio"></p>
+              <div class="artist-fans-line" id="artist-fans-line"></div>
             </div>
           </div>
-        </div>
-
-        <div class="artist-content-section" id="artist-albums-section" style="display:none;">
-          <div class="section-sub-header">
-            <h3>Albums</h3>
-            <span class="view-subtitle" id="artist-albums-count"></span>
+          <div class="artist-about-card hidden" id="artist-about-card">
+            <div class="artist-about-title" data-orig-text="About the artist">About</div>
+            <div class="artist-about-bio" id="artist-profile-bio"></div>
+            <button class="btn-text artist-about-more hidden" id="btn-artist-bio-more">Show all</button>
           </div>
-          <div id="artist-albums-grid" style="display:flex;flex-wrap:wrap;gap:16px;"></div>
         </div>
 
         <div class="artist-content-section">
-          <div class="section-sub-header">
-            <h3>Popular tracks</h3>
-            <span class="view-subtitle" id="artist-tracks-count">0 tracks</span>
+          <nav class="artist-horiz-tabs" id="artist-horiz-tabs">
+            <button class="artist-horiz-tab active" id="artist-tab-tracks" data-artist-tab="tracks" type="button">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+              <span>Tracks</span>
+            </button>
+            <button class="artist-horiz-tab" id="artist-tab-albums" data-artist-tab="albums" type="button">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+              <span>Albums</span>
+            </button>
+          </nav>
+          <div class="artist-tab-pane active" id="artist-pane-tracks">
+            <div class="artist-tracks-header">
+              <h2 class="artist-tracks-title">Popular Songs</h2>
+              <button class="btn-text artist-tracks-toggle hidden" id="btn-artist-tracks-toggle">Show all</button>
+            </div>
+            <div class="tracks-list" id="artist-tracks-list"></div>
           </div>
-          <div class="tracks-list" id="artist-tracks-list"></div>
+          <div class="artist-tab-pane hidden" id="artist-pane-albums">
+            <div class="artist-tracks-header">
+              <h2 class="artist-tracks-title">Albums</h2>
+            </div>
+            <div class="artist-albums-grid" id="artist-albums-grid"></div>
+          </div>
         </div>
       </section>
 
@@ -462,13 +485,17 @@
 
           <div class="settings-layout">
             <nav class="settings-nav" id="settings-nav">
+          <div class="settings-search-box">
+            <svg class="settings-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="settings-search-input" placeholder="Search settings..." data-i18n-attr="placeholder" autocomplete="off">
+          </div>
               <button class="settings-nav-btn" data-cat="interface">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
                   <line x1="3" x2="21" y1="9" y2="9"/>
                   <line x1="9" x2="9" y1="21" y2="9"/>
                 </svg>
-                <span>Interface</span>
+                <span data-i18n>Interface</span>
               </button>
               <button class="settings-nav-btn" data-cat="theme">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -478,7 +505,7 @@
                   <circle cx="6.5" cy="12.5" r=".5"/>
                   <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.7-.8 1.7-1.7 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.9.8-1.7 1.7-1.7H16c3.3 0 6-2.7 6-6 0-4.9-4.5-8.4-10-8.4z"/>
                 </svg>
-                <span>Theme</span>
+                <span data-i18n>Theme</span>
               </button>
               <button class="settings-nav-btn" data-cat="banners">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -486,7 +513,7 @@
                   <circle cx="9" cy="9" r="2"/>
                   <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
                 </svg>
-                <span>Banners</span>
+                <span data-i18n>Banners</span>
               </button>
               <button class="settings-nav-btn" data-cat="tracks">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -494,7 +521,7 @@
                   <circle cx="6" cy="18" r="3"/>
                   <circle cx="18" cy="16" r="3"/>
                 </svg>
-                <span>Tracks</span>
+                <span data-i18n>Tracks</span>
               </button>
               <button class="settings-nav-btn" data-cat="integrations">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -503,7 +530,7 @@
                   <path d="M15 8V2"/>
                   <path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>
                 </svg>
-                <span>Integrations</span>
+                <span data-i18n>Integrations</span>
               </button>
               <button class="settings-nav-btn" data-cat="storage">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -512,7 +539,7 @@
                   <line x1="6" x2="6.01" y1="16" y2="16"/>
                   <line x1="10" x2="10.01" y1="16" y2="16"/>
                 </svg>
-                <span>Storage</span>
+                <span data-i18n>Storage</span>
               </button>
               <button class="settings-nav-btn" data-cat="advanced">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -526,7 +553,7 @@
                   <line x1="8" x2="8" y1="10" y2="14"/>
                   <line x1="16" x2="16" y1="18" y2="22"/>
                 </svg>
-                <span>Advanced</span>
+                <span data-i18n>Advanced</span>
               </button>
               <button class="settings-nav-btn" data-cat="about">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -534,20 +561,58 @@
                   <path d="M12 16v-4"/>
                   <path d="M12 8h.01"/>
                 </svg>
-                <span>About</span>
+                <span data-i18n>About</span>
               </button>
               <button class="settings-nav-btn" data-cat="custom-themes">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.7-.8 1.7-1.7 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.9.8-1.7 1.7-1.7H16c3.3 0 6-2.7 6-6 0-4.9-4.5-8.4-10-8.4z"/></svg>
-                <span>Custom themes</span>
+                <span data-i18n>Custom themes</span>
               </button>
               <button class="settings-nav-btn" data-cat="plugins">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7 1.49 0 2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/></svg>
-                <span>Plugins</span>
+                <span data-i18n>Plugins</span>
               </button>
             </nav>
             <div class="settings-pane">
               <div class="settings-section" data-cat="interface">
                 <div class="m3-group">
+            <div class="setting-item" id="setting-ui-lang-row">
+              <div class="setting-item-top">
+                <span class="setting-name" data-i18n>Interface language</span>
+              </div>
+              <div class="m3-dropdown" id="ui-lang-dropdown">
+                <button class="m3-dropdown-trigger" id="ui-lang-trigger" type="button">
+                  <span id="ui-lang-label">🇺🇸 English (en)</span>
+                  <svg class="m3-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                <div class="m3-dropdown-menu" id="ui-lang-menu">
+                  <div class="m3-dropdown-search-wrap">
+                    <input type="text" class="m3-dropdown-search" id="ui-lang-search" placeholder="Search language..." data-i18n-attr="placeholder" autocomplete="off">
+                  </div>
+                  <div class="m3-dropdown-list" id="ui-lang-list"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name" data-i18n>Hide top titlebar</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);" data-i18n>Hide the window titlebar and reveal it on top edge hover</span>
+                </div>
+                <button class="effect-switch-btn" id="btn-hide-titlebar" data-adv="hide_titlebar"><span class="thumb"></span></button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name" data-i18n>Auto-hide timeline timestamps</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);" data-i18n>Fade out current time and duration on the player bar when idle</span>
+                </div>
+                <button class="effect-switch-btn active" id="btn-autohide-timestamps" data-adv="autohide_timestamps"><span class="thumb"></span></button>
+              </div>
+            </div>
+
             <div class="setting-item">
               <div class="setting-item-top">
                 <span class="setting-name">UI scale</span>
@@ -578,6 +643,30 @@
               <div style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline); margin-top: 6px;">SF Pro is loaded from fonts.cdnfonts.com when selected</div>
             </div>
 
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="setting-name" data-i18n>Icon style</span>
+                    <span class="riff-beta-badge">BETA</span>
+                  </div>
+                  <span class="setting-hint" data-i18n>Choose the icon pack used across navigation and player controls</span>
+                </div>
+                <div class="m3-dropdown" id="icon-pack-dropdown" style="width: 236px; flex-shrink: 0;">
+                  <button class="m3-dropdown-trigger" id="icon-pack-trigger" type="button">
+                    <span class="m3-dropdown-label" id="icon-pack-label">Google Symbols (Default)</span>
+                    <svg class="m3-dropdown-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  </button>
+                  <div class="m3-dropdown-menu" id="icon-pack-menu">
+                    <button class="m3-dropdown-option selected" data-value="material" type="button">Google Symbols (Default)</button>
+                    <button class="m3-dropdown-option" data-value="sf" type="button">iOS / SF Symbols</button>
+                    <button class="m3-dropdown-option" data-value="lucide" type="button">Lucide Crisp</button>
+                    <button class="m3-dropdown-option" data-value="solar" type="button">Solar Duotone</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div class="setting-item" id="setting-search-pos-row">
               <div class="setting-item-top">
                 <span class="setting-name">Position of searchbar</span>
@@ -605,18 +694,18 @@
                 <span class="setting-name">Search engine</span>
               </div>
               <select class="pill-select" id="select-engine-api" style="display:none">
-                <option value="youtube" selected>YouTube</option>
-                <option value="ytmusic">YouTube Music</option>
+                <option value="youtube">YouTube</option>
+                <option value="ytmusic" selected>YouTube Music</option>
                 <option value="soundcloud">SoundCloud</option>
               </select>
               <div class="m3-dropdown" id="engine-api-dropdown">
                 <button class="m3-dropdown-trigger" id="engine-api-trigger" type="button">
-                  <span id="engine-api-label">YouTube</span>
+                  <span id="engine-api-label">YouTube Music</span>
                   <svg class="m3-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
                 </button>
                 <div class="m3-dropdown-menu" id="engine-api-menu">
-                  <button class="m3-dropdown-option selected" data-value="youtube" type="button">YouTube</button>
-                  <button class="m3-dropdown-option" data-value="ytmusic" type="button">YouTube Music</button>
+                  <button class="m3-dropdown-option" data-value="youtube" type="button">YouTube</button>
+                  <button class="m3-dropdown-option selected" data-value="ytmusic" type="button">YouTube Music</button>
                   <button class="m3-dropdown-option" data-value="soundcloud" type="button">SoundCloud</button>
                 </div>
               </div>
@@ -655,11 +744,11 @@
               <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
                 <span class="setting-name">Interface opacity</span>
                 <div style="display: flex; align-items: center; gap: 8px;">
-                  <span class="setting-value" id="val-ui-alpha">100%</span>
+                  <span class="setting-value" id="val-ui-alpha">20%</span>
                   <button class="btn-outline-pill" id="btn-reset-ui-alpha" style="padding: 2px 10px; font-size: calc(12px * var(--font-scale, 1));">Reset</button>
                 </div>
               </div>
-              <input type="range" class="pill-range" id="slider-ui-alpha" min="20" max="100" step="1" value="100">
+              <input type="range" class="pill-range" id="slider-ui-alpha" min="20" max="100" step="1" value="20">
               <div class="setting-hints"><span>20%</span><span>Default</span><span>100%</span></div>
             </div>
 
@@ -695,10 +784,66 @@
             <div class="setting-item">
               <div class="setting-item-top" style="align-items: center;">
                 <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name" data-i18n>Playbar visualizer position</span>
+                  <span class="setting-hint" data-i18n>Show visualizer as a small icon on the right or wide behind the playbar</span>
+                </div>
+                <div class="theme-mode-selector" id="bar-viz-pos-group">
+                  <button type="button" class="theme-mode-btn" data-bar-viz-pos="mini" data-i18n>Compact</button>
+                  <button type="button" class="theme-mode-btn active" data-bar-viz-pos="behind" data-i18n>Behind bar</button>
+                </div>
+              </div>
+            </div>
+            <div class="setting-item" id="setting-bar-viz-opacity">
+              <div class="setting-item-top">
+                <span class="setting-name" data-i18n>Playbar visualizer opacity</span>
+                <span class="setting-val" id="val-bar-viz-opacity">22%</span>
+              </div>
+              <input type="range" class="pill-range" id="slider-bar-viz-opacity" min="5" max="85" step="1" value="22">
+            </div>
+            <div class="setting-item" id="setting-bar-viz-sens">
+              <div class="setting-item-top">
+                <span class="setting-name" data-i18n>Playbar visualizer sensitivity</span>
+                <span class="setting-val" id="val-bar-viz-sens">100%</span>
+              </div>
+              <input type="range" class="pill-range" id="slider-bar-viz-sens" min="20" max="250" step="5" value="100">
+            </div>
+            <div class="setting-item" id="setting-bar-viz-smooth">
+              <div class="setting-item-top">
+                <span class="setting-name" data-i18n>Playbar visualizer smoothness</span>
+                <span class="setting-val" id="val-bar-viz-smooth">55%</span>
+              </div>
+              <input type="range" class="pill-range" id="slider-bar-viz-smooth" min="0" max="90" step="5" value="55">
+            </div>
+
+            <div class="setting-item"><div class="setting-item-top" style="align-items:center;"><div style="display:flex;flex-direction:column;gap:2px;"><span class="setting-name" data-i18n>Connected liquid visualizer</span><span class="setting-hint" data-i18n>Draw a smooth connected liquid wave instead of separate bars</span></div><button type="button" class="effect-switch-btn" id="btn-viz-connected"><span class="thumb"></span></button></div></div>
+
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
                   <span class="setting-name">Shaped cover in the bottom bar</span>
                   <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Morphing Material 3 shape with a wavy progress ring around the cover</span>
                 </div>
                 <button class="effect-switch-btn active" id="toggle-m3-cover"><span class="thumb"></span></button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name" data-i18n>Shaped covers in Now Playing & Karaoke</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);" data-i18n>Apply morphing Material 3 shape to Now Playing and Fullscreen covers</span>
+                </div>
+                <button type="button" class="effect-switch-btn" id="toggle-m3-hero-covers"><span class="thumb"></span></button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name">Show explicit tag [E] on tracks</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Displays [E] badge next to tracks with explicit content</span>
+                </div>
+                <button class="effect-switch-btn active" id="toggle-explicit-tag"><span class="thumb"></span></button>
               </div>
             </div>
 
@@ -718,7 +863,7 @@
                   <span class="setting-name">Visualizer with lyrics</span>
                   <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Show wave visualizer at the bottom even when track has lyrics</span>
                 </div>
-                <button class="effect-switch-btn" id="btn-tvk-visualizer-lyrics-setting"><span class="thumb"></span></button>
+                <button class="effect-switch-btn active" id="btn-tvk-visualizer-lyrics-setting"><span class="thumb"></span></button>
               </div>
             </div>
 
@@ -739,9 +884,9 @@
                   <span class="setting-name">Visualizer smoothness</span>
                   <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Higher = calmer, slower bars</span>
                 </div>
-                <span class="setting-val" id="val-viz-smooth" style="font-size: calc(13px * var(--font-scale, 1)); font-weight: 500; min-width: 42px; text-align: right;">70%</span>
+                <span class="setting-val" id="val-viz-smooth" style="font-size: calc(13px * var(--font-scale, 1)); font-weight: 500; min-width: 42px; text-align: right;">0%</span>
               </div>
-              <input type="range" class="pill-range" id="slider-viz-smooth" min="0" max="95" step="1" value="70" style="width: 100%; margin-top: 8px;">
+              <input type="range" class="pill-range" id="slider-viz-smooth" min="0" max="95" step="1" value="0" style="width: 100%; margin-top: 8px;">
             </div>
 
             <div class="setting-item">
@@ -752,7 +897,7 @@
                 </div>
                 <span class="setting-val" id="val-viz-sens" style="font-size: calc(13px * var(--font-scale, 1)); font-weight: 500; min-width: 42px; text-align: right;">100%</span>
               </div>
-              <input type="range" class="pill-range" id="slider-viz-sens" min="30" max="300" step="5" value="100" style="width: 100%; margin-top: 8px;">
+              <input type="range" class="pill-range" id="slider-viz-sens" min="0" max="300" step="5" value="100" style="width: 100%; margin-top: 8px;">
             </div>
 
             <div class="setting-item">
@@ -762,6 +907,28 @@
                   <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Disables visualizers, animated gradient and blur effects, limits animations to 30 FPS</span>
                 </div>
                 <button class="effect-switch-btn" id="btn-perf-mode"><span class="thumb"></span></button>
+              </div>
+            </div>
+
+            <div class="setting-item" id="setting-sidebar-home-customizer" style="flex-direction: column; align-items: stretch; gap: 14px;">
+              <div class="setting-item-top" style="justify-content: space-between; align-items: center; width: 100%;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name">Customize sidebar & home layout</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Drag and drop to reorder sidebar navigation items and home page sections</span>
+                </div>
+                <button type="button" class="btn-outline-pill" id="btn-reset-sidebar-order" style="height: 30px; padding: 0 12px; font-size: 12px;">Reset</button>
+              </div>
+
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px;">
+                <div class="customizer-box">
+                  <div style="font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--md-sys-color-on-surface);">Sidebar navigation</div>
+                  <div id="settings-sidebar-replica" class="customizer-drag-list"></div>
+                </div>
+
+                <div class="customizer-box">
+                  <div style="font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--md-sys-color-on-surface);">Home sections</div>
+                  <div id="settings-home-order-list" class="customizer-drag-list"></div>
+                </div>
               </div>
             </div>
                 </div>
@@ -864,11 +1031,21 @@
             </div>
 
             <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name" data-i18n>Apply intensity to background</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);" data-i18n>Tint background and surface panels with the accent color and intensity</span>
+                </div>
+                <button class="effect-switch-btn" id="btn-intensity-bg" data-adv="intensity_bg"><span class="thumb"></span></button>
+              </div>
+            </div>
+
+            <div class="setting-item">
               <div class="setting-item-top">
                 <span class="setting-name">Brightness</span>
-                <span class="setting-value" id="val-theme-brightness">50%</span>
+                <span class="setting-value" id="val-theme-brightness">0%</span>
               </div>
-              <input type="range" class="theme-brightness-slider" id="slider-theme-brightness" min="0" max="100" step="1" value="50">
+              <input type="range" class="theme-brightness-slider" id="slider-theme-brightness" min="0" max="100" step="1" value="0">
               <div class="setting-hints"><span>Dark</span><span>Default</span><span>Bright</span></div>
             </div>
 
@@ -893,6 +1070,21 @@
                 <button class="effect-switch-btn active" id="btn-highlight-buttons"><span class="thumb"></span></button>
               </div>
             </div>
+                </div>
+                <div class="settings-section-title" data-i18n>Home button icon</div>
+                <div class="m3-group">
+                  <div class="setting-item">
+                    <div style="display: flex; flex-direction: column; gap: 12px; width: 100%;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                          <span class="setting-name" data-i18n>App icon on Home button</span>
+                          <span class="setting-hint" data-i18n>Choose the icon displayed on the Home button at the top of the sidebar</span>
+                        </div>
+                        <button type="button" class="btn-outline-pill" id="btn-pick-custom-home-icon" style="height: 32px; padding: 0 14px; font-size: calc(12px * var(--font-scale, 1));" data-i18n>Custom icon...</button>
+                      </div>
+                      <div class="app-icon-picker-grid" id="app-icon-picker-grid"></div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -971,9 +1163,9 @@
             <div class="setting-item">
               <div class="setting-item-top">
                 <span class="setting-name">Banner fade</span>
-                <span class="setting-value" id="val-banner-fade">38%</span>
+                <span class="setting-value" id="val-banner-fade">100%</span>
               </div>
-              <input type="range" class="pill-range" id="slider-banner-fade" min="20" max="100" step="2" value="38">
+              <input type="range" class="pill-range" id="slider-banner-fade" min="20" max="100" step="2" value="100">
               <div class="setting-hints"><span>Top</span><span>Default</span><span>Deep</span></div>
             </div>
 
@@ -1044,6 +1236,34 @@
 
             <div class="setting-item">
               <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name" data-i18n>Show Albums tab</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);" data-i18n>Display saved albums in the sidebar and album page</span>
+                </div>
+                <button type="button" class="effect-switch-btn" id="btn-show-albums"><span class="thumb"></span></button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name">Like all album tracks when saving album</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Automatically add all tracks of an album to favorites when saving it</span>
+                </div>
+                <button type="button" class="effect-switch-btn" id="btn-like-album-tracks"><span class="thumb"></span></button>
+              </div>
+            </div>
+
+            <div class="setting-item" id="setting-blocked-manager">
+              <div class="setting-item-top" style="align-items: flex-start; flex-direction: column; gap: 4px; width: 100%;">
+                <span class="setting-name">Blocked artists & tracks</span>
+                <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Blocked items are hidden from recommendations and auto-skipped</span>
+                <div id="blocked-items-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;width:100%;"></div>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top" style="align-items: center;">
                 <span class="setting-name">Smooth preset transitions</span>
                 <button class="effect-switch-btn active" id="btn-smooth-presets"><span class="thumb"></span></button>
               </div>
@@ -1069,7 +1289,7 @@
             <div class="setting-item">
               <div class="setting-item-top" style="align-items: center;">
                 <span class="setting-name">Progress bar knob</span>
-                <button class="effect-switch-btn active" id="btn-progress-knob"><span class="thumb"></span></button>
+                <button class="effect-switch-btn" id="btn-progress-knob"><span class="thumb"></span></button>
               </div>
             </div>
 
@@ -1079,7 +1299,23 @@
                   <span class="setting-name">Progress bar background</span>
                   <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Show the uncompleted track rail in the playbar</span>
                 </div>
-                <button class="effect-switch-btn active" id="btn-progress-bg"><span class="thumb"></span></button>
+                <button class="effect-switch-btn" id="btn-progress-bg"><span class="thumb"></span></button>
+              </div>
+            </div>
+
+            <div class="setting-item" id="setting-audio-output-row">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name" data-i18n>Audio output device</span>
+                  <span class="setting-hint" data-i18n>Route playback to a specific speaker, headset, or audio channel</span>
+                </div>
+                <div class="m3-dropdown" id="audio-output-dropdown" style="width: 250px; flex-shrink: 0;">
+                  <button class="m3-dropdown-trigger" id="audio-output-trigger" type="button">
+                    <span class="m3-dropdown-label" id="audio-output-label">System default</span>
+                    <svg class="m3-dropdown-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  </button>
+                  <div class="m3-dropdown-menu" id="audio-output-menu"></div>
+                </div>
               </div>
             </div>
 
@@ -1090,6 +1326,18 @@
               </div>
               <input type="range" class="pill-range" id="slider-crossfade" min="0" max="12" step="1" value="0">
               <div class="setting-hints"><span>Off</span><span>6s</span><span>12s</span></div>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-item-top">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name">Stream timeout</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">How long to wait for a track to start loading before giving up</span>
+                </div>
+                <span class="setting-value" id="val-stream-timeout">12s</span>
+              </div>
+              <input type="range" class="pill-range" id="slider-stream-timeout" min="5" max="30" step="1" value="12">
+              <div class="setting-hints"><span>5s</span><span>17s</span><span>30s</span></div>
             </div>
 
             <div class="setting-item">
@@ -1168,6 +1416,48 @@
               <div class="setting-hints"><span>0.5x (Slow)</span><span>1.0x (Normal)</span><span>2.5x (Fast)</span></div>
             </div>
 
+            <div class="setting-item" id="setting-lyrics-source-row">
+              <div class="setting-item-top">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name">Lyrics source</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Preferred lyrics provider with automatic fallback</span>
+                </div>
+              </div>
+              <div class="m3-dropdown" id="lyrics-source-dropdown">
+                <button class="m3-dropdown-trigger" id="lyrics-source-trigger" type="button">
+                  <span id="lyrics-source-label">LRCLIB</span>
+                  <svg class="m3-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                <div class="m3-dropdown-menu" id="lyrics-source-menu">
+                  <button class="m3-dropdown-option selected" data-value="lrclib" type="button">LRCLIB</button>
+                  <button class="m3-dropdown-option" data-value="musixmatch" type="button">Musixmatch</button>
+                  <button class="m3-dropdown-option" data-value="kugou" type="button">Kugou LRC</button>
+                  <button class="m3-dropdown-option" data-value="netease" type="button">NetEase</button>
+                  <button class="m3-dropdown-option" data-value="genius" type="button">Genius</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="setting-item" id="setting-word-source-row">
+              <div class="setting-item-top">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name">Word-by-word source</span>
+                  <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Source for karaoke word timings</span>
+                </div>
+              </div>
+              <div class="m3-dropdown" id="word-source-dropdown">
+                <button class="m3-dropdown-trigger" id="word-source-trigger" type="button">
+                  <span id="word-source-label">Auto</span>
+                  <svg class="m3-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                <div class="m3-dropdown-menu" id="word-source-menu">
+                  <button class="m3-dropdown-option selected" data-value="auto" type="button">Auto</button>
+                  <button class="m3-dropdown-option" data-value="netease" type="button">NetEase</button>
+                  <button class="m3-dropdown-option" data-value="estimate" type="button">Estimate only (current)</button>
+                </div>
+              </div>
+            </div>
+
             <div class="setting-item" id="setting-lyrics-wordstyle-row">
               <div class="setting-item-top">
                 <div style="display: flex; flex-direction: column; gap: 2px;">
@@ -1203,14 +1493,47 @@
 
             <div class="m3-group">
             <div class="setting-item" id="card-discord-rpc">
-              <div class="setting-item-top" style="align-items: center;">
+              <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
                 <div style="display: flex; align-items: center; gap: 8px;">
                   <svg width="20" height="20" viewBox="0 0 127.14 96.36" fill="currentColor" style="color: #5865F2;">
                     <path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.31,60,73.31,53s5-12.74,11.43-12.74S96.1,46,96,53,91.08,65.69,84.69,65.69Z"/>
                   </svg>
                   <span class="setting-name">Discord Rich Presence</span>
                 </div>
-                <button class="effect-switch-btn active" id="btn-discord-rpc"><span class="thumb"></span></button>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <button class="btn-outline-pill" id="btn-discord-reconnect" type="button" style="padding: 4px 10px; font-size: calc(12px * var(--font-scale, 1));">Reconnect</button>
+                  <button class="effect-switch-btn active" id="btn-discord-rpc"><span class="thumb"></span></button>
+                </div>
+              </div>
+            </div>
+
+            <div class="setting-item" id="card-lastfm">
+              <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+                  <span style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #d51007;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M10.584 17.21l-.88-2.392s-1.43 1.594-3.573 1.594c-1.897 0-3.244-1.649-3.244-4.288 0-3.382 1.704-4.591 3.381-4.591 2.42 0 3.189 1.567 3.849 3.574l.88 2.749c.88 2.666 2.529 4.81 7.285 4.81 3.409 0 5.718-1.045 5.718-3.793 0-2.227-1.265-3.381-3.63-3.931l-1.758-.385c-1.21-.275-1.567-.77-1.567-1.595 0-.934.742-1.484 1.952-1.484 1.32 0 2.034.495 2.144 1.677l2.749-.33c-.22-2.474-1.924-3.492-4.729-3.492-2.474 0-4.893.935-4.893 3.932 0 1.87.907 3.051 3.189 3.601l1.87.44c1.402.33 1.869.907 1.869 1.704 0 1.017-.99 1.43-2.86 1.43-2.776 0-3.93-1.457-4.59-3.464l-.907-2.749c-1.155-3.573-2.997-4.893-6.653-4.893C2.144 5.334 0 7.89 0 12.233c0 4.18 2.144 6.434 5.993 6.434 3.106 0 4.591-1.457 4.591-1.457z"/>
+                    </svg>
+                  </span>
+                  <div style="display: flex; flex-direction: column; min-width: 0;">
+                    <span class="setting-name" data-i18n>Last.fm Scrobbling</span>
+                    <span id="lastfm-status-label" style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Not connected</span>
+                  </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
+                  <button type="button" class="btn-outline-pill" id="btn-lastfm-open-modal" style="padding: 4px 14px; font-size: calc(12px * var(--font-scale, 1)); height: 32px;" data-i18n>Configure</button>
+                  <button type="button" class="effect-switch-btn" id="btn-lastfm-toggle" title="Enable Last.fm Scrobbling"><span class="thumb"></span></button>
+                </div>
+              </div>
+            </div>
+
+            <div class="setting-item" id="card-discord-artist-status">
+              <div class="setting-item-top" style="align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <span class="setting-name" data-i18n>Show artist in Discord status</span>
+                  <span class="setting-hint" data-i18n>Display "Listening to Artist" instead of "Listening to Riff" in compact profile status</span>
+                </div>
+                <button type="button" class="effect-switch-btn active" id="btn-discord-artist-status"><span class="thumb"></span></button>
               </div>
             </div>
 
@@ -1279,6 +1602,35 @@
                   <span class="setting-name">Apple Music</span>
                 </div>
                 <button class="btn-pill-primary" id="btn-open-apple-import" type="button">Import</button>
+              </div>
+            </div>
+
+            <div class="setting-item" id="card-yandex-import">
+              <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--md-sys-color-on-surface-variant);">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12.928 1.5l-1.93 7.64L5.69 3.63l4.13 6.72L2 9.48l7.36 2.91L3.1 17.5l6.98-3.51-.83 8.51 2.77-7.79 4.79 6.64-2.58-7.61 7.77 1.34-6.62-4.29 6.12-4.96-7.44 2.41L16.92 1.5l-3.992 6.84L12.928 1.5z"/></svg>
+                  </span>
+                  <span class="setting-name">Yandex Music</span>
+                </div>
+                <button class="btn-pill-primary btn-open-link-import" id="btn-open-yandex-import" data-platform="yandex" type="button">Import</button>
+              </div>
+            </div>
+
+            <div class="setting-item" id="card-json-import">
+              <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--md-sys-color-on-surface-variant);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                      <polyline points="14 2 14 8 20 8"></polyline>
+                      <line x1="12" y1="18" x2="12" y2="12"></line>
+                      <polyline points="9 15 12 12 15 15"></polyline>
+                    </svg>
+                  </span>
+                  <span class="setting-name">JSON Playlist</span>
+                </div>
+                <button class="btn-pill-primary" id="btn-open-json-import" type="button">Import</button>
               </div>
             </div>
             </div>
@@ -1368,6 +1720,66 @@
                 </div>
               </div>
             </div>
+
+            <div class="setting-item" id="export-all-playlists-item">
+              <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--md-sys-color-surface-container-high); display: flex; align-items: center; justify-content: center; color: var(--md-sys-color-primary);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  </div>
+                  <div style="display: flex; flex-direction: column;">
+                    <span class="setting-name">Export all playlists (JSON)</span>
+                    <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Backup all playlists to a JSON file</span>
+                  </div>
+                </div>
+                <button class="btn-outline-pill" id="btn-export-all-playlists" style="padding: 6px 14px; font-size: calc(12px * var(--font-scale, 1)); flex-shrink: 0;">Export</button>
+              </div>
+            </div>
+
+            <div class="setting-item" id="import-json-playlists-item">
+              <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--md-sys-color-surface-container-high); display: flex; align-items: center; justify-content: center; color: var(--md-sys-color-primary);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  </div>
+                  <div style="display: flex; flex-direction: column;">
+                    <span class="setting-name">Import playlists (JSON)</span>
+                    <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Restore playlists from exported JSON file</span>
+                  </div>
+                </div>
+                <button class="btn-outline-pill" id="btn-import-json-playlists" style="padding: 6px 14px; font-size: calc(12px * var(--font-scale, 1)); flex-shrink: 0;">Import</button>
+              </div>
+            </div>
+
+            <div class="setting-item" id="export-account-item">
+              <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--md-sys-color-surface-container-high); display: flex; align-items: center; justify-content: center; color: var(--md-sys-color-primary);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  </div>
+                  <div style="display: flex; flex-direction: column;">
+                    <span class="setting-name">Export Riff account (.rfacc)</span>
+                    <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Backup full library, playlists, settings and history</span>
+                  </div>
+                </div>
+                <button class="btn-outline-pill" id="btn-export-account" style="padding: 6px 14px; font-size: calc(12px * var(--font-scale, 1)); flex-shrink: 0;">Export</button>
+              </div>
+            </div>
+
+            <div class="setting-item" id="import-account-item">
+              <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--md-sys-color-surface-container-high); display: flex; align-items: center; justify-content: center; color: var(--md-sys-color-primary);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  </div>
+                  <div style="display: flex; flex-direction: column;">
+                    <span class="setting-name">Import Riff account (.rfacc)</span>
+                    <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Restore entire account from encrypted binary backup</span>
+                  </div>
+                </div>
+                <button class="btn-outline-pill" id="btn-import-account" style="padding: 6px 14px; font-size: calc(12px * var(--font-scale, 1)); flex-shrink: 0;">Import</button>
+              </div>
+            </div>
             </div>
           </div>
 
@@ -1384,7 +1796,95 @@
               <div class="adv-collapsible-inner">
                 <div class="adv-items-list">
                   <div class="m3-group">
-                  <div class="setting-item">
+                    <div class="setting-item">
+                      <div class="setting-item-top" style="align-items: center;">
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                          <span class="setting-name" data-i18n>Classic sidebar</span>
+                          <span class="setting-hint" data-i18n>Use the compact floating sidebar and floating bottom player bar</span>
+                        </div>
+                        <button class="effect-switch-btn" id="btn-classic-sidebar" data-adv="classic_sidebar" type="button"><span class="thumb"></span></button>
+                      </div>
+                    </div>
+                    <div class="setting-item" id="setting-desktop-shortcut">
+                      <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                          <span class="setting-name">Create desktop & app menu shortcut</span>
+                          <span class="setting-hint">Add Riff shortcut to your desktop and system applications menu</span>
+                        </div>
+                        <button type="button" class="btn-outline-pill" id="btn-create-shortcut" style="height: 32px; padding: 0 14px; font-size: 13px;">Create shortcut</button>
+                      </div>
+                    </div>
+                    <div class="setting-item" id="setting-yt-account">
+                      <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+                          <div style="width: 34px; height: 34px; border-radius: 10px; background: #FFFFFF; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                            <svg viewBox="0 0 28 20" width="20" height="14">
+                              <path d="M27.4 3.1a3.5 3.5 0 0 0-2.5-2.5C22.7 0 14 0 14 0S5.3 0 3.1.6A3.5 3.5 0 0 0 .6 3.1C0 5.3 0 10 0 10s0 4.7.6 6.9a3.5 3.5 0 0 0 2.5 2.5C5.3 20 14 20 14 20s8.7 0 10.9-.6a3.5 3.5 0 0 0 2.5-2.5C28 14.7 28 10 28 10s0-4.7-.6-6.9z" fill="#FF0033"/>
+                              <polygon points="11.2,14.3 18.5,10 11.2,5.7" fill="#FFFFFF"/>
+                            </svg>
+                          </div>
+                          <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+                            <span class="setting-name" data-i18n>YouTube Account</span>
+                            <span class="setting-hint" id="adv-yt-auth-status" data-i18n>Sign in to bypass IP blocks and age restrictions (18+)</span>
+                          </div>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                          <button type="button" class="btn-pill-primary" id="btn-adv-yt-login" style="height: 32px; padding: 0 16px; font-size: 12.5px;" data-i18n>Sign in</button>
+                          <button type="button" class="btn-outline-pill hidden" id="btn-adv-yt-logout" style="height: 32px; padding: 0 14px; font-size: 12.5px;" data-i18n>Sign out</button>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="setting-item" id="setting-proxy-manager">
+                      <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                          <span class="setting-name" data-i18n>In-app proxy (YouTube / SoundCloud bypass)</span>
+                          <span class="setting-hint" data-i18n>Route Riff audio and stream extraction through a proxy without slowing down your whole system</span>
+                        </div>
+                        <button class="effect-switch-btn" id="btn-proxy-enable" type="button" title="Enable in-app proxy"><span class="thumb"></span></button>
+                      </div>
+                      <div class="proxy-manager-box" id="proxy-manager-box" style="margin-top: 12px; display: flex; flex-direction: column; gap: 10px;">
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                          <input type="text" id="proxy-input-url" class="pill-text-input" placeholder="socks5://127.0.0.1:10808 or http://user:pass@ip:port" style="flex: 1; height: 38px; font-size: 13px;" autocomplete="off">
+                          <button type="button" class="btn-pill-primary" id="btn-proxy-add" title="Add proxy" style="height: 38px; min-width: 42px; padding: 0 14px; font-size: 18px; font-weight: 600;">+</button>
+                          <button type="button" class="btn-outline-pill" id="btn-proxy-test" title="Test active proxy" style="height: 38px; padding: 0 14px; font-size: 12px;" data-i18n>Test</button>
+                        </div>
+                        <div id="proxy-list-container" class="proxy-list-container"></div>
+                      </div>
+                    </div>
+
+                    <div class="setting-item" id="setting-song-quality">
+                      <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                          <span class="setting-name" data-i18n>Song quality</span>
+                          <span class="setting-hint" data-i18n>Audio bitrate and streaming format selection</span>
+                        </div>
+                        <div class="m3-dropdown" id="dropdown-song-quality" style="width: 220px; flex-shrink: 0;">
+                          <button class="m3-dropdown-trigger" id="btn-song-quality-trigger" type="button">
+                            <span class="m3-dropdown-label" id="label-song-quality">Medium</span>
+                            <svg class="m3-dropdown-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                          </button>
+                          <div class="m3-dropdown-menu" id="menu-song-quality">
+                            <button type="button" class="m3-dropdown-option" data-val="low">
+                              <div class="opt-col"><span class="opt-title">Low</span><span class="opt-desc">saves data</span></div>
+                            </button>
+                            <button type="button" class="m3-dropdown-option selected" data-val="medium">
+                              <div class="opt-col"><span class="opt-title">Medium</span><span class="opt-desc">recommended</span></div>
+                            </button>
+                            <button type="button" class="m3-dropdown-option" data-val="high">
+                              <div class="opt-col"><span class="opt-title">High</span></div>
+                            </button>
+                            <button type="button" class="m3-dropdown-option" data-val="max">
+                              <div class="opt-col-row">
+                                <span class="opt-title">Max</span>
+                                <span class="opt-badge-exp">Experimental</span>
+                              </div>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="setting-item">
                     <div class="setting-item-top" style="align-items: center;">
                       <div style="display: flex; flex-direction: column; gap: 2px;">
                         <span class="setting-name">Minimize to tray on close</span>
@@ -1397,8 +1897,8 @@
                   <div class="setting-item" id="setting-win-media-keys" style="display: none;">
                     <div class="setting-item-top" style="align-items: center;">
                       <div style="display: flex; flex-direction: column; gap: 2px;">
-                        <span class="setting-name">Capture media keys (Windows)</span>
-                        <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Turn off if another app should receive your media keys</span>
+                        <span class="setting-name">Legacy media key capture (Windows)</span>
+                        <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Leave off to use the Windows media overlay and lock screen controls. Turning this on takes media keys away from the overlay</span>
                       </div>
                       <button class="effect-switch-btn active" id="btn-win-media-keys"><span class="thumb"></span></button>
                     </div>
@@ -1490,7 +1990,7 @@
                         <span class="setting-name">Clip effects to panels</span>
                         <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Off: blur and gradients can spread outside their panel</span>
                       </div>
-                      <button class="effect-switch-btn active" data-adv="clip_fx"><span class="thumb"></span></button>
+                      <button class="effect-switch-btn" data-adv="clip_fx"><span class="thumb"></span></button>
                     </div>
                   </div>
 
@@ -1517,6 +2017,16 @@
                   <div class="setting-item">
                     <div class="setting-item-top" style="align-items: center;">
                       <div style="display: flex; flex-direction: column; gap: 2px;">
+                        <span class="setting-name">Gradients & glow on Playlists, Artists, and Albums</span>
+                        <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Show ambient color gradients and cover glow on playlist, artist, and album headers</span>
+                      </div>
+                      <button class="effect-switch-btn active" data-adv="page_glow_gradients"><span class="thumb"></span></button>
+                    </div>
+                  </div>
+
+                  <div class="setting-item">
+                    <div class="setting-item-top" style="align-items: center;">
+                      <div style="display: flex; flex-direction: column; gap: 2px;">
                         <span class="setting-name">My Wave recommendations</span>
                         <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Show personal recommendations on the home page</span>
                       </div>
@@ -1537,10 +2047,47 @@
                   <div class="setting-item">
                     <div class="setting-item-top" style="align-items: center;">
                       <div style="display: flex; flex-direction: column; gap: 2px;">
+                        <span class="setting-name">Favorite artists</span>
+                        <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Favorite artists on home page</span>
+                      </div>
+                      <button class="effect-switch-btn active" data-adv="fav_artists"><span class="thumb"></span></button>
+                    </div>
+                  </div>
+
+                  <div class="setting-item" id="setting-home-layout">
+                    <div class="setting-item-top">
+                      <span class="setting-name">Home layout</span>
+                    </div>
+                    <div class="theme-mode-toggle" id="home-layout-toggle">
+                      <button type="button" class="theme-mode-btn" id="home-layout-spotify" style="display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.207-2.35-1.434-5.308-1.758-8.793-.963-.335.077-.67-.133-.746-.469-.077-.334.132-.67.467-.747 3.812-.871 7.085-.506 9.721 1.107.294.18.387.564.208.865zm1.224-2.72c-.226.367-.706.482-1.072.257-2.687-1.652-6.785-2.131-9.965-1.166-.413.127-.848-.106-.973-.517-.125-.413.108-.848.52-.973 3.632-1.102 8.147-.568 11.233 1.328.366.226.481.707.257 1.071zm.105-2.835C14.692 8.95 8.085 8.731 4.708 9.756c-.494.15-1.018-.129-1.168-.623-.15-.495.13-1.018.624-1.168 3.943-1.197 11.23-.944 15.045 1.32.444.264.59.84.327 1.284-.264.444-.84.59-1.284.327z"/></svg>
+                        <span>Spotify</span>
+                      </button>
+                      <button type="button" class="theme-mode-btn" id="home-layout-riff" style="display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
+                        <img src="../../assets/icon.png" width="16" height="16" style="border-radius: 4px; object-fit: contain;" alt="">
+                        <span>Riff</span>
+                      </button>
+                    </div>
+                    <div style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline); margin-top: 6px;">Spotify: rows of mixes and quick access. Riff: the carousel.</div>
+                  </div>
+
+                  <div class="setting-item">
+                    <div class="setting-item-top" style="align-items: center;">
+                      <div style="display: flex; flex-direction: column; gap: 2px;">
                         <span class="setting-name">Reduce motion</span>
                         <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Replace spring animations with simple fades</span>
                       </div>
                       <button class="effect-switch-btn" data-adv="reduce_motion"><span class="thumb"></span></button>
+                    </div>
+                  </div>
+
+                  <div class="setting-item">
+                    <div class="setting-item-top" style="align-items: center;">
+                      <div style="display: flex; flex-direction: column; gap: 2px;">
+                        <span class="setting-name">Connected audio editor</span>
+                        <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Show audio controls connected to bottombar instead of modal</span>
+                      </div>
+                      <button class="effect-switch-btn active" data-adv="connected_audio"><span class="thumb"></span></button>
                     </div>
                   </div>
 
@@ -1561,16 +2108,29 @@
 
           <div class="settings-section" id="settings-section-about" data-cat="about">
             <span class="settings-section-title">About</span>
+            <div class="riff-hero-banner-wrap">
+              <div class="riff-hero-banner">
+                <div class="riff-hero-floats">
+                  <span class="riff-float-logo f1"></span>
+                  <span class="riff-float-logo f2"></span>
+                  <span class="riff-float-logo f3"></span>
+                </div>
+                <div class="riff-hero-cookie">
+                  <span class="riff-hero-logo-main"></span>
+                </div>
+              </div>
+              <span class="riff-hero-title">Riff</span>
+            </div>
             <div class="m3-group">
             <div class="setting-item">
               <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
                 <div style="display: flex; align-items: center; gap: 12px;">
                   <div style="width: 32px; height: 32px; border-radius: 50%; overflow: hidden; display: flex; align-items: center; justify-content: center;">
-                    <img src="assets/icon.png" alt="Riff" style="width: 32px; height: 32px; object-fit: cover;">
+                    <img src="../../assets/icon.png" alt="Riff" style="width: 32px; height: 32px; object-fit: cover;">
                   </div>
                   <div style="display: flex; flex-direction: column;">
                     <span class="setting-name">Riff</span>
-                    <span id="about-version" style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Version 42.3.0</span>
+                    <span id="about-version" style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Version 43.2.2</span>
                   </div>
                 </div>
                 <button class="btn-pill-primary" id="btn-check-updates" style="padding: 6px 14px; font-size: calc(12px * var(--font-scale, 1));">Check for updates</button>
@@ -1607,7 +2167,7 @@
               </svg>
               Riff made by rootless, support me: <a href="https://t.me/riffplayer" target="_blank" rel="noopener">t.me/riffplayer</a>
             </span>
-            <span class="settings-version-tag">v42.3.0</span>
+            <span class="settings-version-tag">v43.2.2</span>
           </div>
             </div>
           </div>
@@ -1637,7 +2197,7 @@
           </div>
           <div class="vinyl-overlay hidden" id="vinyl-overlay"></div>
           <button id="btn-right-panel-art" title="Change cover/banner for this track" aria-label="Change cover/banner for this track">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+            <svg width="20" height="20" viewBox="0 -960 960 960" fill="currentColor"><path d="m460-380 280-180-280-180v360ZM320-240q-33 0-56.5-23.5T240-320v-480q0-33 23.5-56.5T320-880h480q33 0 56.5 23.5T880-800v480q0 33-23.5 56.5T800-240H320Zm0-80h480v-480H320v480ZM160-80q-33 0-56.5-23.5T80-160v-560h80v560h560v80H160Zm160-720v480-480Z"/></svg>
           </button>
         </div>
         <div class="right-panel-meta">
@@ -1672,11 +2232,21 @@
     </aside>
   </div>
 
+  <div class="bulk-select-bar hidden" id="bulk-select-bar">
+    <span id="bulk-select-count" style="font-size: 13px; font-weight: 600; padding: 0 6px;">0 selected</span>
+    <button type="button" class="btn-outline-pill" id="btn-bulk-select-all" style="height: 32px; padding: 0 14px; font-size: 12px;" data-i18n>Select all</button>
+    <button type="button" class="btn-pill-primary" id="btn-bulk-add-playlist" style="height: 32px; padding: 0 14px; font-size: 12px;" data-i18n>Add to playlist</button>
+    <button type="button" class="btn-outline-pill" id="btn-bulk-add-fav" style="height: 32px; padding: 0 14px; font-size: 12px;" data-i18n>Like all</button>
+    <button type="button" class="btn-outline-pill" id="btn-bulk-remove" style="height: 32px; padding: 0 14px; font-size: 12px; display: none;" data-i18n>Remove</button>
+    <button type="button" class="btn-icon-pill" id="btn-bulk-clear" title="Clear selection" style="width: 28px; height: 28px;">✕</button>
+  </div>
+
   <footer class="playbar" id="playbar">
+    <canvas id="bottom-visualizer" class="playbar-bg-visualizer"></canvas>
     <div class="playbar-left">
       <div class="artwork-wrapper" id="playbar-artwork-wrapper">
         <div class="m3c-wrap" id="m3c-wrap">
-          <img src="" alt="" class="track-artwork" id="playbar-artwork">
+          <img alt="" class="track-artwork" id="playbar-artwork">
           <canvas class="m3c-canvas" id="m3c-canvas"></canvas>
         </div>
         <div class="artwork-fallback" id="artwork-fallback">
@@ -1698,6 +2268,9 @@
       <button class="btn-icon-pill" id="btn-playbar-more" title="Download track">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/></svg>
       </button>
+      <button class="btn-icon-pill riff-share-action-btn" id="btn-playbar-share" title="Copy share link" aria-label="Copy share link">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"></polyline><path d="M4 20v-7a4 4 0 0 1 4-4h12"></path></svg>
+      </button>
     </div>
 
     <div class="playbar-center">
@@ -1710,9 +2283,12 @@
         </button>
         <div class="play-pause-wrapper">
           <button class="btn-play-pause" id="btn-play-pause" title="Play or pause">
-            <svg id="play-icon" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="8 5 19 12 8 19"></polygon></svg>
-            <svg id="pause-icon" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg>
-            <svg id="playbar-spinner" class="hidden m3-circular-progress" viewBox="0 0 48 48" style="width: 24px; height: 24px; position: absolute; margin: auto; inset: 0;"><circle class="m3-spinner-track" cx="24" cy="24" r="18" fill="none" stroke-width="4"></circle><circle class="m3-spinner-head" cx="24" cy="24" r="18" fill="none" stroke-width="4"></circle></svg>
+            <svg id="play-icon" class="play-pause-morph" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+              <path class="morph-path-1" d="M 8.8 5.8 L 13.5 8.8 L 13.5 15.2 L 8.8 18.2 Z"></path>
+              <path class="morph-path-2" d="M 13.5 8.8 L 18 12 L 18 12 L 13.5 15.2 Z"></path>
+            </svg>
+            <svg id="pause-icon" class="hidden" style="display:none;" width="0" height="0"></svg>
+            <svg id="playbar-spinner" class="hidden m3-btn-shape-spinner" viewBox="-180 -180 360 360" style="width: 24px; height: 24px; position: absolute; margin: auto; inset: 0;"><path fill="currentColor"/></svg>
           </button>
         </div>
         <button class="control-btn" id="btn-next" title="Next">
@@ -1755,6 +2331,7 @@
         </div>
       </div>
     </div>
+    <div class="mini-lyrics-container hidden" id="mini-lyrics-container"></div>
   </footer>
 
   <audio id="native-audio" crossorigin="anonymous" preload="auto"></audio>
@@ -2072,6 +2649,19 @@
     </div>
   </div>
 
+  <div class="modal-backdrop hidden" id="artist-bio-modal">
+    <div class="dialog-card">
+      <div class="dialog-header">
+        <h3 id="artist-bio-modal-title">Artist</h3>
+      </div>
+      <div class="dialog-body" id="artist-bio-modal-body" style="max-height: 60vh; overflow-y: auto; line-height: 1.6; font-size: 14px; color: var(--md-sys-color-on-surface-variant); white-space: pre-wrap; margin: 16px 0;">
+      </div>
+      <div class="dialog-actions">
+        <button class="btn-outline-pill" id="btn-close-artist-bio">Close</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-backdrop hidden" id="save-preset-modal">
     <div class="dialog-card">
       <h3>Save preset</h3>
@@ -2101,6 +2691,17 @@
       <div class="dialog-actions">
         <button class="btn-outline-pill" id="btn-cancel-delete-playlist">Cancel</button>
         <button class="btn-pill-primary" id="btn-confirm-delete-playlist">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="lang-restart-modal">
+    <div class="dialog-card">
+      <h3 data-i18n>Restart required</h3>
+      <p id="lang-restart-msg" style="margin: 0 0 16px; color: var(--md-sys-color-on-surface-variant); font-size: calc(14px * var(--font-scale, 1));" data-i18n>Changes will take effect after restarting the app</p>
+      <div class="dialog-actions">
+        <button class="btn-outline-pill" id="btn-lang-restart-cancel" data-i18n>Cancel</button>
+        <button class="btn-pill-primary" id="btn-lang-restart-confirm" data-i18n>Restart</button>
       </div>
     </div>
   </div>
@@ -2157,7 +2758,7 @@
     <div class="dialog-card tools-install-card" style="width: 420px;">
       <div class="dialog-header">
         <h3 id="tools-modal-title">Required tools</h3>
-        <button class="btn-icon-pill" id="btn-close-tools-modal" title="Close">
+        <button class="btn-icon-pill" id="btn-close-tools-modal" title="Close" style="display: none;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
       </div>
@@ -2190,9 +2791,9 @@
       <div id="tools-error-msg" style="display: none; color: var(--md-sys-color-error, #ffb4ab); font-size: calc(12px * var(--font-scale, 1)); background: rgba(255, 84, 73, 0.1); border-radius: 8px; padding: 8px 12px; word-break: break-word;"></div>
 
       <div class="dialog-actions" id="tools-dialog-actions" style="margin-top: 6px;">
-        <button class="btn-outline-pill" id="btn-dismiss-tools-modal">Not now</button>
-        <button class="btn-pill-primary" id="btn-confirm-install-tools">Download</button>
-        <button class="btn-outline-pill" id="btn-retry-tools" style="display: none;">Retry</button>
+        <button class="btn-outline-pill" id="btn-dismiss-tools-modal" style="display: none;">Not now</button>
+        <button class="btn-pill-primary" id="btn-confirm-install-tools" style="display: none;">Download</button>
+        <button class="btn-pill-primary" id="btn-retry-tools" style="display: none;">Retry download</button>
       </div>
     </div>
   </div>
@@ -2213,11 +2814,57 @@
       <h3>Create playlist</h3>
       <input type="text" id="new-playlist-input" placeholder="Playlist name..." class="pill-text-input" maxlength="32">
       <div class="dialog-actions">
-        <button class="btn-outline-pill" id="btn-cancel-new-playlist">Cancel</button>
-        <button class="btn-pill-primary" id="btn-confirm-new-playlist">Create</button>
+        <button class="btn-outline-pill" id="btn-cancel-new-playlist" style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          Cancel
+        </button>
+        <button class="btn-pill-primary" id="btn-confirm-new-playlist" style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Create
+        </button>
+      </div>
+      <div class="cpm-import-bar">
+        <span class="cpm-import-label">Import playlist</span>
+        <div class="cpm-import-icons">
+          <button class="cpm-service-btn" id="btn-cpm-spotify" type="button" title="Spotify" aria-label="Spotify">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M7 9.5c3.5-1 7.5-.7 10.5 1"/><path d="M7.5 12.7c3-.8 6-.5 8.5.9"/><path d="M8 15.8c2.5-.6 4.5-.4 6.5.7"/></svg>
+          </button>
+          <button class="cpm-service-btn btn-open-link-import" data-platform="youtube" type="button" title="YouTube" aria-label="YouTube">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+            </svg>
+          </button>
+          <button class="cpm-service-btn btn-open-link-import" data-platform="ytmusic" type="button" title="YouTube Music" aria-label="YouTube Music">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 0C5.376 0 0 5.376 0 12s5.376 12 12 12 12-5.376 12-12S18.624 0 12 0zm0 19.104c-3.924 0-7.104-3.18-7.104-7.104S8.076 4.896 12 4.896s7.104 3.18 7.104 7.104-3.18 7.104-7.104 7.104zm0-13.333c-3.44 0-6.229 2.789-6.229 6.229s2.789 6.229 6.229 6.229 6.229-2.789 6.229-6.229-2.789-6.229-6.229-6.229zm-1.75 9.138V9.091l5.426 3.092-5.426 3.092z"/>
+            </svg>
+          </button>
+          <button class="cpm-service-btn btn-open-link-import" data-platform="soundcloud" type="button" title="SoundCloud" aria-label="SoundCloud">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M1.175 12.225c-.051 0-.094.044-.103.097l-.29 3.01c-.01.076.046.14.122.14.051 0 .094-.043.103-.097l.29-3.01a.117.117 0 0 0-.122-.14zm1.037-1.127c-.06 0-.11.048-.12.112l-.438 4.148c-.01.082.05.15.132.15.06 0 .11-.048.12-.112l.438-4.148c.01-.082-.05-.15-.132-.15zm1.096-.693c-.07 0-.13.054-.14.126l-.496 4.838c-.01.088.055.163.143.163.07 0 .13-.054.14-.126l.496-4.838c.01-.088-.055-.163-.143-.163zm1.144-.436c-.08 0-.148.06-.16.142l-.527 5.275c-.01.094.06.175.154.175.08 0 .148-.06.16-.142l.527-5.275c.01-.094-.06-.175-.154-.175zm1.18-.328c-.09 0-.165.068-.178.16l-.525 5.603c-.01.1.066.187.168.187.09 0 .165-.068.178-.16l.525-5.603c.01-.1-.066-.187-.168-.187zm1.205-.109c-.1 0-.183.075-.198.176l-.504 5.712c-.01.106.072.198.179.198.1 0 .183-.075.198-.176l.504-5.712c.01-.106-.072-.198-.179-.198zm1.222.054c-.11 0-.2.083-.217.195l-.47 5.658c-.01.112.078.21.192.21.11 0 .2-.083.217-.195l.47-5.658c.01-.112-.078-.21-.192-.21zm1.233.273c-.12 0-.218.09-.236.213l-.427 5.385c-.01.12.083.22.206.22.12 0 .218-.09.236-.213l.427-5.385c.01-.12-.083-.22-.206-.22zm1.238.655c-.13 0-.236.1-.255.232l-.374 4.73c-.01.126.09.232.22.232.13 0 .236-.1.255-.232l.374-4.73c.01-.126-.09-.232-.22-.232zm3.328-4.323c-.31 0-.61.05-.89.15a3.49 3.49 0 0 0-2.02-1.46c-.14-.04-.26.06-.26.2v8.94c0 .12.1.22.22.22h6.14c1.93 0 3.5-1.57 3.5-3.5s-1.57-3.5-3.5-3.5c-.38 0-.74.06-1.07.18-.08-1.59-1.39-2.85-3.03-2.85z"/>
+            </svg>
+          </button>
+          <button class="cpm-service-btn" id="btn-cpm-apple" type="button" title="Apple Music" aria-label="Apple Music">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+            </svg>
+          </button>
+          <button class="cpm-service-btn btn-open-link-import" data-platform="yandex" type="button" title="Yandex Music" aria-label="Yandex Music">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12.928 1.5l-1.93 7.64L5.69 3.63l4.13 6.72L2 9.48l7.36 2.91L3.1 17.5l6.98-3.51-.83 8.51 2.77-7.79 4.79 6.64-2.58-7.61 7.77 1.34-6.62-4.29 6.12-4.96-7.44 2.41L16.92 1.5l-3.992 6.84L12.928 1.5z"/></svg>
+          </button>
+          <button class="cpm-service-btn" id="btn-cpm-json" type="button" title="JSON File" aria-label="JSON File">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="12" y1="18" x2="12" y2="12"></line>
+              <polyline points="9 15 12 12 15 15"></polyline>
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   </div>
+  <input type="file" id="json-playlist-file-input" accept=".json,application/json" multiple style="display:none">
 
   <div class="modal-backdrop hidden" id="spotify-import-modal">
     <div class="dialog-card">
@@ -2260,10 +2907,10 @@
         </div>
         <div style="display: flex; gap: 16px; margin-bottom: 12px;">
           <label style="display: flex; align-items: center; gap: 8px; font-size: calc(13px * var(--font-scale, 1)); cursor: pointer;">
-            <input type="checkbox" id="sp-chk-likes" class="m3-checkbox" checked> Liked songs
+            <input type="checkbox" id="sp-chk-likes" class="m3-checkbox" checked> <span>Liked songs</span>
           </label>
           <label style="display: flex; align-items: center; gap: 8px; font-size: calc(13px * var(--font-scale, 1)); cursor: pointer;">
-            <input type="checkbox" id="sp-chk-playlists" class="m3-checkbox" checked> Playlists
+            <input type="checkbox" id="sp-chk-playlists" class="m3-checkbox" checked> <span>Playlists</span>
           </label>
         </div>
         <div class="sp-warning">
@@ -2286,10 +2933,10 @@
         </div>
         <div style="display: flex; gap: 16px; margin-bottom: 12px;">
           <label style="display: flex; align-items: center; gap: 8px; font-size: calc(13px * var(--font-scale, 1)); cursor: pointer;">
-            <input type="checkbox" id="sp-chk-likes-2" class="m3-checkbox" checked> Liked songs
+            <input type="checkbox" id="sp-chk-likes-2" class="m3-checkbox" checked> <span>Liked songs</span>
           </label>
           <label style="display: flex; align-items: center; gap: 8px; font-size: calc(13px * var(--font-scale, 1)); cursor: pointer;">
-            <input type="checkbox" id="sp-chk-playlists-2" class="m3-checkbox" checked> Playlists
+            <input type="checkbox" id="sp-chk-playlists-2" class="m3-checkbox" checked> <span>Playlists</span>
           </label>
         </div>
         <div class="sp-warning">
@@ -2301,7 +2948,7 @@
           <span>We don't steal anything, and Riff is open-source. Want to import everything? Use the export files (or log in, if you set that up). Want zero risk? Import a single playlist by link instead.</span>
         </div>
       </div>
-      <div id="spotify-import-progress-wrap" class="hidden" style="margin-bottom: 16px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+      <div id="spotify-import-progress-wrap" class="hidden" style="display: none !important; margin-bottom: 16px; flex-direction: column; align-items: center; gap: 8px;">
         <div id="spotify-import-wavy-container" style="width: 100%;"></div>
         <span id="spotify-import-progress-label" style="font-size: calc(13px * var(--font-scale, 1)); color: var(--md-sys-color-on-surface-variant);">0 / 0</span>
       </div>
@@ -2358,10 +3005,10 @@
         </div>
         <div id="apple-chk-container" class="hidden" style="display: flex; gap: 16px; margin-bottom: 12px;">
           <label style="display: flex; align-items: center; gap: 8px; font-size: calc(13px * var(--font-scale, 1)); cursor: pointer;">
-            <input type="checkbox" id="apple-chk-likes" class="m3-checkbox" checked> Liked songs
+            <input type="checkbox" id="apple-chk-likes" class="m3-checkbox" checked> <span>Liked songs</span>
           </label>
           <label style="display: flex; align-items: center; gap: 8px; font-size: calc(13px * var(--font-scale, 1)); cursor: pointer;">
-            <input type="checkbox" id="apple-chk-playlists" class="m3-checkbox" checked> Playlists
+            <input type="checkbox" id="apple-chk-playlists" class="m3-checkbox" checked> <span>Playlists</span>
           </label>
         </div>
         <div id="apple-file-summary" class="hidden" style="font-size: calc(13px * var(--font-scale, 1)); color: var(--md-sys-color-on-surface-variant); margin-bottom: 12px;"></div>
@@ -2374,7 +3021,7 @@
           <span>We don't steal anything, and Riff is open-source. Want to import everything? Use the export files. Want zero risk? Import a single playlist by link instead.</span>
         </div>
       </div>
-      <div id="apple-import-progress-wrap" class="hidden" style="margin-bottom: 16px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+      <div id="apple-import-progress-wrap" class="hidden" style="display: none !important; margin-bottom: 16px; flex-direction: column; align-items: center; gap: 8px;">
         <div id="apple-import-wavy-container" style="width: 100%;"></div>
         <span id="apple-import-progress-label" style="font-size: calc(13px * var(--font-scale, 1)); color: var(--md-sys-color-on-surface-variant);">0 / 0</span>
       </div>
@@ -2393,18 +3040,74 @@
 
   <div class="modal-backdrop hidden" id="link-import-modal">
     <div class="dialog-card">
-      <h3>Import from link</h3>
-      <div style="position: relative; width: 100%; margin-bottom: 12px;">
-        <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; color: var(--md-sys-color-on-surface-variant); pointer-events: none;">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
-        </span>
-        <input type="text" id="link-import-url" class="pill-text-input" placeholder="Paste a YouTube, YouTube Music or SoundCloud link" style="width: 100%; box-sizing: border-box; padding-left: 40px;">
+      <h3 id="link-import-title">Import from link</h3>
+      <div class="sp-modes" id="link-modes">
+        <button type="button" class="active" data-mode="link" id="link-mode-link">Playlist link</button>
+        <button type="button" data-mode="login" id="link-mode-login">Log in</button>
       </div>
-      <div id="link-import-error" class="import-error-block hidden"></div>
+      <div class="link-pane sp-pane" data-mode="link">
+        <div style="position: relative; width: 100%; margin-bottom: 12px;">
+          <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; color: var(--md-sys-color-on-surface-variant); pointer-events: none;">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+          </span>
+          <input type="text" id="link-import-url" class="pill-text-input" placeholder="Paste a YouTube, YouTube Music or SoundCloud link" style="width: 100%; box-sizing: border-box; padding-left: 40px;">
+        </div>
+        <div id="link-import-error" class="import-error-block hidden"></div>
+        <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px;">
+          <label class="dialog-label">Import into</label>
+          <input type="hidden" id="link-import-name-input">
+          <select id="link-import-target" class="pill-text-input" style="height: 40px; padding: 0 14px; margin-top: 4px;"><option value="__new__">Create new playlist</option><option value="__favorites__">Add directly to Favorites (Liked Songs)</option></select>
+        </div>
+      </div>
+      <div class="link-pane sp-pane hidden" data-mode="login">
+        <div style="font-size: calc(13px * var(--font-scale, 1)); color: var(--md-sys-color-on-surface-variant); margin-bottom: 12px; line-height: 1.4;">Log in with your Google account to import your liked music and playlists directly.</div>
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+          <button type="button" class="btn-outline-pill" id="btn-google-login">Log in with Google</button>
+          <button type="button" class="btn-outline-pill hidden" id="btn-google-logout">Log out</button>
+          <span id="google-login-status" style="font-size: calc(13px * var(--font-scale, 1)); color: var(--md-sys-color-outline);">Not connected</span>
+        </div>
+        <div style="display: flex; gap: 16px; margin-bottom: 12px;">
+          <label style="display: flex; align-items: center; gap: 8px; font-size: calc(13px * var(--font-scale, 1)); cursor: pointer;">
+            <input type="checkbox" id="google-chk-likes" class="m3-checkbox" checked> <span>Liked songs</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: calc(13px * var(--font-scale, 1)); cursor: pointer;">
+            <input type="checkbox" id="google-chk-playlists" class="m3-checkbox" checked> <span>Playlists</span>
+          </label>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px;">
+          <label class="dialog-label">Import into</label>
+          <select class="pill-select" id="google-import-target" style="display:none">
+            <option value="new">Separate playlists</option>
+          </select>
+          <div class="m3-dropdown" id="google-target-dropdown">
+            <button class="m3-dropdown-trigger" id="google-target-trigger" type="button">
+              <span id="google-target-label">Separate playlists</span>
+              <svg class="m3-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="m3-dropdown-menu" id="google-target-menu">
+              <button class="m3-dropdown-option selected" data-value="new" type="button">Separate playlists</button>
+            </div>
+          </div>
+        </div>
+        <div class="sp-warning">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+          <span>We don't steal anything, and Riff is open-source. Want zero risk? Import a single playlist by link instead.</span>
+        </div>
+      </div>
+      <div id="link-import-progress-wrap" class="hidden" style="display: none !important; margin-bottom: 16px; flex-direction: column; align-items: center; gap: 8px;">
+        <div id="link-import-wavy-container" style="width: 100%;"></div>
+        <span id="link-import-progress-label" style="font-size: calc(13px * var(--font-scale, 1)); color: var(--md-sys-color-on-surface-variant);">0 / 0</span>
+      </div>
       <div id="link-import-status" class="hidden" style="margin-bottom: 16px; font-size: calc(13px * var(--font-scale, 1));"></div>
       <div class="dialog-actions">
         <button class="btn-outline-pill" id="btn-cancel-link-import" type="button">Cancel</button>
-        <button class="btn-pill-primary" id="btn-confirm-link-import" type="button">Import</button>
+        <button class="btn-pill-primary" id="btn-confirm-link-import" type="button">
+          <span id="link-import-btn-text">Import</span>
+        </button>
       </div>
     </div>
   </div>
@@ -2488,6 +3191,39 @@
             <button class="btn-outline-pill" id="btn-reset-track-banner">Reset</button>
           </div>
         </div>
+
+        <div class="setting-item" style="display: flex; flex-direction: column; gap: 10px;">
+          <div class="setting-item-top" style="display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; flex-direction: column; min-width: 0;">
+              <span class="setting-name" style="font-weight: 500;">Custom banner effects</span>
+              <span class="setting-hint" style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-on-surface-variant);">Per-track blur, opacity and fade</span>
+            </div>
+            <button class="effect-switch-btn" id="btn-track-banner-custom-fx"><span class="thumb"></span></button>
+          </div>
+          <div id="track-banner-fx-controls" style="display: flex; flex-direction: column; gap: 10px;">
+            <div class="setting-subitem">
+              <div class="setting-item-top" style="display: flex; justify-content: space-between; align-items: center;">
+                <span class="setting-name" style="font-size: calc(13px * var(--font-scale, 1));">Banner blur</span>
+                <span class="setting-value" id="val-track-banner-blur">3px</span>
+              </div>
+              <input type="range" class="pill-range" id="slider-track-banner-blur" min="0" max="20" step="1" value="3">
+            </div>
+            <div class="setting-subitem">
+              <div class="setting-item-top" style="display: flex; justify-content: space-between; align-items: center;">
+                <span class="setting-name" style="font-size: calc(13px * var(--font-scale, 1));">Banner opacity</span>
+                <span class="setting-value" id="val-track-banner-opacity">100%</span>
+              </div>
+              <input type="range" class="pill-range" id="slider-track-banner-opacity" min="10" max="100" step="5" value="100">
+            </div>
+            <div class="setting-subitem">
+              <div class="setting-item-top" style="display: flex; justify-content: space-between; align-items: center;">
+                <span class="setting-name" style="font-size: calc(13px * var(--font-scale, 1));">Banner fade</span>
+                <span class="setting-value" id="val-track-banner-fade">100%</span>
+              </div>
+              <input type="range" class="pill-range" id="slider-track-banner-fade" min="10" max="100" step="2" value="100">
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -2535,81 +3271,113 @@
         </div>
       </div>
 
-      <div class="download-section">
-        <span class="download-section-label">Audio format</span>
-        <div class="format-chips-grid" id="format-chips-grid">
-          <button class="format-chip active" data-format="mp3">
-            <span class="format-chip-name">MP3</span>
-            <span class="chip-tag">Universal</span>
-          </button>
-          <button class="format-chip" data-format="flac">
-            <span class="format-chip-name">FLAC</span>
-            <span class="chip-tag">Lossless</span>
-          </button>
-          <button class="format-chip" data-format="m4a">
-            <span class="format-chip-name">M4A</span>
-            <span class="chip-tag">AAC</span>
-          </button>
-          <button class="format-chip" data-format="opus">
-            <span class="format-chip-name">Opus</span>
-            <span class="chip-tag">Modern</span>
-          </button>
-          <button class="format-chip" data-format="wav">
-            <span class="format-chip-name">WAV</span>
-            <span class="chip-tag">PCM</span>
-          </button>
+      <div class="dl-mode-tabs" id="dl-mode-tabs"><button type="button" class="dl-mode-tab active" data-dl-tab="download" data-i18n>Download file</button><button type="button" class="dl-mode-tab" data-dl-tab="trim"><span data-i18n>Trim best part</span><span class="riff-beta-badge" style="margin-left:6px;">NEW</span></button></div>
+
+      <div id="dl-pane-download">
+        <div class="download-section">
+          <span class="download-section-label">Audio format</span>
+          <div class="format-chips-grid" id="format-chips-grid">
+            <button class="format-chip active" data-format="mp3">
+              <span class="format-chip-name">MP3</span>
+              <span class="chip-tag">Universal</span>
+            </button>
+            <button class="format-chip" data-format="flac">
+              <span class="format-chip-name">FLAC</span>
+              <span class="chip-tag">Lossless</span>
+            </button>
+            <button class="format-chip" data-format="m4a">
+              <span class="format-chip-name">M4A</span>
+              <span class="chip-tag">AAC</span>
+            </button>
+            <button class="format-chip" data-format="opus">
+              <span class="format-chip-name">Opus</span>
+              <span class="chip-tag">Modern</span>
+            </button>
+            <button class="format-chip" data-format="wav">
+              <span class="format-chip-name">WAV</span>
+              <span class="chip-tag">PCM</span>
+            </button>
+          </div>
         </div>
+
+        <div class="download-section">
+          <span class="download-section-label">Bitrate quality</span>
+          <div class="quality-chips-grid" id="quality-chips-grid">
+            <button class="quality-chip active" data-quality="0">
+              <span class="quality-chip-name">320 kbps</span>
+              <span class="chip-tag">Studio</span>
+            </button>
+            <button class="quality-chip" data-quality="2">
+              <span class="quality-chip-name">256 kbps</span>
+              <span class="chip-tag">High quality</span>
+            </button>
+            <button class="quality-chip" data-quality="4">
+              <span class="quality-chip-name">192 kbps</span>
+              <span class="chip-tag">Standard</span>
+            </button>
+            <button class="quality-chip" data-quality="5">
+              <span class="quality-chip-name">128 kbps</span>
+              <span class="chip-tag">Compact</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="download-section" id="download-trim-section">
+          <span class="download-section-label">Trim audio</span>
+          <div class="trim-inputs">
+            <input type="text" id="trim-start" class="pill-text-input" placeholder="0:00" value="0:00">
+            <span class="trim-separator">to</span>
+            <input type="text" id="trim-end" class="pill-text-input" placeholder="End" value="">
+          </div>
+        </div>
+
+        <div class="download-section download-effects-section" id="download-effects-section">
+          <div class="effects-toggle-row">
+            <label class="effects-toggle-label" for="download-apply-effects">Apply current audio effects (Preset/High Quality)</label>
+            <input type="checkbox" id="download-apply-effects" class="m3-switch-input">
+          </div>
+        </div>
+
+        <div class="download-modal-actions">
+          <button class="btn-text-error hidden" id="btn-delete-offline-track">Delete offline file</button>
+          <div class="download-actions-right">
+            <button class="btn-outline-pill" id="btn-cancel-download">Cancel</button>
+            <div id="download-spinner"></div>
+            <button class="btn-pill-primary" id="btn-confirm-download">
+              <span id="download-btn-text">Download MP3</span>
+            </button>
+          </div>
+        </div>
+        <div class="download-caption-path">Saved to <span id="download-caption-path"></span></div>
       </div>
 
-      <div class="download-section">
-        <span class="download-section-label">Bitrate quality</span>
-        <div class="quality-chips-grid" id="quality-chips-grid">
-          <button class="quality-chip active" data-quality="0">
-            <span class="quality-chip-name">320 kbps</span>
-            <span class="chip-tag">Studio</span>
-          </button>
-          <button class="quality-chip" data-quality="2">
-            <span class="quality-chip-name">256 kbps</span>
-            <span class="chip-tag">High quality</span>
-          </button>
-          <button class="quality-chip" data-quality="4">
-            <span class="quality-chip-name">192 kbps</span>
-            <span class="chip-tag">Standard</span>
-          </button>
-          <button class="quality-chip" data-quality="5">
-            <span class="quality-chip-name">128 kbps</span>
-            <span class="chip-tag">Compact</span>
-          </button>
+      <div id="dl-pane-trim" class="hidden">
+        <div class="capcut-trim-box">
+          <div class="capcut-time-readout">
+            <div class="cc-time-pill"><span class="cc-time-lbl" data-i18n>Start</span><strong id="cc-trim-start-val">0:00.0</strong></div>
+            <div class="cc-time-pill active"><span class="cc-time-lbl" data-i18n>Duration</span><strong id="cc-trim-dur-val">0:00.0</strong></div>
+            <div class="cc-time-pill"><span class="cc-time-lbl" data-i18n>End</span><strong id="cc-trim-end-val">0:00.0</strong></div>
+          </div>
+          <div class="capcut-wave-stage" id="capcut-wave-stage">
+            <canvas id="capcut-wave-canvas" width="420" height="88"></canvas>
+            <div class="cc-mask cc-mask-left" id="cc-mask-left"></div>
+            <div class="cc-mask cc-mask-right" id="cc-mask-right"></div>
+            <div class="cc-selection-box" id="cc-selection-box">
+              <div class="cc-handle cc-handle-left" id="cc-handle-left" title="Drag start"><span class="cc-grip"></span><div class="cc-float-time" id="cc-float-left">0:00.0</div></div>
+              <div class="cc-handle cc-handle-right" id="cc-handle-right" title="Drag end"><span class="cc-grip"></span><div class="cc-float-time" id="cc-float-right">0:00.0</div></div>
+            </div>
+            <div class="cc-playhead" id="cc-playhead"></div>
+          </div>
+          <div class="capcut-trim-hint" data-i18n>Drag the handles to keep only your favorite part of this track. Outside parts will be skipped automatically during playback.</div>
+          <div class="dialog-actions" style="margin-top: 14px; justify-content: space-between;">
+            <div style="display:flex;gap:8px;">
+              <button type="button" class="btn-outline-pill" id="btn-cc-preview"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="margin-right:6px;"><polygon points="5 3 19 12 5 21 5 3"/></svg><span data-i18n>Preview</span></button>
+              <button type="button" class="btn-outline-pill hidden" id="btn-cc-reset" data-i18n>Reset trim</button>
+            </div>
+            <button type="button" class="btn-pill-primary" id="btn-cc-save"><span data-i18n>Save trim</span></button>
+          </div>
         </div>
       </div>
-
-      <div class="download-section" id="download-trim-section">
-        <span class="download-section-label">Trim audio</span>
-        <div class="trim-inputs">
-          <input type="text" id="trim-start" class="pill-text-input" placeholder="0:00" value="0:00">
-          <span class="trim-separator">to</span>
-          <input type="text" id="trim-end" class="pill-text-input" placeholder="End" value="">
-        </div>
-      </div>
-
-      <div class="download-section download-effects-section" id="download-effects-section">
-        <div class="effects-toggle-row">
-          <label class="effects-toggle-label" for="download-apply-effects">Apply current audio effects (Preset/High Quality)</label>
-          <input type="checkbox" id="download-apply-effects" class="m3-switch-input">
-        </div>
-      </div>
-
-      <div class="download-modal-actions">
-        <button class="btn-text-error hidden" id="btn-delete-offline-track">Delete offline file</button>
-        <div class="download-actions-right">
-          <button class="btn-outline-pill" id="btn-cancel-download">Cancel</button>
-          <div id="download-spinner"></div>
-          <button class="btn-pill-primary" id="btn-confirm-download">
-            <span id="download-btn-text">Download MP3</span>
-          </button>
-        </div>
-      </div>
-      <div class="download-caption-path">Saved to <span id="download-caption-path"></span></div>
     </div>
   </div>
 
@@ -2629,6 +3397,10 @@
         <span class="custom-lyrics-track-title" id="custom-lyrics-track-title">No track selected</span>
         <span class="custom-lyrics-track-artist" id="custom-lyrics-track-artist"></span>
       </div>
+      <div class="custom-lyrics-tip">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <span>Tip: Type <b>[Instrumental]</b> on a new line to display the music visualizer icon during breaks.</span>
+      </div>
       <textarea class="custom-lyrics-textarea" id="custom-lyrics-textarea" placeholder="First line of the lyrics...&#10;Second line of the lyrics...&#10;&#10;Chorus starts here..."></textarea>
       <div class="dialog-actions">
         <button class="btn-outline-pill" id="btn-cancel-custom-lyrics">Cancel</button>
@@ -2637,14 +3409,38 @@
     </div>
   </div>
 
-  <div class="modal-backdrop hidden" id="update-modal"><div class="settings-card"><div class="settings-card-header"><div class="settings-title-group"><h3 id="update-title">Update available</h3></div><button class="btn-icon-pill" id="btn-close-update" title="Close"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button></div><p id="update-text" class="custom-lyrics-desc"></p><div class="update-progress hidden" id="update-progress"><i></i></div><div class="download-modal-actions"><button class="btn-outline-pill" id="btn-update-ignore">Skip this version</button><button class="btn-outline-pill" id="btn-update-later">Install on exit</button><button class="btn-pill-primary" id="btn-update-now">Update now</button></div></div></div>
+  <div class="modal-backdrop ota-update-backdrop hidden" id="update-modal">
+    <div class="ota-update-sheet" id="update-sheet-card">
+      <div class="ota-update-time" id="update-release-time">Just now</div>
+      <div class="ota-update-top-row">
+        <span class="ota-update-version" id="update-version-badge">v43.2</span>
+        <div class="ota-update-actions">
+          <button class="ota-btn-update" id="btn-update-now" type="button" data-i18n>Update</button>
+          <button class="ota-btn-ignore" id="btn-update-later" type="button" data-i18n>Ignore</button>
+        </div>
+      </div>
+      <div class="ota-update-body" id="update-body-grid">
+        <div class="ota-update-notes" id="update-notes"></div>
+        <div class="ota-update-banner-wrap hidden" id="update-banner-wrap">
+          <img id="update-banner-img" src="" alt="Release banner" draggable="false" />
+        </div>
+      </div>
+      <div class="update-progress-wrap hidden" id="update-progress-wrap" style="display:none !important;">
+        <div class="update-progress-bar"><div class="update-progress-fill" id="update-progress-fill"></div></div>
+        <span class="update-progress-label" id="update-progress-label">0%</span>
+      </div>
+    </div>
+    <div class="ota-center-spinner hidden" id="update-center-spinner">
+      <svg class="g-spinner" width="46" height="46" viewBox="0 0 48 48"><circle cx="24" cy="24" r="20"/></svg>
+      <span class="ota-spinner-label" id="update-spinner-label" data-i18n>Updating Riff...</span>
+    </div>
+  </div>
 
   <div class="modal-backdrop hidden" id="sync-mode-overlay">
     <div class="settings-card sync-mode-card">
       <div class="settings-card-header">
         <div class="settings-title-group">
           <span class="sync-status-dot"></span>
-          <h3>Real-time lyrics sync</h3>
           <span class="sync-mode-badge">Recording</span>
         </div>
         <button class="btn-icon-pill" id="btn-cancel-sync" title="Close">
@@ -2653,10 +3449,6 @@
       </div>
 
       <div class="sync-track-banner" id="sync-track-info">
-        <div class="sync-track-text">
-          <span class="sync-track-title" id="sync-track-title">Current track</span>
-          <span class="sync-track-artist" id="sync-track-artist">Artist</span>
-        </div>
         <div class="sync-tip-pill">Tap a line or press Space on beat</div>
       </div>
 
@@ -2671,6 +3463,12 @@
   </div>
 
   <div class="tv-karaoke hidden" id="tv-karaoke">
+    <div class="tvk-top-hover-zone" id="tvk-top-hover-zone"></div>
+    <div class="tvk-ambient-bg" id="tvk-ambient-bg">
+      <div class="tvk-ambient-blob b1"></div>
+      <div class="tvk-ambient-blob b2"></div>
+      <div class="tvk-ambient-blob b3"></div>
+    </div>
     <div class="tv-bg" id="tv-bg">
       <div class="tv-bg-layer active" id="tv-bg-layer-a"></div>
       <div class="tv-bg-layer" id="tv-bg-layer-b"></div>
@@ -2682,128 +3480,128 @@
       </svg>
     </button>
     <button class="tv-karaoke-close" id="btn-close-tv-karaoke" title="Close (Esc)" aria-label="Close">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="18" y1="6" x2="6" y2="18"></line>
-        <line x1="6" y1="6" x2="18" y2="18"></line>
-      </svg>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
     </button>
     <div class="tvk-panel" id="tvk-panel">
-      <div class="tvk-row">
-        <label class="tvk-label">Font</label>
-        <select class="pill-select" id="tvk-font" style="display:none">
-          <option value="inherit">Default</option>
-          <option value="-apple-system, BlinkMacSystemFont, &quot;SF Pro Display&quot;, &quot;SF Pro Text&quot;, &quot;Helvetica Neue&quot;, sans-serif">SF Pro</option>
-          <option value="Georgia, 'Times New Roman', serif">Serif</option>
-          <option value="ui-rounded, 'Nunito', system-ui, sans-serif">Rounded</option>
-          <option value="ui-monospace, 'JetBrains Mono', monospace">Mono</option>
-          <option value="'Arial Narrow', 'Roboto Condensed', sans-serif">Condensed</option>
-        </select>
-        <div class="m3-dropdown" id="tvk-font-dropdown">
-          <button class="m3-dropdown-trigger" id="tvk-font-trigger" type="button">
-            <span class="m3-dropdown-label" id="tvk-font-label">Default</span>
-            <svg class="m3-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
-          </button>
-          <div class="m3-dropdown-menu" id="tvk-font-menu">
-            <button class="m3-dropdown-option selected" data-value="inherit" type="button">Default</button>
-            <button class="m3-dropdown-option" data-value="-apple-system, BlinkMacSystemFont, &quot;SF Pro Display&quot;, &quot;SF Pro Text&quot;, &quot;Helvetica Neue&quot;, sans-serif" type="button">SF Pro</button>
-            <button class="m3-dropdown-option" data-value="Georgia, 'Times New Roman', serif" type="button">Serif</button>
-            <button class="m3-dropdown-option" data-value="ui-rounded, 'Nunito', system-ui, sans-serif" type="button">Rounded</button>
-            <button class="m3-dropdown-option" data-value="ui-monospace, 'JetBrains Mono', monospace" type="button">Mono</button>
-            <button class="m3-dropdown-option" data-value="'Arial Narrow', 'Roboto Condensed', sans-serif" type="button">Condensed</button>
+      <div class="tvk-panel-inner" id="tvk-panel-inner">
+        <div class="tvk-row">
+          <label class="tvk-label">Font</label>
+          <select class="pill-select" id="tvk-font" style="display:none">
+            <option value="inherit">Default</option>
+            <option value="-apple-system, BlinkMacSystemFont, &quot;SF Pro Display&quot;, &quot;SF Pro Text&quot;, &quot;Helvetica Neue&quot;, sans-serif">SF Pro</option>
+            <option value="Georgia, 'Times New Roman', serif">Serif</option>
+            <option value="ui-rounded, 'Nunito', system-ui, sans-serif">Rounded</option>
+            <option value="ui-monospace, 'JetBrains Mono', monospace">Mono</option>
+            <option value="'Arial Narrow', 'Roboto Condensed', sans-serif">Condensed</option>
+          </select>
+          <div class="m3-dropdown" id="tvk-font-dropdown">
+            <button class="m3-dropdown-trigger" id="tvk-font-trigger" type="button">
+              <span class="m3-dropdown-label" id="tvk-font-label">Default</span>
+              <svg class="m3-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="m3-dropdown-menu" id="tvk-font-menu">
+              <button class="m3-dropdown-option selected" data-value="inherit" type="button">Default</button>
+              <button class="m3-dropdown-option" data-value="-apple-system, BlinkMacSystemFont, &quot;SF Pro Display&quot;, &quot;SF Pro Text&quot;, &quot;Helvetica Neue&quot;, sans-serif" type="button">SF Pro</button>
+              <button class="m3-dropdown-option" data-value="Georgia, 'Times New Roman', serif" type="button">Serif</button>
+              <button class="m3-dropdown-option" data-value="ui-rounded, 'Nunito', system-ui, sans-serif" type="button">Rounded</button>
+              <button class="m3-dropdown-option" data-value="ui-monospace, 'JetBrains Mono', monospace" type="button">Mono</button>
+              <button class="m3-dropdown-option" data-value="'Arial Narrow', 'Roboto Condensed', sans-serif" type="button">Condensed</button>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="tvk-row">
-        <span class="tvk-label">Alignment</span>
-        <div class="tvk-pill-group" id="tvk-align-group">
-          <button type="button" class="tvk-pill-btn" data-value="left" title="Align left" aria-label="Align left">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="17" y1="10" x2="3" y2="10"></line>
-              <line x1="21" y1="6" x2="3" y2="6"></line>
-              <line x1="21" y1="14" x2="3" y2="14"></line>
-              <line x1="17" y1="18" x2="3" y2="18"></line>
-            </svg>
-          </button>
-          <button type="button" class="tvk-pill-btn active" data-value="center" title="Align center" aria-label="Align center">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="18" y1="10" x2="6" y2="10"></line>
-              <line x1="21" y1="6" x2="3" y2="6"></line>
-              <line x1="21" y1="14" x2="3" y2="14"></line>
-              <line x1="18" y1="18" x2="6" y2="18"></line>
-            </svg>
-          </button>
-          <button type="button" class="tvk-pill-btn" data-value="right" title="Align right" aria-label="Align right">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="21" y1="10" x2="7" y2="10"></line>
-              <line x1="21" y1="6" x2="3" y2="6"></line>
-              <line x1="21" y1="14" x2="3" y2="14"></line>
-              <line x1="21" y1="18" x2="7" y2="18"></line>
-            </svg>
-          </button>
+        <div class="tvk-row">
+          <span class="tvk-label">Alignment</span>
+          <div class="tvk-pill-group" id="tvk-align-group">
+            <button type="button" class="tvk-pill-btn" data-value="left" title="Align left" aria-label="Align left">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="17" y1="10" x2="3" y2="10"></line>
+                <line x1="21" y1="6" x2="3" y2="6"></line>
+                <line x1="21" y1="14" x2="3" y2="14"></line>
+                <line x1="17" y1="18" x2="3" y2="18"></line>
+              </svg>
+            </button>
+            <button type="button" class="tvk-pill-btn active" data-value="center" title="Align center" aria-label="Align center">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="10" x2="6" y2="10"></line>
+                <line x1="21" y1="6" x2="3" y2="6"></line>
+                <line x1="21" y1="14" x2="3" y2="14"></line>
+                <line x1="18" y1="18" x2="6" y2="18"></line>
+              </svg>
+            </button>
+            <button type="button" class="tvk-pill-btn" data-value="right" title="Align right" aria-label="Align right">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="21" y1="10" x2="7" y2="10"></line>
+                <line x1="21" y1="6" x2="3" y2="6"></line>
+                <line x1="21" y1="14" x2="3" y2="14"></line>
+                <line x1="21" y1="18" x2="7" y2="18"></line>
+              </svg>
+            </button>
+          </div>
         </div>
-      </div>
-      <div class="tvk-row">
-        <div class="tvk-row-header">
-          <span class="tvk-label">Size</span>
-          <span class="tvk-val" id="val-tvk-size">100%</span>
+        <div class="tvk-row">
+          <div class="tvk-row-header">
+            <span class="tvk-label">Size</span>
+            <span class="tvk-val" id="val-tvk-size">100%</span>
+          </div>
+          <input type="range" class="pill-range" id="tvk-size" min="60" max="160" step="5" value="100">
         </div>
-        <input type="range" class="pill-range" id="tvk-size" min="60" max="160" step="5" value="100">
-      </div>
-      <div class="tvk-row">
-        <div class="tvk-row-header">
-          <span class="tvk-label">Weight</span>
-          <span class="tvk-val" id="val-tvk-weight">700</span>
+        <div class="tvk-row">
+          <div class="tvk-row-header">
+            <span class="tvk-label">Weight</span>
+            <span class="tvk-val" id="val-tvk-weight">700</span>
+          </div>
+          <input type="range" class="pill-range" id="tvk-weight" min="400" max="900" step="100" value="700">
         </div>
-        <input type="range" class="pill-range" id="tvk-weight" min="400" max="900" step="100" value="700">
-      </div>
-      <div class="tvk-row">
-        <div class="tvk-row-header">
-          <span class="tvk-label">Line spacing</span>
-          <span class="tvk-val" id="val-tvk-gap">16px</span>
+        <div class="tvk-row">
+          <div class="tvk-row-header">
+            <span class="tvk-label">Line spacing</span>
+            <span class="tvk-val" id="val-tvk-gap">16px</span>
+          </div>
+          <input type="range" class="pill-range" id="tvk-gap" min="4" max="40" step="1" value="16">
         </div>
-        <input type="range" class="pill-range" id="tvk-gap" min="4" max="40" step="1" value="16">
-      </div>
-      <div class="tvk-row">
-        <span class="tvk-label">Animation</span>
-        <select class="pill-select" id="tvk-anim" style="display:none">
-          <option value="smooth">Smooth</option>
-          <option value="slide">Slide</option>
-          <option value="fade">Fade</option>
-          <option value="pop">Pop</option>
-          <option value="none">None</option>
-        </select>
-        <div class="tvk-pill-group" id="tvk-anim-group">
-          <button type="button" class="tvk-pill-btn" data-value="smooth">Smooth</button>
-          <button type="button" class="tvk-pill-btn active" data-value="slide">Slide</button>
-          <button type="button" class="tvk-pill-btn" data-value="fade">Fade</button>
-          <button type="button" class="tvk-pill-btn" data-value="pop">Pop</button>
-          <button type="button" class="tvk-pill-btn" data-value="none">None</button>
+        <div class="tvk-row">
+          <span class="tvk-label">Animation</span>
+          <select class="pill-select" id="tvk-anim" style="display:none">
+            <option value="smooth">Smooth</option>
+            <option value="slide">Slide</option>
+            <option value="fade">Fade</option>
+            <option value="pop">Pop</option>
+            <option value="none">None</option>
+          </select>
+          <div class="tvk-pill-group" id="tvk-anim-group">
+            <button type="button" class="tvk-pill-btn" data-value="smooth">Smooth</button>
+            <button type="button" class="tvk-pill-btn active" data-value="slide">Slide</button>
+            <button type="button" class="tvk-pill-btn" data-value="fade">Fade</button>
+            <button type="button" class="tvk-pill-btn" data-value="pop">Pop</button>
+            <button type="button" class="tvk-pill-btn" data-value="none">None</button>
+          </div>
         </div>
-      </div>
-      <div class="tvk-row">
-        <div class="tvk-row-header">
-          <span class="tvk-label">Animation speed</span>
-          <span class="tvk-val" id="val-tvk-speed">900ms</span>
+        <div class="tvk-row">
+          <div class="tvk-row-header">
+            <span class="tvk-label">Animation speed</span>
+            <span class="tvk-val" id="val-tvk-speed">900ms</span>
+          </div>
+          <input type="range" class="pill-range" id="tvk-speed" min="150" max="900" step="25" value="900">
         </div>
-        <input type="range" class="pill-range" id="tvk-speed" min="150" max="900" step="25" value="900">
-      </div>
-      <div class="tvk-row tvk-row-toggle">
-        <span class="tvk-label">No-lyrics visualizer</span>
-        <button type="button" class="effect-switch-btn active" id="btn-tvk-visualizer"><span class="thumb"></span></button>
-      </div>
-      <div class="tvk-row tvk-row-toggle">
-        <span class="tvk-label">Visualizer with lyrics</span>
-        <button type="button" class="effect-switch-btn" id="btn-tvk-visualizer-lyrics"><span class="thumb"></span></button>
-      </div>
-      <div class="tvk-row">
-        <div class="tvk-row-header">
-          <span class="tvk-label">Visualizer opacity</span>
-          <span class="tvk-val" id="val-tvk-vis-opacity">85%</span>
+        <div class="tvk-row tvk-row-toggle">
+          <span class="tvk-label">No-lyrics visualizer</span>
+          <button type="button" class="effect-switch-btn active" id="btn-tvk-visualizer"><span class="thumb"></span></button>
         </div>
-        <input type="range" class="pill-range" id="tvk-vis-opacity" min="10" max="100" step="5" value="85">
-      </div>
-      <div class="tvk-actions">
-        <button type="button" id="btn-tvk-reset">Reset</button>
+        <div class="tvk-row"><span data-i18n>Connected wave style</span><button type="button" class="effect-switch-btn" id="btn-tvk-viz-connected"><span class="thumb"></span></button></div>
+        <div class="tvk-row tvk-row-toggle">
+          <span class="tvk-label">Visualizer with lyrics</span>
+          <button type="button" class="effect-switch-btn active" id="btn-tvk-visualizer-lyrics"><span class="thumb"></span></button>
+        </div>
+        <div class="tvk-row">
+          <div class="tvk-row-header">
+            <span class="tvk-label">Visualizer opacity</span>
+            <span class="tvk-val" id="val-tvk-vis-opacity">85%</span>
+          </div>
+          <input type="range" class="pill-range" id="tvk-vis-opacity" min="10" max="100" step="5" value="85">
+        </div>
+        <div class="tvk-actions">
+          <button type="button" id="btn-tvk-reset">Reset</button>
+        </div>
       </div>
     </div>
     <div class="tv-karaoke-layout">
@@ -2831,20 +3629,96 @@
           </button>
           <div class="play-pause-wrapper">
             <button class="btn-play-pause" id="btn-tvk-play" title="Play or pause" aria-label="Play or pause">
-              <svg id="tvk-play-icon" class="play-icon" width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><polygon points="8 5 19 12 8 19"></polygon></svg>
-              <svg id="tvk-pause-icon" class="pause-icon" width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"></rect><rect x="14" y="5" width="4" height="14" rx="1"></rect></svg>
-              <svg id="tvk-play-spinner" class="play-spinner hidden m3-circular-progress" viewBox="0 0 48 48" style="width: 26px; height: 26px; position: absolute; margin: auto; inset: 0;"><circle class="m3-spinner-track" cx="24" cy="24" r="18" fill="none" stroke-width="4"></circle><circle class="m3-spinner-head" cx="24" cy="24" r="18" fill="none" stroke-width="4"></circle></svg>
+              <svg id="tvk-play-icon" class="play-icon play-pause-morph" width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
+                <path class="morph-path-1" d="M 8.8 5.8 L 13.5 8.8 L 13.5 15.2 L 8.8 18.2 Z"></path>
+                <path class="morph-path-2" d="M 13.5 8.8 L 18 12 L 18 12 L 13.5 15.2 Z"></path>
+              </svg>
+              <svg id="tvk-pause-icon" class="pause-icon hidden" style="display:none;" width="0" height="0"></svg>
+              <svg id="tvk-play-spinner" class="play-spinner hidden m3-btn-shape-spinner" viewBox="-180 -180 360 360" style="width: 26px; height: 26px; position: absolute; margin: auto; inset: 0;"><path fill="currentColor"/></svg>
             </button>
           </div>
           <button class="control-btn" id="btn-tvk-next" title="Next" aria-label="Next">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2.5"></line></svg>
           </button>
         </div>
+        <div class="tvk-progress-row" id="tvk-progress-row">
+          <span class="time-label" id="tvk-time-current">0:00</span>
+          <input type="range" class="pill-range" id="tvk-seek-slider" min="0" max="1000" step="1" value="0">
+          <span class="time-label" id="tvk-time-duration">0:00</span>
+        </div>
       </div>
       <div class="tv-karaoke-content" id="tv-karaoke-content"></div>
     </div>
     <div class="tvk-visualizer" id="tvk-visualizer">
       <canvas id="tvk-visualizer-canvas"></canvas>
+    </div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="lastfm-modal">
+    <div class="dialog-card" style="width: 440px; max-width: 92vw; display: flex; flex-direction: column; gap: 14px;">
+      <div class="dialog-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="#d51007"><path d="M10.584 17.21l-.88-2.392s-1.43 1.594-3.573 1.594c-1.897 0-3.244-1.649-3.244-4.288 0-3.382 1.704-4.591 3.381-4.591 2.42 0 3.189 1.567 3.849 3.574l.88 2.749c.88 2.666 2.529 4.81 7.285 4.81 3.409 0 5.718-1.045 5.718-3.793 0-2.227-1.265-3.381-3.63-3.931l-1.758-.385c-1.21-.275-1.567-.77-1.567-1.595 0-.934.742-1.484 1.952-1.484 1.32 0 2.034.495 2.144 1.677l2.749-.33c-.22-2.474-1.924-3.492-4.729-3.492-2.474 0-4.893.935-4.893 3.932 0 1.87.907 3.051 3.189 3.601l1.87.44c1.402.33 1.869.907 1.869 1.704 0 1.017-.99 1.43-2.86 1.43-2.776 0-3.93-1.457-4.59-3.464l-.907-2.749c-1.155-3.573-2.997-4.893-6.653-4.893C2.144 5.334 0 7.89 0 12.233c0 4.18 2.144 6.434 5.993 6.434 3.106 0 4.591-1.457 4.591-1.457z"/></svg>
+          <h3 style="margin: 0;" data-i18n>Last.fm Scrobbling</h3>
+        </div>
+        <button class="btn-icon-pill" id="btn-close-lastfm-modal" type="button" title="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div id="lastfm-modal-connected-box" class="hidden" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-radius: 16px; background: var(--md-sys-color-surface-container);">
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <span style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-outline);" data-i18n>Connected account</span>
+          <span id="lastfm-modal-user" style="font-size: calc(15px * var(--font-scale, 1)); font-weight: 600; color: var(--md-sys-color-primary);">@user</span>
+        </div>
+        <button type="button" class="btn-outline-pill" id="btn-lastfm-disconnect" style="height: 34px; padding: 0 14px;" data-i18n>Log out</button>
+      </div>
+      <div id="lastfm-modal-auth-box" style="display: flex; flex-direction: column; gap: 12px;">
+        <button type="button" class="btn-pill-primary" id="btn-lastfm-web-auth" style="width: 100%;" data-i18n>Connect in browser (1-click)</button>
+        <div style="text-align: center; font-size: calc(11px * var(--font-scale, 1)); color: var(--md-sys-color-outline);" data-i18n>or sign in with Last.fm credentials</div>
+        <input type="text" id="lastfm-input-user" class="pill-text-input" placeholder="Last.fm username" autocomplete="off">
+        <input type="password" id="lastfm-input-pass" class="pill-text-input" placeholder="Last.fm password" autocomplete="off">
+        <details style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-on-surface-variant);">
+          <summary style="cursor: pointer; padding: 4px 0;" data-i18n>Custom API key (optional)</summary>
+          <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+            <input type="text" id="lastfm-input-key" class="pill-text-input" placeholder="API Key (optional)" autocomplete="off">
+            <input type="password" id="lastfm-input-secret" class="pill-text-input" placeholder="Shared Secret (optional)" autocomplete="off">
+          </div>
+        </details>
+        <div id="lastfm-modal-status" class="hidden" style="font-size: calc(12px * var(--font-scale, 1)); color: var(--md-sys-color-primary); text-align: center;"></div>
+        <div class="dialog-actions" style="margin-top: 4px;">
+          <button type="button" class="btn-outline-pill" id="btn-cancel-lastfm-modal" data-i18n>Cancel</button>
+          <button type="button" class="btn-pill-primary" id="btn-lastfm-login-direct" data-i18n>Sign in</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="yt-auth-sheet hidden" id="yt-auth-sheet" role="dialog" aria-labelledby="yt-auth-sheet-title">
+    <div class="yt-auth-sheet-left">
+      <div class="yt-auth-sheet-title" id="yt-auth-sheet-title" data-i18n>Sign in to YouTube to continue listening</div>
+      <div class="yt-auth-sheet-desc" data-i18n>Some tracks don't load because YouTube blocks your IP if you aren't signed in. To continue listening to every track, sign in.</div>
+      <div class="yt-auth-btn-stack">
+        <button type="button" class="yt-auth-btn-primary" id="btn-yt-sheet-signin">
+          <span data-i18n>Sign in</span>
+        </button>
+        <button type="button" class="yt-auth-btn-secondary" id="btn-yt-sheet-no">
+          <span data-i18n>No</span>
+        </button>
+      </div>
+    </div>
+    <div class="yt-auth-sheet-logo" aria-hidden="true">
+      <svg viewBox="0 0 28 20" width="46" height="32">
+        <path d="M27.4 3.1a3.5 3.5 0 0 0-2.5-2.5C22.7 0 14 0 14 0S5.3 0 3.1.6A3.5 3.5 0 0 0 .6 3.1C0 5.3 0 10 0 10s0 4.7.6 6.9a3.5 3.5 0 0 0 2.5 2.5C5.3 20 14 20 14 20s8.7 0 10.9-.6a3.5 3.5 0 0 0 2.5-2.5C28 14.7 28 10 28 10s0-4.7-.6-6.9z" fill="#FF0033"/>
+        <polygon points="11.2,14.3 18.5,10 11.2,5.7" fill="#FFFFFF"/>
+      </svg>
+    </div>
+  </div>
+
+  <div class="i18n-loading-overlay hidden" id="i18n-loading-overlay" aria-hidden="true">
+    <div class="i18n-shape-box">
+      <svg class="i18n-m3-svg" viewBox="-180 -180 360 360" width="88" height="88">
+        <path fill="var(--md-sys-color-primary)"/>
+      </svg>
     </div>
   </div>
 
@@ -2863,33 +3737,11 @@
     <div id="css-editor-host" class="css-editor-host"></div>
   </div>
 
-  <div class="modal-backdrop hidden" id="command-palette">
-    <div class="settings-card command-palette-card">
-      <div class="command-palette-field">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line></svg>
-        <input type="text" id="command-palette-input" placeholder="Search tracks, playlists, actions" autocomplete="off" spellcheck="false">
-        <kbd class="command-palette-key">Esc</kbd>
-      </div>
-      <div class="command-palette-results" id="command-palette-results"></div>
-    </div>
-  </div>
-
-  <div class="multi-select-bar hidden" id="multi-select-bar" role="toolbar" aria-label="Selected tracks">
-    <span class="multi-select-count" id="multi-select-count">0 selected</span>
-    <button type="button" class="btn-outline-pill" id="multi-select-all">Select all</button>
-    <button type="button" class="btn-outline-pill" id="multi-select-fav">Favorite</button>
-    <button type="button" class="btn-outline-pill" id="multi-select-add">Add to playlist</button>
-    <button type="button" class="btn-outline-pill" id="multi-select-remove">Remove</button>
-    <button type="button" class="btn-pill-primary" id="multi-select-done">Done</button>
-  </div>
-
-  <script src="assets/hls.min.js"></script>
-  <script src="audio-engine.js"></script>
-  <script src="m3shapes.js"></script>
+  <script src="../../assets/hls.min.js"></script>
+  <script src="audio.js"></script>
+  <script src="shapes.js"></script>
   <script src="lyrics-rtl.js"></script>
   <script src="track-sort.js"></script>
-  <script src="search-text.js"></script>
-  <script src="library-tools.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

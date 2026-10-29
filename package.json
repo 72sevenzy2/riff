@@ -1,9 +1,9 @@
 {
   "name": "riff",
-  "version": "42.3.0",
-  "main": "main.js",
+  "version": "43.2.2",
+  "main": "src/main/main.js",
   "bin": {
-    "riff": "./cli.js"
+    "riff": "src/main/cli.js"
   },
   "scripts": {
     "start": "electron .",
@@ -45,14 +45,10 @@
       "output": "dist"
     },
     "files": [
-      "**/*",
-      "!.github/**",
-      "!dist/**",
-      "!bin/**",
-      "!*.md",
-      "!strip_comments.js",
-      "!.riff_progress.md",
-      "!package-lock.json"
+      "src/**/*",
+      "assets/**/*",
+      "vendor/**/*",
+      "package.json"
     ],
     "win": {
       "target": [

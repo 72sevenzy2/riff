@@ -151,7 +151,7 @@
           this.hqAir.frequency.value = 9000;
 
           this.hqSaturation = this.ctx.createWaveShaper();
-          this.hqSaturation.oversample = '4x';
+          this.hqSaturation.oversample = '2x';
 
           this.hqLimiter = this.ctx.createDynamicsCompressor();
           this.hqLimiter.threshold.value = -1;
@@ -510,9 +510,23 @@
     }
 
     _applyMasterVolume() {
-      const vol = this.isMuted ? 0 : this.volume;
+      if (this.fadeGain && this.ctx) {
+        try {
+          if (this.fadeGain.gain.value <= 0.01) {
+            this.fadeGain.gain.cancelScheduledValues(this.ctx.currentTime);
+            this.fadeGain.gain.setValueAtTime(1.0, this.ctx.currentTime);
+          }
+        } catch (_) {}
+      }
+      const vol = this.isMuted ? 0 : Math.max(0, Math.min(1, Number.isFinite(this.volume) ? this.volume : 0.85));
+      if (this._attachedElement) {
+        try {
+          this._attachedElement.volume = vol;
+          this._attachedElement.muted = this.graphInitialized ? false : !!this.isMuted;
+        } catch (_) {}
+      }
       if (this.masterGain) {
-        this.masterGain.gain.value = vol * this.audioSettings.volume;
+        this.masterGain.gain.value = this.isMuted ? 0 : (Number.isFinite(this.audioSettings.volume) ? this.audioSettings.volume : 1.0);
       }
     }
 
@@ -538,7 +552,7 @@
       if (this.masterGain && this.ctx) {
         this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
         this.masterGain.gain.setValueAtTime(0.001, this.ctx.currentTime);
-        const targetVol = (this.isMuted ? 0 : this.volume) * this.audioSettings.volume;
+        const targetVol = (this.isMuted ? 0 : 1) * (this.audioSettings.volume || 1.0);
         this.masterGain.gain.exponentialRampToValueAtTime(
           Math.max(0.001, targetVol), this.ctx.currentTime + durationSec
         );

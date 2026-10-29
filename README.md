@@ -45,8 +45,6 @@
   <a href="https://ko-fi.com/rootlesszen"><img src="https://img.shields.io/badge/Ko--fi-support-FF5E5B?style=flat-square&logo=kofi&logoColor=white&labelColor=16191C" alt="Support on Ko-fi"></a>
 </p>
 
-> [!NOTE]
-> **Pull requests are temporarily closed due to merge conflicts with an update coming soon. Will be open when Riff updates.**
 ## What is Riff?
 
 Riff is an open-source, telemetry-free desktop music app and player for **Windows, Linux, and macOS**. It unifies playback across **YouTube Music**, **YouTube**, **SoundCloud**, and offline local media into a single high-performance interface without ads, subscriptions, or login constraints. Provides very fancy UI and layout.

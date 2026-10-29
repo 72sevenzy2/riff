@@ -1,7 +1,7 @@
 const { dialog, ipcMain } = require('electron');
 const fs = require('fs');
 const path = require('path');
-const { DATA_DIR } = require('./platform');
+const { DATA_DIR } = require('../shared/platform');
 
 const THEMES_DIR = path.join(DATA_DIR, 'themes');
 const INDEX_PATH = path.join(THEMES_DIR, 'index.json');
@@ -72,7 +72,7 @@ function register(getWindow) {
     writeIndex(readIndex().filter((t) => t.id !== id));
   });
   ipcMain.handle('read-app-css', () => {
-    try { return fs.readFileSync(path.join(__dirname, 'styles.css'), 'utf8'); } catch (e) { return ''; }
+    try { return fs.readFileSync(path.join(__dirname, '../renderer/styles.css'), 'utf8'); } catch (e) { return ''; }
   });
 }
 

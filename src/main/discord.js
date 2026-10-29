@@ -156,78 +156,38 @@ function scheduleReconnect() {
 }
 
 function _setActivity(trackInfo) {
-	const client = rpcClient;
-
-	if (!client || !isConnected || !trackInfo || !isEnabled) {
-		return;
-	}
-
-	// Don't stack activity requests for the same client.
-	if (activityInFlightClient === client) return;
-
-	activityInFlightClient = client;
-	const revision = trackRevision;
-
-	const now = Math.floor(Date.now() / 1000);
-	const startEpoch = trackInfo.startTimestamp || now;
-
-	const activity = {
-		type: 2,
-		details: (trackInfo.title || 'Unknown Track').substring(0, 128),
-		state: trackInfo.artist
-			? `by ${trackInfo.artist}`.substring(0, 128)
-			: 'Unknown Artist',
-		timestamps: {
-			start: startEpoch,
-		},
-		assets: {
-			large_image: trackInfo.thumbnail || undefined,
-		},
-		instance: false,
-	};
-
-	if (trackInfo.duration && trackInfo.duration > 0) {
-		activity.timestamps.end =
-			startEpoch + Math.floor(trackInfo.duration);
-	}
-
-	if (trackInfo.url) {
-		const label = trackInfo.platform === 'soundcloud'
-			? 'Listen on SoundCloud'
-			: 'Listen on YouTube';
-
-		activity.buttons = [{ label, url: trackInfo.url }];
-	}
-
-	withTimeout(
-		client.request('SET_ACTIVITY', {
-			pid: process.pid,
-			activity,
-		}),
-		ACTIVITY_TIMEOUT_MS,
-		'SET_ACTIVITY'
-	)
-		.catch(err => {
-			recoverConnection(client, err.message || String(err));
-		})
-		.finally(() => {
-			if (activityInFlightClient === client) {
-				activityInFlightClient = null;
-			}
-
-			// If another track arrived while this request was running,
-			// send only the newest track.
-			if (
-				rpcClient === client &&
-				isConnected &&
-				isEnabled &&
-				lastTrackInfo &&
-				revision !== trackRevision
-			) {
-				_setActivity(lastTrackInfo);
-			}
-		});
+  if (!rpcClient || !isConnected || !trackInfo) return;
+  const now = Math.floor(Date.now() / 1000);
+  const startEpoch = trackInfo.startTimestamp || now;
+  const showArtistStatus = trackInfo.artistInStatus !== false;
+  const cleanTitle = String(trackInfo.title || 'Unknown Track').substring(0, 128).padEnd(2, ' ');
+  const cleanArtist = String(trackInfo.artist || 'Unknown Artist').substring(0, 128).padEnd(2, ' ');
+  const baseActivity = {
+    type: 2,
+    details: cleanTitle,
+    state: showArtistStatus ? cleanArtist : (`by ${trackInfo.artist || 'Unknown Artist'}`).substring(0, 128).padEnd(2, ' '),
+    timestamps: { start: startEpoch },
+    assets: { large_image: trackInfo.thumbnail || undefined },
+    instance: false,
+  };
+  if (trackInfo.duration && trackInfo.duration > 0) {
+    baseActivity.timestamps.end = startEpoch + Math.floor(trackInfo.duration);
+  }
+  if (trackInfo.url && typeof trackInfo.url === 'string' && trackInfo.url.startsWith('https://') && trackInfo.url.length <= 512) {
+    baseActivity.buttons = [{ label: 'Listen', url: trackInfo.url }];
+  }
+  const primaryActivity = showArtistStatus
+    ? Object.assign({}, baseActivity, { status_display_type: 1 })
+    : baseActivity;
+  rpcClient.request('SET_ACTIVITY', { pid: process.pid, activity: primaryActivity }).catch(() => {
+    if (rpcClient && isConnected) {
+      rpcClient.request('SET_ACTIVITY', { pid: process.pid, activity: baseActivity }).catch(err => {
+        console.warn('[Discord RPC] SET_ACTIVITY error:', err.message || err);
+      });
+    }
+  });
 }
+
 
 function updatePresence(trackInfo) {
 	if (!trackInfo) return;
@@ -310,6 +270,11 @@ function destroyRPC() {
 	isDestroying = false;
 }
 
+function reconnectRPC() {
+	destroyRPC();
+	setTimeout(() => initRPC(), 600);
+}
+
 module.exports = {
 	initRPC,
 	updatePresence,
@@ -318,4 +283,5 @@ module.exports = {
 	getEnabled,
 	getConnected,
 	destroyRPC,
+	reconnectRPC,
 };
