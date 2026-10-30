@@ -188,13 +188,19 @@ async function installFfmpeg() {
   try {
     if (IS_WIN) {
       try {
-        await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Expand-Archive -LiteralPath '${archive.replace(/'/g, "''")}' -DestinationPath '${work.replace(/'/g, "''")}' -Force`]);
+        await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', `[System.IO.Compression.ZipFile]::ExtractToDirectory('${archive.replace(/'/g, "''")}', '${work.replace(/'/g, "''")}')`]);
       } catch (_) {
-        await new Promise((resolve, reject) => {
-          const p = spawn('tar.exe', ['-xf', path.basename(archive), '-C', work], { cwd: path.dirname(archive), windowsHide: true });
-          p.on('error', reject);
-          p.on('close', code => code === 0 ? resolve() : reject(new Error(`tar exited with ${code}`)));
-        });
+        try {
+          await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Expand-Archive -LiteralPath '${archive.replace(/'/g, "''")}' -DestinationPath '${work.replace(/'/g, "''")}' -Force`]);
+        } catch (_) {
+          const sys32Tar = 'C:\\Windows\\System32\\tar.exe';
+          const tarCmd = fs.existsSync(sys32Tar) ? sys32Tar : 'tar.exe';
+          await new Promise((resolve, reject) => {
+            const p = spawn(tarCmd, ['-xf', path.basename(archive), '-C', work], { cwd: path.dirname(archive), windowsHide: true });
+            p.on('error', (err) => reject(new Error(`Failed to extract archive: ${err.message}`)));
+            p.on('close', code => code === 0 ? resolve() : reject(new Error(`tar exited with ${code}`)));
+          });
+        }
       }
     } else {
       await run('tar', ['-xf', archive, '-C', work]);

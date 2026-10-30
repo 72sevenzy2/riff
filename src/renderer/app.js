@@ -249,6 +249,7 @@ window.HomeCache = HomeCache;
 document.addEventListener('DOMContentLoaded', async () => {
   var state = { vibeTracks: [] };
   var myWaveCurrentTracks = [];
+  var maybeShowYtAuthSheet = async function() {};
   try { localStorage.removeItem('riff_stats'); } catch (e) {}
 
   await HomeCache.init();
@@ -1994,6 +1995,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                           valEqHigh: document.getElementById('val-eq-high'),
                           eqBands: document.getElementById('eq-bands'),
                           btnResetEqBands: document.getElementById('btn-reset-eq-bands'),
+                          btnResetAudio: document.getElementById('btn-reset-audio'),
 
                           sliderScale: document.getElementById('settings-slider-scale') || document.getElementById('slider-scale'),
                           valScale: document.getElementById('settings-val-scale') || document.getElementById('val-scale'),
@@ -2674,13 +2676,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         el.scrubberTrack.appendChild(scrubberCanvas);
       }
       const rect = el.scrubberTrack.getBoundingClientRect();
-      cachedTrackWidth = rect.width;
+      const rw = rect.width || (el.scrubberTrack.clientWidth) || 300;
+      cachedTrackWidth = rw;
       cachedTrackHeight = Math.max(40, rect.height);
       hasDrawnPausedFrame = false;
-      scrubberCanvas.width = rect.width * dpr;
-      scrubberCanvas.height = Math.max(40, rect.height) * dpr;
-      scrubberCanvas.style.width = `${rect.width}px`;
-      scrubberCanvas.style.height = `${Math.max(40, rect.height)}px`;
+      scrubberCanvas.width = Math.round(rw * dpr);
+      scrubberCanvas.height = Math.round(Math.max(40, rect.height) * dpr);
+      scrubberCanvas.style.width = '100%';
+      scrubberCanvas.style.height = '100%';
       const ctx = scrubberCanvas.getContext('2d');
       ctx.resetTransform();
       ctx.scale(dpr, dpr);
@@ -3282,10 +3285,11 @@ document.addEventListener('DOMContentLoaded', async () => {
           scrubProgress = Math.max(0, Math.min(1, Number.isFinite(scrubProgress) ? scrubProgress : 0));
 
           const targetAnim = isDraggingScrubber ? 1 : 0;
-          scrubKnobAnim += (targetAnim - scrubKnobAnim) * Math.min(1, dt * 16);
+          scrubKnobAnim += (targetAnim - scrubKnobAnim) * Math.min(1, Math.max(0, dt * 16));
+          scrubKnobAnim = Math.max(0, Math.min(1, Number.isFinite(scrubKnobAnim) ? scrubKnobAnim : 0));
           const curKnobW = 7.5 + (9.0 - 7.5) * scrubKnobAnim;
           const curKnobH = 24 + (32 - 24) * scrubKnobAnim;
-          const curKnobR = 3.75 + (4.5 - 3.75) * scrubKnobAnim;
+          const curKnobR = Math.max(0, 3.75 + (4.5 - 3.75) * scrubKnobAnim);
 
           const padLeft = 5.5;
           const padRight = 5.5;
@@ -3382,10 +3386,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             scrubProgress += (targetProgress - scrubProgress) * Math.min(1, dt * followSpeed);
 
             const targetAnim = isDraggingScrubber ? 1 : 0;
-            scrubKnobAnim += (targetAnim - scrubKnobAnim) * Math.min(1, dt * 16);
+            scrubKnobAnim += (targetAnim - scrubKnobAnim) * Math.min(1, Math.max(0, dt * 16));
+            scrubKnobAnim = Math.max(0, Math.min(1, Number.isFinite(scrubKnobAnim) ? scrubKnobAnim : 0));
             const curKnobW = 7.5 + (9.0 - 7.5) * scrubKnobAnim;
             const curKnobH = 22 + (28 - 22) * scrubKnobAnim;
-            const curKnobR = 3.75 + (4.5 - 3.75) * scrubKnobAnim;
+            const curKnobR = Math.max(0, 3.75 + (4.5 - 3.75) * scrubKnobAnim);
 
             const padLeft = 5.5;
             const padRight = 5.5;
@@ -3642,7 +3647,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       el.playbarTitle.dataset.origTitle = track.title || '';
     }
     if (el.playbarArtist) {
-      renderClickableArtists(el.playbarArtist, track.artist);
+      renderClickableArtists(el.playbarArtist, track.artist, track);
       if (typeof isTrackExplicit === 'function' && isTrackExplicit(track)) {
         const badge = document.createElement('span');
         badge.className = 'explicit-badge';
@@ -3714,7 +3719,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (el.rightPanelTitle) el.rightPanelTitle.textContent = track.title || 'Untitled';
     if (el.rightPanelArtist) {
-      renderClickableArtists(el.rightPanelArtist, track.artist);
+      renderClickableArtists(el.rightPanelArtist, track.artist, track);
       if (typeof isTrackExplicit === 'function' && isTrackExplicit(track)) {
         const badge = document.createElement('span');
         badge.className = 'explicit-badge';
@@ -4404,7 +4409,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       const qQuality = encodeURIComponent(localStorage.getItem('riff_audio_quality') || 'medium');
       const qSearch = encodeURIComponent(track.searchQuery || ((track.artist ? track.artist + ' - ' : '') + track.title));
-      const streamInfoUrl = `http://127.0.0.1:${state.serverPort}/api/stream-info?url=${encodeURIComponent(resolvedUrl || '')}&id=${encodeURIComponent(resolvedId || '')}&platform=${track.platform || state.platform}&title=${encodeURIComponent(track.title || '')}&artist=${encodeURIComponent(track.artist || '')}&duration=${encodeURIComponent(track.duration || 0)}&thumbnail=${encodeURIComponent(track.thumbnail || '')}&quality=${qQuality}&q=${qSearch}`;
+      const streamInfoUrl = `http://127.0.0.1:${state.serverPort}/api/stream-info?url=${encodeURIComponent(resolvedUrl || '')}&id=${encodeURIComponent(resolvedId || '')}&platform=${(state.platform === 'soundcloud' && (!track.url || !track.url.includes('youtube.com'))) ? 'soundcloud' : (track.platform || state.platform || 'ytmusic')}&title=${encodeURIComponent(track.title || '')}&artist=${encodeURIComponent(track.artist || '')}&duration=${encodeURIComponent(track.duration || 0)}&thumbnail=${encodeURIComponent(track.thumbnail || '')}&quality=${qQuality}&q=${qSearch}`;
       let res;
       try {
         res = await fetch(streamInfoUrl, { signal });
@@ -9187,7 +9192,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (e.target.closest('.track-row-actions')) return;
             if (e.target.classList.contains('track-row-artist')) {
               e.stopPropagation();
-              openArtistProfile(trackItem.artist);
+              openArtistProfile(trackItem.artist, trackItem);
               return;
             }
             e.stopImmediatePropagation();
@@ -10711,7 +10716,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         `;
 
         const artistEl = row.querySelector('.track-row-artist');
-        if (artistEl) renderClickableArtists(artistEl, track.artist);
+        if (artistEl) renderClickableArtists(artistEl, track.artist, track);
 
         let prefetchTimer = null;
         row.addEventListener('mouseenter', () => {
@@ -10732,7 +10737,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (e.target.closest('.track-row-actions') || e.target.closest('.artist-link-part')) return;
           if (e.target.classList.contains('track-row-artist')) {
             e.stopPropagation();
-            openArtistProfile(track.artist);
+            openArtistProfile(track.artist, track);
             return;
           }
           if (e.shiftKey || e.ctrlKey || e.metaKey || e.target.closest('.tg-select-check')) {
@@ -11045,7 +11050,7 @@ function splitArtistTokens(rawArtist) {
   return tokens.length ? tokens : [{ type: 'artist', value: str }];
 }
 
-function renderClickableArtists(container, rawArtist) {
+function renderClickableArtists(container, rawArtist, hintTrack = null) {
   rawArtist = stripYoutubeTopic(rawArtist);
   if (!container) return;
   container.innerHTML = '';
@@ -11064,7 +11069,7 @@ function renderClickableArtists(container, rawArtist) {
         e.stopPropagation();
         if (tok.value && tok.value.toLowerCase() !== 'unknown artist') {
           if (el.tvKaraoke && !el.tvKaraoke.classList.contains('hidden') && typeof closeTvKaraoke === 'function') closeTvKaraoke();
-          openArtistProfile(tok.value);
+          openArtistProfile(tok.value, hintTrack || state.currentTrack);
         }
       });
       container.appendChild(span);
@@ -16159,10 +16164,11 @@ function bindCoverHoldZoom(wrapEl) {
     ctx.clip();
     const heroPath = document.getElementById('m3-hero-shape-path');
     if (heroPath && document.body.classList.contains('m3-hero-covers-on')) {
+      const baseScale = (COVER_PX / 2) / 160 * 1.02;
       let heroD = '';
       for (let k = 0; k <= K; k++) {
         const th = -Math.PI + (Math.PI * 2 * (k % K)) / K;
-        const r = radiusAt(th);
+        const r = rawRadiusAt(th) * baseScale;
         const nx = Math.max(0, Math.min(1, 0.5 + (Math.cos(th + rot) * r) / (COVER_PX * 1.05)));
         const ny = Math.max(0, Math.min(1, 0.5 + (Math.sin(th + rot) * r) / (COVER_PX * 1.05)));
         if (k === 0) heroD += `M ${nx.toFixed(4)} ${ny.toFixed(4)}`;
@@ -18160,8 +18166,9 @@ function bindCoverHoldZoom(wrapEl) {
     });
   }
 
-  if (el.btnResetAudio) {
-    el.btnResetAudio.addEventListener('click', () => {
+  const btnResetAudio = el.btnResetAudio || document.getElementById('btn-reset-audio');
+  if (btnResetAudio) {
+    btnResetAudio.addEventListener('click', () => {
       state.activePresetId = 'p_default';
       state.audioSettings = { speed: 1.0, speedPitch: 1.0, pitch: 0, reverb: 0, distortion: 0, volume: 1.0, echo: 0, eq: { low: 0, mid: 0, high: 0 }, eqBands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] };
       state.hqSettings = { engine: 'hqmusic-3', preset: 'studio', vocal: 0, air: 0, bass: 0 };

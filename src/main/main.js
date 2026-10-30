@@ -731,18 +731,23 @@ function runGUI() {
               if (!buf || buf.length <= 1) return '';
               const enc = buf[0];
               const data = buf.subarray(1);
-              if (enc === 0) return data.toString('latin1').replace(/\0+$/, '');
-              if (enc === 1) {
+              let s = '';
+              if (enc === 0) {
+                s = data.toString('latin1');
+              } else if (enc === 1) {
                 if (data.length >= 2 && data[0] === 0xfe && data[1] === 0xff) {
-                  return data.swap16().toString('utf16le').replace(/\0+$/, '');
+                  s = data.subarray(2).swap16().toString('utf16le');
+                } else if (data.length >= 2 && data[0] === 0xff && data[1] === 0xfe) {
+                  s = data.subarray(2).toString('utf16le');
+                } else {
+                  s = data.toString('utf16le');
                 }
-                return data.toString('utf16le').replace(/\0+$/, '');
+              } else if (enc === 2) {
+                s = data.swap16().toString('utf16le');
+              } else {
+                s = data.toString('utf8');
               }
-              if (enc === 2) {
-                return data.swap16().toString('utf16le').replace(/\0+$/, '');
-              }
-              if (enc === 3) return data.toString('utf8').replace(/\0+$/, '');
-              return data.toString('utf8').replace(/\0+$/, '');
+              return s.replace(/^[\uFEFF\0]+|[\uFEFF\0]+$/g, '').trim();
             }
 
             while (offset + 10 <= tagBuf.length) {
@@ -909,6 +914,46 @@ function runGUI() {
                     if (!isNaN(d) && d > 0) duration = d;
                   }
                 } catch (e) {}
+              }
+              resolve();
+            });
+          });
+        }
+
+        if ((!title || !artist || !album || !duration) && ffmpegBin) {
+          await new Promise(resolve => {
+            execFile(ffmpegBin, [
+              '-i', filePath,
+              '-f', 'ffmetadata',
+              '-'
+            ], { timeout: 5000 }, (err, stdout, stderr) => {
+              if (stdout) {
+                try {
+                  const lines = stdout.split(/\r?\n/);
+                  const tags = {};
+                  for (const line of lines) {
+                    const eq = line.indexOf('=');
+                    if (eq > 0) {
+                      const k = line.slice(0, eq).trim().toLowerCase();
+                      const v = line.slice(eq + 1).trim();
+                      if (v) tags[k] = v;
+                    }
+                  }
+                  if (!title && tags.title) title = tags.title;
+                  if (!artist && (tags.artist || tags.album_artist || tags.composer)) artist = tags.artist || tags.album_artist || tags.composer;
+                  if (!album && tags.album) album = tags.album;
+                  if (!trackNum && tags.track) {
+                    const n = parseInt(tags.track.split('/')[0], 10);
+                    if (!isNaN(n)) trackNum = n;
+                  }
+                } catch (e) {}
+              }
+              if (!duration && stderr) {
+                const m = stderr.match(/Duration:\s*(\d+):(\d+):([\d.]+)/i);
+                if (m) {
+                  const d = parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseFloat(m[3]);
+                  if (!isNaN(d) && d > 0) duration = d;
+                }
               }
               resolve();
             });

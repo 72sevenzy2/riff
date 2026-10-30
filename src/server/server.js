@@ -2690,7 +2690,7 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
             '-f', (forShare ? audioFormat : ytDlpQualityFormat),
             '--', vUrl
           ];
-          const raw = await executeYtDlp(args, 20000);
+          const raw = await executeYtDlp(args, 18000);
           const lines = raw.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
           for (const lineUrl of lines) {
             if (await verifyStreamPlayable(lineUrl)) {
@@ -2987,7 +2987,10 @@ async function fetchMusicBio(artistName) {
         if (!sumTitle.startsWith(cleanLower)) continue;
         if (/list of |discography|may refer to/i.test(sumTitle) || /list of |discography|may refer to/i.test(ext)) continue;
         if (!/ammunition|cartridge|human face|anatomy|organism/i.test(ext)) {
-          return ext;
+          const extLower = ext.toLowerCase();
+          if (extLower.includes(cleanLower) || cleanLower.split(/\s+/).some(w => w.length >= 3 && extLower.includes(w))) {
+            return ext;
+          }
         }
       }
     }
@@ -3697,7 +3700,17 @@ async function findDownloadedFile(title, artist) {
     await buildDownloadsIndex();
   }
   const key = `${sanitizeFilename(artist || 'unknown artist')} - ${sanitizeFilename(title || 'untitled')}`.toLowerCase();
-  return downloadsIndex.get(key) || null;
+  let found = downloadsIndex.get(key);
+  if (!found && (title || artist)) {
+    const sTitle = sanitizeFilename(title || '').toLowerCase();
+    for (const [k, v] of downloadsIndex.entries()) {
+      if (sTitle && (k.includes(sTitle) || sTitle.includes(k))) {
+        found = v;
+        break;
+      }
+    }
+  }
+  return found || null;
 }
 
 async function cleanupDownloadArtifacts(dir, beforeSet, baseName, videoId, chosenExt, keepSuccessFile) {
