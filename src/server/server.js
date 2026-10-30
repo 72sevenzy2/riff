@@ -2932,19 +2932,22 @@ async function fetchMusicBio(artistName) {
 			if (!titleLower.startsWith(cleanLower)) continue;
 			if (/list of |discography|may refer to/i.test(titleLower)) continue;
 
-			const summaryUrl = `https://${wikiHost}/api/rest_v1/page/summary/${encodeURIComponent(hit.title)}`;
-			const summaryData = await httpGetJson(summaryUrl, 3500);
-			if (summaryData && summaryData.extract) {
-				const ext = summaryData.extract;
-				const sumTitle = (summaryData.title || '').toLowerCase();
-				if (!sumTitle.startsWith(cleanLower)) continue;
-				if (/list of |discography|may refer to/i.test(sumTitle) || /list of |discography|may refer to/i.test(ext)) continue;
-				if (!/ammunition|cartridge|human face|anatomy|organism/i.test(ext)) {
-					return ext;
-				}
-			}
-		}
-	} catch (_) { }
+      const summaryUrl = `https://${wikiHost}/api/rest_v1/page/summary/${encodeURIComponent(hit.title)}`;
+      const summaryData = await httpGetJson(summaryUrl, 3500);
+      if (summaryData && summaryData.extract) {
+        const ext = summaryData.extract;
+        const sumTitle = (summaryData.title || '').toLowerCase();
+        if (!sumTitle.startsWith(cleanLower)) continue;
+        if (/list of |discography|may refer to/i.test(sumTitle) || /list of |discography|may refer to/i.test(ext)) continue;
+        if (!/ammunition|cartridge|human face|anatomy|organism/i.test(ext)) {
+          const extLower = ext.toLowerCase();
+          if (extLower.includes(cleanLower) || cleanLower.split(/\s+/).some(w => w.length >= 3 && extLower.includes(w))) {
+            return ext;
+          }
+        }
+      }
+    }
+  } catch (_) {}
 
 	return '';
 }

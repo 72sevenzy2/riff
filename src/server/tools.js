@@ -160,57 +160,63 @@ async function installYtDlp() {
 }
 
 async function installFfmpeg() {
-	const asset = ffmpegAsset();
-	if (process.platform === 'darwin' && !asset) {
-		const archive = path.join(os.tmpdir(), 'riff-ffmpeg-macos.zip');
-		try {
-			await downloadFile('https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip', archive);
-			await run('/usr/bin/unzip', ['-o', archive, '-d', BIN_DIR]);
-			const dest = path.join(BIN_DIR, 'ffmpeg');
-			if (fs.existsSync(dest)) fs.chmodSync(dest, 0o755);
-			return;
-		} catch (e) {
-			try { logger.error('macOS ffmpeg download failed', e); } catch (_) { }
-			return;
-		} finally {
-			try { fs.rmSync(archive, { force: true }); } catch (_) { }
-		}
-	}
-	if (!asset) throw new Error('No ffmpeg build for this system. Install ffmpeg with your package manager (for macOS: brew install ffmpeg).');
-	const base = 'https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download';
-	const sums = await getText(`${base}/checksums.sha256`);
-	const want = expectedHash(sums, asset.name);
-	if (!want) throw new Error(`No checksum published for ${asset.name}`);
-	const archive = path.join(os.tmpdir(), `riff-${asset.name}`);
-	const got = await downloadFile(`${base}/${asset.name}`, archive);
-	if (got !== want) { fs.rmSync(archive, { force: true }); throw new Error('ffmpeg checksum mismatch'); }
-	const work = fs.mkdtempSync(path.join(os.tmpdir(), 'riff-ffmpeg-'));
-	try {
-		if (IS_WIN) {
-			try {
-				await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Expand-Archive -LiteralPath '${archive.replace(/'/g, "''")}' -DestinationPath '${work.replace(/'/g, "''")}' -Force`]);
-			} catch (_) {
-				await new Promise((resolve, reject) => {
-					const p = spawn('tar.exe', ['-xf', path.basename(archive), '-C', work], { cwd: path.dirname(archive), windowsHide: true });
-					p.on('error', reject);
-					p.on('close', code => code === 0 ? resolve() : reject(new Error(`tar exited with ${code}`)));
-				});
-			}
-		} else {
-			await run('tar', ['-xf', archive, '-C', work]);
-		}
-		for (const name of ['ffmpeg', 'ffprobe']) {
-			const exe = IS_WIN ? `${name}.exe` : name;
-			const src = findFile(work, exe);
-			if (!src) throw new Error(`${exe} not found inside the archive`);
-			const dest = path.join(BIN_DIR, exe);
-			fs.copyFileSync(src, dest);
-			if (!IS_WIN) fs.chmodSync(dest, 0o755);
-		}
-	} finally {
-		fs.rmSync(work, { recursive: true, force: true });
-		fs.rmSync(archive, { force: true });
-	}
+  const asset = ffmpegAsset();
+  if (process.platform === 'darwin' && !asset) {
+    const archive = path.join(os.tmpdir(), 'riff-ffmpeg-macos.zip');
+    try {
+      await downloadFile('https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip', archive);
+      await run('/usr/bin/unzip', ['-o', archive, '-d', BIN_DIR]);
+      const dest = path.join(BIN_DIR, 'ffmpeg');
+      if (fs.existsSync(dest)) fs.chmodSync(dest, 0o755);
+      return;
+    } catch (e) {
+      try { logger.error('macOS ffmpeg download failed', e); } catch (_) {}
+      return;
+    } finally {
+      try { fs.rmSync(archive, { force: true }); } catch (_) {}
+    }
+  }
+  if (!asset) throw new Error('No ffmpeg build for this system. Install ffmpeg with your package manager (for macOS: brew install ffmpeg).');
+  const base = 'https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download';
+  const sums = await getText(`${base}/checksums.sha256`);
+  const want = expectedHash(sums, asset.name);
+  if (!want) throw new Error(`No checksum published for ${asset.name}`);
+  const archive = path.join(os.tmpdir(), `riff-${asset.name}`);
+  const got = await downloadFile(`${base}/${asset.name}`, archive);
+  if (got !== want) { fs.rmSync(archive, { force: true }); throw new Error('ffmpeg checksum mismatch'); }
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'riff-ffmpeg-'));
+  try {
+    if (IS_WIN) {
+      try {
+        await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', `[System.IO.Compression.ZipFile]::ExtractToDirectory('${archive.replace(/'/g, "''")}', '${work.replace(/'/g, "''")}')`]);
+      } catch (_) {
+        try {
+          await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Expand-Archive -LiteralPath '${archive.replace(/'/g, "''")}' -DestinationPath '${work.replace(/'/g, "''")}' -Force`]);
+        } catch (_) {
+          const sys32Tar = 'C:\\Windows\\System32\\tar.exe';
+          const tarCmd = fs.existsSync(sys32Tar) ? sys32Tar : 'tar.exe';
+          await new Promise((resolve, reject) => {
+            const p = spawn(tarCmd, ['-xf', path.basename(archive), '-C', work], { cwd: path.dirname(archive), windowsHide: true });
+            p.on('error', (err) => reject(new Error(`Failed to extract archive: ${err.message}`)));
+            p.on('close', code => code === 0 ? resolve() : reject(new Error(`tar exited with ${code}`)));
+          });
+        }
+      }
+    } else {
+      await run('tar', ['-xf', archive, '-C', work]);
+    }
+    for (const name of ['ffmpeg', 'ffprobe']) {
+      const exe = IS_WIN ? `${name}.exe` : name;
+      const src = findFile(work, exe);
+      if (!src) throw new Error(`${exe} not found inside the archive`);
+      const dest = path.join(BIN_DIR, exe);
+      fs.copyFileSync(src, dest);
+      if (!IS_WIN) fs.chmodSync(dest, 0o755);
+    }
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+    fs.rmSync(archive, { force: true });
+  }
 }
 
 function toolsStatus() {
