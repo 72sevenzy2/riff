@@ -1938,7 +1938,7 @@ const YTM_CLIENT_VERSION = '1.20250101.01.00';
 let ytmFailUntil = 0;
 let ytmFailCount = 0;
 
-async function ytmSearchRequest(query, params = YTM_SONGS_PARAMS, attempt = 0) {
+async function ytmSearchRequest(query, params = YTM_SONGS_PARAMS, attempt = 0, timeoutMs = 10000, maxRetries = 2) {
   const reqBody = {
     context: { client: { clientName: 'WEB_REMIX', clientVersion: YTM_CLIENT_VERSION, hl: 'en', gl: 'US' } },
     query
@@ -1953,7 +1953,7 @@ async function ytmSearchRequest(query, params = YTM_SONGS_PARAMS, attempt = 0) {
       method: 'POST',
       agent: attempt === 0 ? keepAliveHttpsAgent : false,
       family: 4,
-      timeout: 10000,
+      timeout: timeoutMs,
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(body),
@@ -1979,18 +1979,23 @@ async function ytmSearchRequest(query, params = YTM_SONGS_PARAMS, attempt = 0) {
         }
       });
     });
+    let retryStarted = false;
+    const retryOrReject = (err) => {
+      if (retryStarted) return;
+      retryStarted = true;
+      if (attempt < maxRetries) {
+        return resolve(ytmSearchRequest(query, params, attempt + 1, timeoutMs, maxRetries));
+      }
+      try { logger.log('warn', `ytmusic search error: ${err.message}`); } catch (_) {}
+      reject(err);
+    };
     req.on('timeout', () => {
       req.destroy();
-      if (attempt < 2) {
-        return resolve(ytmSearchRequest(query, params, attempt + 1));
-      }
-      const timeoutErr = new Error('The operation was aborted due to timeout');
-      try { logger.log('warn', `ytmusic search error: ${timeoutErr.message}`); } catch (_) {}
-      reject(timeoutErr);
+      retryOrReject(new Error('The operation was aborted due to timeout'));
     });
     req.on('error', (err) => {
-      if (attempt < 2 && /ECONNRESET|socket hang up|EPIPE|ETIMEDOUT/i.test(err && err.message || '')) {
-        return resolve(ytmSearchRequest(query, params, attempt + 1));
+      if (/ECONNRESET|socket hang up|EPIPE|ETIMEDOUT/i.test(err && err.message || '')) {
+        return retryOrReject(err);
       }
       try { logger.log('warn', `ytmusic search error: ${err.message}`); } catch (_) {}
       reject(err);
@@ -2182,16 +2187,16 @@ async function fetchSoundCloudSearch(query, limit = 20) {
   return [];
 }
 
-async function ytmusicSearch(query) {
+async function ytmusicSearch(query, options = {}) {
+  const timeoutMs = options.timeoutMs || 10000;
+  const maxRetries = Number.isInteger(options.maxRetries) ? options.maxRetries : 2;
+  const useFallback = options.fallback !== false;
   let json;
   try {
-    json = await ytmSearchRequest(query);
+    json = await ytmSearchRequest(query, YTM_SONGS_PARAMS, 0, timeoutMs, maxRetries);
   } catch (_) {
-    try {
-      json = await ytmSearchRequest(query);
-    } catch (_) {
-      return [];
-    }
+    if (!useFallback) return [];
+    try { return await directYoutubeSearch(query, true).then(tracks => tracks || []); } catch (_) { return []; }
   }
   try {
     const songs = parseYtmSongs(json);
@@ -2213,6 +2218,7 @@ async function ytmusicSearch(query) {
       });
     }
   } catch (_) {}
+  if (!useFallback) return [];
   return [];
 }
 
@@ -2540,10 +2546,15 @@ function makeCleanSearchQuery(artist, title) {
 async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube', title = '', artist = '', duration = 0, thumbnail = '', timeoutSec = 20) {
   const deadlineAt = Date.now() + timeoutSec * 1000;
   let timedOut = false;
-  let activeYtDlp = null;
+  const activeYtDlps = new Set();
+  const stopActiveYtDlps = () => {
+    for (const proc of activeYtDlps) {
+      if (!proc.killed) proc.kill('SIGKILL');
+    }
+  };
   const deadlineTimer = setTimeout(() => {
     timedOut = true;
-    if (activeYtDlp && !activeYtDlp.killed) activeYtDlp.kill('SIGKILL');
+    stopActiveYtDlps();
     if (!res.writableEnded) {
       res.writeHead(504, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: false, error: 'Stream resolution timed out' }));
@@ -2552,17 +2563,15 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
   deadlineTimer.unref();
   res.once('close', () => {
     clearTimeout(deadlineTimer);
-    if (!res.writableEnded && activeYtDlp && !activeYtDlp.killed) activeYtDlp.kill('SIGKILL');
+    if (!res.writableEnded) stopActiveYtDlps();
   });
   const runYtDlp = (args, limit) => {
     const remaining = deadlineAt - Date.now();
     if (timedOut || remaining <= 0) return Promise.reject(new Error('Stream resolution timed out'));
     return executeYtDlp(args, Math.max(1, Math.min(limit, remaining)), {
       onChild: (proc) => {
-        activeYtDlp = proc;
-        proc.once('close', () => {
-          if (activeYtDlp === proc) activeYtDlp = null;
-        });
+        activeYtDlps.add(proc);
+        proc.once('close', () => activeYtDlps.delete(proc));
         if (timedOut) proc.kill('SIGKILL');
       }
     });
@@ -2788,37 +2797,31 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
     const searchQ = makeCleanSearchQuery(artist, title) || q;
     if (!streamUrl && searchQ) {
       const maxCand = needYtAuth ? 1 : 3;
-      try {
-        const ytmHits = await ytmusicSearch(searchQ);
-        if (Array.isArray(ytmHits) && ytmHits.length > 0) {
-          const scored = ytmHits
-            .filter(c => c && c.id && !failedYtIds.has(c.id))
-            .map(c => ({ cand: c, score: scoreImportedCandidate(title || searchQ, artist, duration, c) }))
-            .sort((a, b) => b.score - a.score);
-          for (const item of scored.slice(0, maxCand)) {
-            failedYtIds.add(item.cand.id);
-            streamUrl = await resolveYtCandidateStream(item.cand.id);
-            if (streamUrl) return sendStreamResponse(streamUrl, item.cand.id);
-          }
+      const [ytmHits, ytHits] = await Promise.all([
+        ytmusicSearch(searchQ, { timeoutMs: 3500, maxRetries: 0, fallback: false }).catch(() => []),
+        directYoutubeSearch(searchQ, false, 12).catch(() => [])
+      ]);
+      const candidates = new Map();
+      for (const candidate of [...(ytmHits || []), ...(ytHits || [])]) {
+        if (candidate && candidate.id && !failedYtIds.has(candidate.id) && !candidates.has(candidate.id)) {
+          candidates.set(candidate.id, candidate);
         }
-      } catch (_) {}
-
-      if (!streamUrl) {
-        try {
-          const ytHits = await directYoutubeSearch(searchQ, false, 12);
-          if (Array.isArray(ytHits) && ytHits.length > 0) {
-            const scored = ytHits
-              .filter(c => c && c.id && !failedYtIds.has(c.id))
-              .map(c => ({ cand: c, score: scoreImportedCandidate(title || searchQ, artist, duration, c) }))
-              .sort((a, b) => b.score - a.score);
-            for (const item of scored.slice(0, maxCand)) {
-              failedYtIds.add(item.cand.id);
-              streamUrl = await resolveYtCandidateStream(item.cand.id);
-              if (streamUrl) return sendStreamResponse(streamUrl, item.cand.id);
-            }
-          }
-        } catch (_) {}
       }
+      const rankedCandidates = Array.from(candidates.values())
+        .map(cand => ({ cand, score: scoreImportedCandidate(title || searchQ, artist, duration, cand) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, maxCand);
+      rankedCandidates.forEach(item => failedYtIds.add(item.cand.id));
+      const streamResults = await Promise.all(rankedCandidates.map(async ({ cand }) => {
+        try {
+          const url = await resolveYtCandidateStream(cand.id);
+          return url ? { url, id: cand.id } : null;
+        } catch (_) {
+          return null;
+        }
+      }));
+      const bestMatch = streamResults.find(result => result !== null);
+      if (bestMatch) return sendStreamResponse(bestMatch.url, bestMatch.id);
 
       if (!streamUrl) {
         try {
