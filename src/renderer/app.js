@@ -2203,6 +2203,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     { code: 'zu', name: 'Zulu', flag: '🇿🇦' }
   ];
   window.TRANSLATION_LANGUAGES = TRANSLATION_LANGUAGES;
+  const UI_TRANSLATION_LANGUAGES = TRANSLATION_LANGUAGES.filter(language =>
+    ['en', 'ru', 'uk'].includes(language.code)
+  );
+  const UI_TRANSLATION_LANGUAGE_CODES = new Set(UI_TRANSLATION_LANGUAGES.map(language => language.code));
+
+  function getSupportedUiLanguage(language) {
+    return UI_TRANSLATION_LANGUAGE_CODES.has(language) ? language : 'en';
+  }
 
   var RTL_UI_LANGS = new Set(['ar', 'fa', 'per', 'fas', 'prs', 'pes', 'farsi', 'persian', 'he', 'iw', 'ur', 'ps', 'ckb', 'sd', 'ug', 'yi']);
   function syncDocumentDirection(langCode) {
@@ -2241,6 +2249,49 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.body.classList.toggle('hide-titlebar', !!getAdv('hide_titlebar', false));
   document.body.classList.toggle('keep-bar-timestamps', !getAdv('autohide_timestamps', true));
   document.body.classList.toggle('classic-sidebar', !!getAdv('classic_sidebar', false));
+
+  let titlebarRevealHideTimer = null;
+  let pointerY = Infinity;
+  const titlebar = document.querySelector('.titlebar');
+  const clearTitlebarRevealHideTimer = () => {
+    if (titlebarRevealHideTimer) {
+      clearTimeout(titlebarRevealHideTimer);
+      titlebarRevealHideTimer = null;
+    }
+  };
+  const scheduleTitlebarRevealHide = () => {
+    clearTitlebarRevealHideTimer();
+    titlebarRevealHideTimer = setTimeout(() => {
+      titlebarRevealHideTimer = null;
+      if (pointerY > 48) document.body.classList.remove('titlebar-reveal');
+    }, 800);
+  };
+  window.addEventListener('pointermove', (event) => {
+    pointerY = event.clientY;
+    if (!document.body.classList.contains('hide-titlebar')) {
+      document.body.classList.remove('titlebar-reveal');
+      clearTitlebarRevealHideTimer();
+      return;
+    }
+    if (pointerY <= 3) {
+      clearTitlebarRevealHideTimer();
+      document.body.classList.add('titlebar-reveal');
+    } else if (document.body.classList.contains('titlebar-reveal')) {
+      if (pointerY <= 48) clearTitlebarRevealHideTimer();
+      else if (!titlebarRevealHideTimer) scheduleTitlebarRevealHide();
+    }
+  });
+  if (titlebar) {
+    titlebar.addEventListener('pointerenter', clearTitlebarRevealHideTimer);
+    titlebar.addEventListener('pointerleave', () => {
+      if (document.body.classList.contains('hide-titlebar')) scheduleTitlebarRevealHide();
+    });
+  }
+  document.addEventListener('mouseleave', () => {
+    pointerY = Infinity;
+    clearTitlebarRevealHideTimer();
+    document.body.classList.remove('titlebar-reveal');
+  });
 
   const savedBannerBlur = parseInt(localStorage.getItem('riff_banner_blur') || '3', 10);
   const savedBannerOpacity = parseInt(localStorage.getItem('riff_banner_opacity') || '100', 10);
@@ -5299,7 +5350,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     '.setting-item > div:not([class]):not(:has(*))',
     '.setting-value',
     '.m3-dropdown-label',
-    '.m3-dropdown-option',
+    '.m3-dropdown-option:not(:has(*))',
     '.m3-dropdown-trigger > span:not([class])',
     '.sp-modes button',
     '.audio-tab > span:not([class])',
@@ -5335,7 +5386,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     return element.hasAttribute('data-i18n-fixed');
   }
 
-  const savedUiLang = localStorage.getItem('riff_ui_lang') || 'en';
+  const savedUiLang = getSupportedUiLanguage(localStorage.getItem('riff_ui_lang') || 'en');
+  localStorage.setItem('riff_ui_lang', savedUiLang);
   syncDocumentDirection(savedUiLang);
   let i18nApplyVersion = 0;
   if (savedUiLang !== 'en') {
@@ -5377,8 +5429,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function applyI18n(lang) {
     const applyVersion = ++i18nApplyVersion;
+    lang = getSupportedUiLanguage(lang || localStorage.getItem('riff_ui_lang') || 'en');
     syncDocumentDirection(lang);
-    lang = lang || localStorage.getItem('riff_ui_lang') || 'en';
     localStorage.setItem('riff_ui_lang', lang);
 
     const found = TRANSLATION_LANGUAGES.find(l => l.code === lang);
@@ -17798,8 +17850,8 @@ function bindCoverHoldZoom(wrapEl) {
   const uiLangSearch = document.getElementById('ui-lang-search');
 
   if (uiLangDropdown && uiLangTrigger && uiLangMenu) {
-    const curLang = localStorage.getItem('riff_ui_lang') || 'en';
-    const foundCur = TRANSLATION_LANGUAGES.find(l => l.code === curLang);
+    const curLang = getSupportedUiLanguage(localStorage.getItem('riff_ui_lang') || 'en');
+    const foundCur = UI_TRANSLATION_LANGUAGES.find(l => l.code === curLang);
     if (foundCur && uiLangLabel) {
       uiLangLabel.textContent = `${foundCur.flag} ${foundCur.name} (${foundCur.code})`;
     }
@@ -17807,7 +17859,7 @@ function bindCoverHoldZoom(wrapEl) {
     if (uiLangList) {
       uiLangList.innerHTML = '';
       const frag = document.createDocumentFragment();
-      TRANSLATION_LANGUAGES.forEach(item => {
+      UI_TRANSLATION_LANGUAGES.forEach(item => {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'm3-dropdown-option';
