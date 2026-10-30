@@ -3331,12 +3331,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           const bgEndX = sw - padRight;
 
           if (!cachedPrimaryColor) refreshCachedThemeColors();
-          const primaryColor = cachedPrimaryColor;
+          const primaryColor = '#ffffff';
           const dimColor = cachedDimColor;
 
           const centerY = sh / 2;
 
-          const showProgressBg = localStorage.getItem('riff_progress_bg') === 'true';
+          const showProgressBg = localStorage.getItem('riff_progress_bg') !== 'false';
           if (showProgressBg && bgStartX < bgEndX - 1) {
             sCtx.save();
             sCtx.globalAlpha = 0.3;
@@ -16096,7 +16096,7 @@ function bindCoverHoldZoom(wrapEl) {
 
   const btnProgressBg = document.getElementById('btn-progress-bg');
   function updateProgressBgUI() {
-    const isEnabled = localStorage.getItem('riff_progress_bg') === 'true';
+    const isEnabled = localStorage.getItem('riff_progress_bg') !== 'false';
     document.body.classList.toggle('no-progress-bg', !isEnabled);
     if (btnProgressBg) {
       btnProgressBg.classList.toggle('active', isEnabled);
@@ -16542,7 +16542,7 @@ function bindCoverHoldZoom(wrapEl) {
 
   if (btnProgressBg) {
     btnProgressBg.addEventListener('click', () => {
-      const isBg = localStorage.getItem('riff_progress_bg') === 'true';
+      const isBg = localStorage.getItem('riff_progress_bg') !== 'false';
       const next = !isBg;
       localStorage.setItem('riff_progress_bg', next ? 'true' : 'false');
       updateProgressBgUI();

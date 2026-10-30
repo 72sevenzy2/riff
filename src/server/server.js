@@ -4378,6 +4378,14 @@ function logNetworkFailure(targetUrl) {
   } catch (_) {}
 }
 
+function decodeUtf8Chunks(chunks) {
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function hasBrokenLyricText(text) {
+  return typeof text === 'string' && text.includes('\uFFFD');
+}
+
 function fetchLyricsDirect(title, artist) {
   return new Promise((resolve) => {
     const { cleanTitle, cleanArtist } = sanitizeForLyrics(title, artist);
@@ -4388,6 +4396,7 @@ function fetchLyricsDirect(title, artist) {
       const dec = new StringDecoder('utf8');
       res.on('data', c => data += dec.write(c));
       res.on('end', () => {
+        data += dec.end();
         try {
           if (res.statusCode === 200) {
             const parsed = JSON.parse(data);
@@ -4403,9 +4412,10 @@ function fetchLyricsDirect(title, artist) {
         const query = `${cleanArtist} ${cleanTitle}`.trim();
         const searchUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(query)}`;
         const req2 = https.get(searchUrl, { headers: { 'User-Agent': 'devsize/2.0' }, timeout: 8000 }, (res2) => {
-          let data2 = '';
-          res2.on('data', c => data2 += c);
+          const chunks = [];
+          res2.on('data', chunk => chunks.push(chunk));
           res2.on('end', () => {
+            const data2 = decodeUtf8Chunks(chunks);
             try {
               const list = JSON.parse(data2);
               if (Array.isArray(list) && list.length > 0) {
@@ -4518,9 +4528,10 @@ function fetchGeniusLyrics(title, artist) {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
       timeout: 8000
     }, (res) => {
-      let data = '';
-      res.on('data', c => data += c);
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
       res.on('end', () => {
+        const data = decodeUtf8Chunks(chunks);
         if (res.statusCode !== 200) {
           logNetworkFailure(searchUrl);
           return resolve(null);
@@ -4557,9 +4568,10 @@ function fetchGeniusLyrics(title, artist) {
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
           timeout: 8000
         }, (pageRes) => {
-          let html = '';
-          pageRes.on('data', c => html += c);
+          const chunks = [];
+          pageRes.on('data', chunk => chunks.push(chunk));
           pageRes.on('end', () => {
+            const html = decodeUtf8Chunks(chunks);
             if (pageRes.statusCode !== 200) {
               logNetworkFailure(songUrl);
               return resolve(null);
@@ -4832,9 +4844,10 @@ function fetchNeteaseLyrics(title, artist, targetDuration) {
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://music.163.com' },
         timeout: 8000
       }, res => {
-        let d = '';
-        res.on('data', c => d += c);
+        const chunks = [];
+        res.on('data', chunk => chunks.push(chunk));
         res.on('end', () => {
+          const d = decodeUtf8Chunks(chunks);
           if (res.statusCode !== 200) return resolve(null);
           try {
             const j = JSON.parse(d);
@@ -4860,9 +4873,10 @@ function fetchNeteaseLyrics(title, artist, targetDuration) {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://music.163.com' },
       timeout: 8000
     }, res => {
-      let d = '';
-      res.on('data', c => d += c);
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
       res.on('end', () => {
+        const d = decodeUtf8Chunks(chunks);
         if (res.statusCode !== 200) return resolve(null);
         try {
           const j = JSON.parse(d);
@@ -4910,9 +4924,10 @@ function fetchNetEaseWords(title, artist, targetDuration) {
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://music.163.com' },
         timeout: 8000
       }, res => {
-        let d = '';
-        res.on('data', c => d += c);
+        const chunks = [];
+        res.on('data', chunk => chunks.push(chunk));
         res.on('end', () => {
+          const d = decodeUtf8Chunks(chunks);
           if (res.statusCode !== 200) {
             logNetworkFailure(lyricUrl);
             return resolve(null);
@@ -4946,9 +4961,10 @@ function fetchNetEaseWords(title, artist, targetDuration) {
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://music.163.com' },
         timeout: 8000
       }, res => {
-        let d = '';
-        res.on('data', c => d += c);
+        const chunks = [];
+        res.on('data', chunk => chunks.push(chunk));
         res.on('end', () => {
+          const d = decodeUtf8Chunks(chunks);
           if (res.statusCode !== 200) {
             logNetworkFailure(searchUrl);
             if (isWeb) {
@@ -5091,19 +5107,26 @@ function isLyricsExplicit(lyrics) {
 async function handleLyrics(req, res, title, artist, allowOnline = true, source = 'lrclib', duration = 0) {
   const normSource = source || 'lrclib';
   const cacheKey = `${artist}:${title}:${normSource}`;
-  const cached = lyricsCache.get(cacheKey);
+  let cached = lyricsCache.get(cacheKey);
   if (cached?.promise) {
     const outcome = await cached.promise;
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify(outcome));
+    if (!hasBrokenLyricText(outcome.lyrics)) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(outcome));
+    }
+    if (lyricsCache.get(cacheKey) === cached) lyricsCache.delete(cacheKey);
+    cached = null;
   }
   if (cached) {
     if (cached.instrumental) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: true, instrumental: true, syncedLyrics: '', plainLyrics: '' }));
     }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ success: true, lyrics: cached.text, isCustom: cached.isCustom || false, isExplicit: isLyricsExplicit(cached.text) }));
+    if (!hasBrokenLyricText(cached.text)) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, lyrics: cached.text, isCustom: cached.isCustom || false, isExplicit: isLyricsExplicit(cached.text) }));
+    }
+    lyricsCache.delete(cacheKey);
   }
 
   let resolveLyrics;
@@ -5161,10 +5184,14 @@ async function handleLyrics(req, res, title, artist, allowOnline = true, source 
     if (normSource !== 'genius' && fs.existsSync(fetchedLyricsPath)) {
       try {
         const diskLyrics = await fs.promises.readFile(fetchedLyricsPath, 'utf-8');
-        if (lyricsCache.get(cacheKey) === inFlightEntry) {
-          lyricsCache.set(cacheKey, { text: diskLyrics, isCustom: false });
+        if (hasBrokenLyricText(diskLyrics)) {
+          await fs.promises.unlink(fetchedLyricsPath);
+        } else {
+          if (lyricsCache.get(cacheKey) === inFlightEntry) {
+            lyricsCache.set(cacheKey, { text: diskLyrics, isCustom: false });
+          }
+          return sendLyrics(diskLyrics);
         }
-        return sendLyrics(diskLyrics);
       } catch (e) {}
     }
 
@@ -5258,6 +5285,8 @@ async function handleLyrics(req, res, title, artist, allowOnline = true, source 
           }
         }
       }
+
+      if (hasBrokenLyricText(rawLyrics)) rawLyrics = '';
 
       if (rawLyrics && rawLyrics.trim().length > 0) {
         if (successfulBackend && successfulBackend !== 'genius') {
@@ -8341,7 +8370,7 @@ function stopServer() {
   });
 }
 
-module.exports = { startServer, stopServer, PORT, getServerToken, fetchLyricsDirect, fetchLrcLib, fetchGeniusLyrics, fetchNetEaseWords, fetchKugouLyrics, fetchMusixmatchLyrics, fetchNeteaseLyrics, fetchSoundCloudSearch, ytmusicSearch, parseYrc, cleanSearchResults };
+module.exports = { startServer, stopServer, PORT, getServerToken, fetchLyricsDirect, fetchLrcLib, fetchGeniusLyrics, fetchNetEaseWords, fetchKugouLyrics, fetchMusixmatchLyrics, fetchNeteaseLyrics, fetchSoundCloudSearch, ytmusicSearch, parseYrc, cleanSearchResults, decodeUtf8Chunks, hasBrokenLyricText };
 
 if (require.main === module) {
   startServer();
