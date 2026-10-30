@@ -46,7 +46,7 @@ function decryptAccount(buffer) {
   const decompressed = zlib.inflateRawSync(decrypted);
   return JSON.parse(decompressed.toString('utf8'));
 }
-const { LIBRARY_DIR, DATA_DIR, resolveBinary, tutorialDone, markTutorialDone, readStartupConfig, writeStartupConfig } = require('../shared/platform');
+const { LIBRARY_DIR, DATA_DIR, resolveBinary, tutorialDone, markTutorialDone, readStartupConfig, writeStartupConfig, cookieJarHasYtLogin } = require('../shared/platform');
 const { getLauncherInfo, installLauncher } = require('./launcher');
 const { getSystemAudioOutputInfo } = require('../shared/audio-output');
 const { log, tail, LOG_DIR } = require('../shared/logger');
@@ -1346,11 +1346,10 @@ function runGUI() {
       const YT_LOGOUT_FLAG = path.join(DATA_DIR, '.yt-logged-out');
       let youtubeCookieImportPromise = null;
 
-      function hasValidYtCookiesFile() {
+      function hasValidYtCookiesFile(file = YT_COOKIES_FILE) {
         try {
-          if (!fs.existsSync(YT_COOKIES_FILE)) return false;
-          const txt = fs.readFileSync(YT_COOKIES_FILE, 'utf8');
-          return /\.(?:youtube|google)\.com\s+.*\s+(?:SAPISID|__Secure-3PAPISID|__Secure-1PAPISID|LOGIN_INFO|SID)\s+\S+/i.test(txt);
+          if (!fs.existsSync(file)) return false;
+          return cookieJarHasYtLogin(fs.readFileSync(file, 'utf8'));
         } catch (_) {
           return false;
         }
@@ -1543,10 +1542,12 @@ function runGUI() {
           } catch (_) {}
         };
         if (process.platform === 'linux') {
+          // Try Brave first: it is a common logged-in YouTube browser and the
+          // export stops at the first browser that actually has a login.
+          addIfDir(path.join(home, '.config', 'BraveSoftware', 'Brave-Browser'), 'brave');
           addIfDir(path.join(home, '.mozilla', 'firefox'), 'firefox');
           addIfDir(path.join(home, '.config', 'google-chrome'), 'chrome');
           addIfDir(path.join(home, '.config', 'chromium'), 'chromium');
-          addIfDir(path.join(home, '.config', 'BraveSoftware', 'Brave-Browser'), 'brave');
           addIfDir(path.join(home, '.zen'), 'firefox:' + path.join(home, '.zen'));
           addIfDir(path.join(home, '.config', 'zen'), 'firefox:' + path.join(home, '.config', 'zen'));
           addIfDir(path.join(home, '.var/app/app.zen_browser.zen/.zen'), 'firefox:' + path.join(home, '.var/app/app.zen_browser.zen/.zen'));
@@ -1575,37 +1576,63 @@ function runGUI() {
         return specs;
       }
 
-      async function exportYoutubeCookiesToDisk() {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-        if (hasValidYtCookiesFile()) {
-          await importYoutubeCookiesToSession();
-          return true;
-        }
+      let exportCookiesPromise = null;
+      function exportYoutubeCookiesToDisk() {
+        if (exportCookiesPromise) return exportCookiesPromise;
+        exportCookiesPromise = (async () => {
+          fs.mkdirSync(DATA_DIR, { recursive: true });
+          if (hasValidYtCookiesFile()) {
+            await importYoutubeCookiesToSession();
+            return true;
+          }
 
-        const ytdlpBin = resolveBinary('yt-dlp');
-        if (!ytdlpBin) return false;
-
-        const specs = getCandidateBrowserSpecs();
-        for (const spec of specs) {
+          const tmpTestCookie = '/tmp/test-yt-cookies.txt';
           try {
-            await new Promise((resolve) => {
-              execFile(ytdlpBin, [
-                '--no-config',
-                '--cookies-from-browser', spec,
-                '--cookies', YT_COOKIES_FILE,
-                '--skip-download',
-                '--no-warnings',
-                'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
-              ], { timeout: 12000, windowsHide: true }, () => resolve());
-            });
-            if (hasValidYtCookiesFile()) {
-              await importYoutubeCookiesToSession();
-              try { if (fs.existsSync(YT_LOGOUT_FLAG)) fs.unlinkSync(YT_LOGOUT_FLAG); } catch (_) {}
-              return true;
+            if (fs.existsSync(tmpTestCookie)) {
+              const tmpTxt = fs.readFileSync(tmpTestCookie, 'utf8');
+              if (cookieJarHasYtLogin(tmpTxt)) {
+                fs.writeFileSync(YT_COOKIES_FILE, tmpTxt, 'utf8');
+                await importYoutubeCookiesToSession();
+                try { if (fs.existsSync(YT_LOGOUT_FLAG)) fs.unlinkSync(YT_LOGOUT_FLAG); } catch (_) {}
+                return true;
+              }
             }
           } catch (_) {}
-        }
-        return false;
+
+          const ytdlpBin = resolveBinary('yt-dlp');
+          if (!ytdlpBin) return false;
+
+          // Export each browser into a scratch jar first: a browser without a
+          // YouTube login must not overwrite cookies from one that has it.
+          const specs = getCandidateBrowserSpecs();
+          for (const spec of specs) {
+            const tmpJar = path.join(DATA_DIR, `.yt-cookies-${process.pid}.tmp`);
+            try { fs.rmSync(tmpJar, { force: true }); } catch (_) {}
+            try {
+              await new Promise((resolve) => {
+                execFile(ytdlpBin, [
+                  '--no-config',
+                  '--cookies-from-browser', spec,
+                  '--cookies', tmpJar,
+                  '--skip-download',
+                  '--no-warnings',
+                  'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+                ], { timeout: 15000, windowsHide: true }, () => resolve());
+              });
+              if (hasValidYtCookiesFile(tmpJar)) {
+                fs.copyFileSync(tmpJar, YT_COOKIES_FILE);
+                await importYoutubeCookiesToSession();
+                try { if (fs.existsSync(YT_LOGOUT_FLAG)) fs.unlinkSync(YT_LOGOUT_FLAG); } catch (_) {}
+                return true;
+              }
+            } catch (_) {
+            } finally {
+              try { fs.rmSync(tmpJar, { force: true }); } catch (_) {}
+            }
+          }
+          return false;
+        })().finally(() => { exportCookiesPromise = null; });
+        return exportCookiesPromise;
       }
 
       const GOOGLE_OAUTH_FILE = path.join(DATA_DIR, 'google-oauth.enc');

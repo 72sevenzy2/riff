@@ -8137,6 +8137,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       document.body.classList.add('is-playing');
       updatePlayPauseButton(true, false);
+      // Start resolving the next track as soon as playback begins instead of
+      // waiting 10s, so the following track starts without a pause.
+      if (!preloadedTrack10sFired) {
+        preloadedTrack10sFired = true;
+        preloadNextTrackStream();
+      }
     });
 
     el.nativeAudio.addEventListener('canplay', () => {

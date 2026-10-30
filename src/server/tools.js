@@ -274,9 +274,19 @@ async function updateYtDlpIfManaged() {
   } catch (e) {}
   try {
     await run(bin, ['-U'], 120000);
+    // yt-dlp replaces its own executable while updating. If that fails halfway
+    // the managed binary can be gone, which would leave every playback attempt
+    // spawning a non-existent path. Reinstall it in that case.
+    if (!fs.existsSync(bin)) {
+      try { logger.log('warn', 'yt-dlp disappeared after self-update, reinstalling'); } catch (_) {}
+      await installYtDlp();
+    }
+    clearBinaryCache();
+    resolveBinary('yt-dlp');
     fs.writeFileSync(STAMP, String(Date.now()));
     return true;
   } catch (e) {
+    clearBinaryCache();
     try { logger.error('yt-dlp update failed', e); } catch (_) {}
     return false;
   }

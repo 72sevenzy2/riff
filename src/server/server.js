@@ -17,8 +17,30 @@ const dns = require('dns');
 const net = require('net');
 
 const PORT = 38472;
-const { DATA_DIR, CACHE_DIR, CUSTOM_LYRICS_DIR, LYRICS_DIR, THUMBNAILS_DIR, METADATA_PATH, LIBRARY_DIR, LIBRARY_PATH, ytDlpCommand, resolveDownloadDir, defaultDownloadDir, resolveBinary } = require('../shared/platform');
+const { DATA_DIR, CACHE_DIR, CUSTOM_LYRICS_DIR, LYRICS_DIR, THUMBNAILS_DIR, METADATA_PATH, LIBRARY_DIR, LIBRARY_PATH, ytDlpCommand, resolveDownloadDir, defaultDownloadDir, resolveBinary, clearBinaryCache, cookieJarHasYtLogin } = require('../shared/platform');
 const YT_COOKIES_FILE = path.join(DATA_DIR, 'yt-cookies.txt');
+
+// A browser cookie export can contain .google.com session cookies without the
+// user actually being signed in to YouTube. Passing those to yt-dlp makes the
+// YouTube extractor fail with "The page needs to be reloaded.", so only treat
+// the cookies as usable when YouTube itself has a login cookie.
+let ytCookieCache = { mtime: -1, valid: false };
+function hasYtLoginCookies() {
+  try {
+    if (!fs.existsSync(YT_COOKIES_FILE)) {
+      ytCookieCache = { mtime: -1, valid: false };
+      return false;
+    }
+    const stat = fs.statSync(YT_COOKIES_FILE);
+    if (stat.mtimeMs === ytCookieCache.mtime) return ytCookieCache.valid;
+    const txt = fs.readFileSync(YT_COOKIES_FILE, 'utf8');
+    const valid = cookieJarHasYtLogin(txt);
+    ytCookieCache = { mtime: stat.mtimeMs, valid };
+    return valid;
+  } catch (_) {
+    return false;
+  }
+}
 
 function getYtAuthHeaders(origin = 'https://www.youtube.com') {
   try {
@@ -604,21 +626,30 @@ function verifyStreamPlayable(streamUrl, userAgent, redirectsLeft = 3) {
     try {
       const parsed = new URL(streamUrl);
       const cParam = (parsed.searchParams.get('c') || '').toUpperCase();
-      let ua = userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+      let ua = userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36';
       if (!userAgent) {
         if (cParam === 'IOS') ua = 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)';
         else if (cParam === 'ANDROID_VR') ua = 'com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip';
       }
+      const isGooglevideo = parsed.hostname.endsWith('googlevideo.com');
       const req = https.request(streamUrl, {
         method: 'GET',
         agent: keepAliveHttpsAgent,
         family: 4,
-        timeout: 2500,
-        headers: {
+        timeout: 5000,
+        headers: Object.assign({
           'Host': parsed.host,
           'Range': 'bytes=0-',
-          'User-Agent': ua
-        }
+          'User-Agent': ua,
+          // Same header set yt-dlp/ffmpeg uses for googlevideo.
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-us,en;q=0.5',
+          'Sec-Fetch-Mode': 'navigate'
+        }, isGooglevideo ? {
+          // googlevideo rejects WEB_EMBEDDED_PLAYER URLs without these.
+          'Origin': 'https://www.youtube.com',
+          'Referer': 'https://www.youtube.com/'
+        } : {})
       }, (res) => {
         if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirectsLeft > 0) {
           res.resume();
@@ -1654,14 +1685,31 @@ function executeYtDlp(args, timeoutMs = 15000, opts = {}) {
     const cleanEnv = Object.assign({}, process.env);
     let finalArgs = Array.isArray(args) ? [...args] : [];
     const prependFlags = [];
+    let cookieJarPath = null;
+    const cleanupCookieJar = () => {
+      if (!cookieJarPath) return;
+      const p = cookieJarPath;
+      cookieJarPath = null;
+      try { fs.unlinkSync(p); } catch (_) {}
+    };
     if (!finalArgs.includes('--force-ipv4')) prependFlags.push('--force-ipv4');
     if (!finalArgs.includes('--geo-bypass')) prependFlags.push('--geo-bypass');
     if (!finalArgs.includes('--js-runtimes')) {
       prependFlags.push('--js-runtimes', 'node');
     }
     if (!finalArgs.includes('--remote-components')) prependFlags.push('--remote-components', 'ejs:github');
-    if (fs.existsSync(YT_COOKIES_FILE) && !finalArgs.includes('--cookies')) {
-      prependFlags.push('--cookies', YT_COOKIES_FILE);
+    if (!opts.noCookies && hasYtLoginCookies() && !finalArgs.includes('--cookies')) {
+      // Several yt-dlp processes can run at once (playback, prefetch, download).
+      // Give each one a private copy of the jar so they cannot rewrite the
+      // shared cookie file concurrently and corrupt the YouTube session.
+      try {
+        cookieJarPath = path.join(DATA_DIR, `.yt-cookies-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.tmp`);
+        fs.copyFileSync(YT_COOKIES_FILE, cookieJarPath);
+        prependFlags.push('--cookies', cookieJarPath);
+      } catch (_) {
+        cleanupCookieJar();
+        prependFlags.push('--cookies', YT_COOKIES_FILE);
+      }
     }
     if (prependFlags.length > 0) {
       finalArgs.unshift(...prependFlags);
@@ -1695,6 +1743,7 @@ function executeYtDlp(args, timeoutMs = 15000, opts = {}) {
     if (timeoutMs > 0) {
       timer = setTimeout(() => {
         try { proc.kill('SIGKILL'); } catch (e) {}
+        cleanupCookieJar();
         reject(new Error(`yt-dlp timed out after ${timeoutMs}ms`));
       }, timeoutMs);
     }
@@ -1704,22 +1753,36 @@ function executeYtDlp(args, timeoutMs = 15000, opts = {}) {
 
     proc.on('close', (code) => {
       if (timer) clearTimeout(timer);
+      cleanupCookieJar();
       if (code === 0) {
         resolve(stdout);
       } else {
         const firstArgs = (args || []).slice(0, 3).join(' ');
         const errSnippet = String(stderr || `code ${code}`).slice(0, 300);
         const isWarn = !stderr || /not available|unavailable|private video|timed out/i.test(errSnippet);
-        try { logger.log(isWarn ? 'warn' : 'error', `yt-dlp failed: ${firstArgs} - ${errSnippet}`); } catch (_) {}
+        if (!opts.quiet) {
+          try { logger.log(isWarn ? 'warn' : 'error', `yt-dlp failed: ${firstArgs} - ${errSnippet}`); } catch (_) {}
+        }
         reject(new Error(stderr || `yt-dlp exited with code ${code}`));
       }
     });
 
     proc.on('error', (err) => {
       if (timer) clearTimeout(timer);
+      cleanupCookieJar();
       const firstArgs = (args || []).slice(0, 3).join(' ');
       const errSnippet = String(err && err.message ? err.message : err).slice(0, 300);
       try { logger.log('error', `yt-dlp spawn error: ${firstArgs} - ${errSnippet}`); } catch (_) {}
+      // A managed yt-dlp can disappear between resolution and spawn (failed
+      // self-update, cleared data dir). Drop the stale cache entry and retry
+      // once so we can fall back to a binary from PATH.
+      if (err && err.code === 'ENOENT' && !opts.retried) {
+        clearBinaryCache();
+        try {
+          resolveBinary('yt-dlp');
+        } catch (_) {}
+        return executeYtDlp(args, timeoutMs, Object.assign({}, opts, { retried: true })).then(resolve, reject);
+      }
       reject(err);
     });
   });
@@ -2565,10 +2628,11 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
     clearTimeout(deadlineTimer);
     if (!res.writableEnded) stopActiveYtDlps();
   });
-  const runYtDlp = (args, limit) => {
+  const runYtDlp = (args, limit, extraOpts = {}) => {
     const remaining = deadlineAt - Date.now();
     if (timedOut || remaining <= 0) return Promise.reject(new Error('Stream resolution timed out'));
     return executeYtDlp(args, Math.max(1, Math.min(limit, remaining)), {
+      ...extraOpts,
       onChild: (proc) => {
         activeYtDlps.add(proc);
         proc.once('close', () => activeYtDlps.delete(proc));
@@ -2725,39 +2789,72 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
         if (s) return s;
       }
       const vUrl = `https://www.youtube.com/watch?v=${vid}`;
-      const hasCookies = fs.existsSync(YT_COOKIES_FILE);
-      const clientSpecs = hasCookies
-        ? ['web,tv,ios', 'default']
-        : ['web_embedded,web,tv', 'ios'];
-      for (const clientSpec of clientSpecs) {
-        if (s) break;
-        try {
-          const args = [
-            '--no-config', '-g', '--no-warnings', '--no-playlist', '--no-check-certificates',
-            '--js-runtimes', 'node', '--remote-components', 'ejs:github',
-            '--socket-timeout', '6', '--retries', '1',
-            '--extractor-args', 'youtube:player_client=' + clientSpec,
-            '-f', (forShare ? audioFormat : ytDlpQualityFormat),
-            '--', vUrl
-          ];
-          const raw = await runYtDlp(args, 18000);
-          const lines = raw.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
-          for (const lineUrl of lines) {
-            if (await verifyStreamPlayable(lineUrl)) {
-              s = lineUrl;
+      const hasCookies = hasYtLoginCookies();
+      // web_embedded yields WEB_EMBEDDED_PLAYER URLs that work with a plain
+      // YouTube Origin header. Try it cookie-free first: it is the fastest and
+      // most reliable path, and cookies can trigger "unavailable (152-18)".
+      const attempts = [];
+      attempts.push({ clientSpec: 'web_embedded,web,tv', cookies: false });
+      if (hasCookies) attempts.push({ clientSpec: 'web_embedded,web,tv', cookies: true });
+      attempts.push({ clientSpec: 'ios', cookies: false });
+      if (hasCookies) attempts.push({ clientSpec: 'default', cookies: true });
+      let lastAttemptError = '';
+      let stopAttempts = false;
+      for (const attempt of attempts) {
+        if (s || stopAttempts) break;
+        // Rapid track skipping makes YouTube intermittently answer with
+        // "Requested format is not available" / "The page needs to be
+        // reloaded." even for otherwise playable videos. Retry once.
+        for (let tryNo = 0; tryNo < 2 && !s && !stopAttempts; tryNo++) {
+          let retryable = false;
+          try {
+            const args = [
+              '--no-config', '-g', '--no-warnings', '--no-playlist', '--no-check-certificates',
+              '--js-runtimes', 'node', '--remote-components', 'ejs:github',
+              '--socket-timeout', '6', '--retries', '1',
+              '--extractor-args', 'youtube:player_client=' + attempt.clientSpec,
+              '-f', (forShare ? audioFormat : ytDlpQualityFormat),
+              '--', vUrl
+            ];
+            const raw = await runYtDlp(args, 18000, { noCookies: !attempt.cookies, quiet: true });
+            const lines = raw.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
+            for (const lineUrl of lines) {
+              let verified = false;
+              // googlevideo 403s are often transient right after extraction
+              // (edge propagation / rate limiting), so check a few times.
+              for (let check = 0; check < 3 && !verified; check++) {
+                verified = await verifyStreamPlayable(lineUrl);
+                if (!verified) await new Promise((r) => setTimeout(r, 500 + check * 500));
+              }
+              // If yt-dlp produced a googlevideo URL, prefer trying it over
+              // skipping the track; the media element can still recover.
+              if (!verified && /googlevideo\.com/i.test(lineUrl)) verified = true;
+              if (verified) {
+                s = lineUrl;
+                break;
+              }
+            }
+          } catch (err) {
+            const msg = String((err && err.message) || err || '');
+            lastAttemptError = msg;
+            if (/confirm your age|not a bot|Sign in to confirm|age-restricted|LOGIN_REQUIRED/i.test(msg)) {
+              needYtAuth = true;
+              // Still try the cookie attempt before giving up on login-gated videos.
+              if (!hasCookies || attempt.cookies) stopAttempts = true;
               break;
             }
+            if (/Video unavailable|This video is not available|Private video/i.test(msg)) {
+              stopAttempts = true;
+              break;
+            }
+            retryable = /format is not available|page needs to be reloaded|429|too many requests|temporar/i.test(msg);
           }
-        } catch (err) {
-          const msg = String((err && err.message) || err || '');
-          if (/confirm your age|not a bot|Sign in to confirm|age-restricted|LOGIN_REQUIRED/i.test(msg)) {
-            needYtAuth = true;
-            break;
-          }
-          if (/Video unavailable|This video is not available|Private video/i.test(msg)) {
-            break;
-          }
+          if (!retryable || tryNo === 1) break;
+          await new Promise((r) => setTimeout(r, 900));
         }
+      }
+      if (!s) {
+        try { logger.log('warn', `No stream for ${vid}: ${String(lastAttemptError || 'all attempts failed').slice(0, 200)}`); } catch (_) {}
       }
       return s;
     };
@@ -3578,6 +3675,10 @@ async function handleAudioProxy(req, res, targetUrl, redirectsLeft = 5, origUrl 
       if (!forward['range']) {
         forward['range'] = 'bytes=0-';
       }
+      // googlevideo rejects requests without a YouTube origin/referer pair
+      // (403 with an empty body), which surfaced as playback failures.
+      forward['origin'] = 'https://www.youtube.com';
+      forward['referer'] = 'https://www.youtube.com/';
       const cParam = (parsed.searchParams.get('c') || '').toUpperCase();
       if (cParam === 'IOS') {
         forward['user-agent'] = 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)';
@@ -3590,9 +3691,9 @@ async function handleAudioProxy(req, res, targetUrl, redirectsLeft = 5, origUrl 
       } else if (cParam.startsWith('ANDROID')) {
         forward['user-agent'] = 'com.google.android.youtube/19.44.38 (Linux; U; Android 14; en_US; sdk_gphone64_x86_64 Build/UE1A.230829.036) gzip';
       } else {
-        forward['user-agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+        forward['user-agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36';
       }
-      if ((cParam === 'WEB' || cParam === 'WEB_REMIX' || cParam === 'TVHTML5') && fs.existsSync(YT_COOKIES_FILE)) {
+      if ((cParam === 'WEB' || cParam === 'WEB_REMIX' || cParam === 'TVHTML5') && hasYtLoginCookies()) {
         const authHdrs = getYtAuthHeaders();
         if (authHdrs && authHdrs.Cookie) forward['cookie'] = authHdrs.Cookie;
       }
