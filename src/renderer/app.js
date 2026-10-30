@@ -9841,7 +9841,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function prefetchVisibleTracks(tracks) {
     if (!Array.isArray(tracks) || !tracks.length) return;
-    tracks.slice(0, SEARCH_STREAM_PREFETCH_LIMIT).forEach(enqueueStreamPrefetch);
+    tracks
+      .filter(track => track && track.platform === 'soundcloud')
+      .slice(0, SEARCH_STREAM_PREFETCH_LIMIT)
+      .forEach(enqueueStreamPrefetch);
   }
 
   function setSearchIconCover(thumb) {
@@ -18042,6 +18045,9 @@ function bindCoverHoldZoom(wrapEl) {
   if (btnConfirmLangRestart) {
     btnConfirmLangRestart.addEventListener('click', () => {
       if (window.electronAPI && window.electronAPI.restartApp) {
+        if (window.electronAPI.storageSaveSync && window.__RIFF_STORAGE_MAP__) {
+          window.electronAPI.storageSaveSync(window.__RIFF_STORAGE_MAP__);
+        }
         window.electronAPI.restartApp();
       } else {
         window.location.reload();
@@ -20529,6 +20535,41 @@ function bindCoverHoldZoom(wrapEl) {
     }
   }
 
+  const btnYoutubePlaybackLogin = document.getElementById('btn-yt-playback-login');
+  const btnYoutubePlaybackLogout = document.getElementById('btn-yt-playback-logout');
+  const youtubePlaybackAuthStatus = document.getElementById('yt-playback-auth-status');
+
+  function updateYoutubePlaybackAuthUI(loggedIn) {
+    if (youtubePlaybackAuthStatus) {
+      youtubePlaybackAuthStatus.textContent = loggedIn
+        ? 'YouTube session saved locally'
+        : 'Sign in to reduce YouTube stream delays';
+      youtubePlaybackAuthStatus.style.color = loggedIn ? 'var(--md-sys-color-primary)' : '';
+    }
+    if (btnYoutubePlaybackLogin) btnYoutubePlaybackLogin.classList.toggle('hidden', !!loggedIn);
+    if (btnYoutubePlaybackLogout) btnYoutubePlaybackLogout.classList.toggle('hidden', !loggedIn);
+  }
+
+  async function checkYoutubePlaybackAuthStatus() {
+    if (!window.electronAPI || !window.electronAPI.youtubePlaybackStatus) return;
+    try {
+      const result = await window.electronAPI.youtubePlaybackStatus();
+      updateYoutubePlaybackAuthUI(!!(result && result.loggedIn));
+    } catch (error) {
+      showToast(`Could not check YouTube playback sign-in: ${error.message || error}`, 'error');
+    }
+  }
+
+  if (window.electronAPI && window.electronAPI.onYoutubePlaybackAuth) {
+    window.electronAPI.onYoutubePlaybackAuth((result) => {
+      const loggedIn = !!(result && result.success && result.loggedIn);
+      updateYoutubePlaybackAuthUI(loggedIn);
+      if (loggedIn) showToast('YouTube playback sign-in saved.', 'success');
+      else showToast((result && result.error) || 'YouTube playback sign-in was not completed.', 'error');
+    });
+  }
+  checkYoutubePlaybackAuthStatus();
+
   function setLinkImportMode(mode) {
     currentLinkImportMode = mode || 'link';
     if (linkModesContainer) {
@@ -20673,6 +20714,7 @@ function bindCoverHoldZoom(wrapEl) {
       } catch (e) {}
       googleConnected = false;
       updateGoogleAuthUI();
+      checkYoutubePlaybackAuthStatus();
     });
   }
 
@@ -20712,7 +20754,47 @@ function bindCoverHoldZoom(wrapEl) {
       } catch (_) {}
       googleConnected = false;
       updateGoogleAuthUI();
+      checkYoutubePlaybackAuthStatus();
       showToast('Signed out of YouTube', 'info');
+    });
+  }
+
+  if (btnYoutubePlaybackLogin) {
+    btnYoutubePlaybackLogin.addEventListener('click', async () => {
+      if (!window.electronAPI || !window.electronAPI.youtubePlaybackLogin) return;
+      btnYoutubePlaybackLogin.disabled = true;
+      try {
+        const result = await window.electronAPI.youtubePlaybackLogin();
+        if (result && result.success) {
+          showToast('Sign in to YouTube in the opened window, then close it to save your session.', 'info');
+        } else {
+          showToast((result && result.error) || 'Could not open YouTube sign-in.', 'error');
+        }
+      } catch (error) {
+        showToast(`Could not open YouTube sign-in: ${error.message || error}`, 'error');
+      } finally {
+        btnYoutubePlaybackLogin.disabled = false;
+      }
+    });
+  }
+
+  if (btnYoutubePlaybackLogout) {
+    btnYoutubePlaybackLogout.addEventListener('click', async () => {
+      if (!window.electronAPI || !window.electronAPI.youtubePlaybackLogout) return;
+      btnYoutubePlaybackLogout.disabled = true;
+      try {
+        const result = await window.electronAPI.youtubePlaybackLogout();
+        if (result && result.success) {
+          updateYoutubePlaybackAuthUI(false);
+          showToast('YouTube playback session removed from this device.', 'info');
+        } else {
+          showToast((result && result.error) || 'Could not sign out of YouTube playback.', 'error');
+        }
+      } catch (error) {
+        showToast(`Could not sign out of YouTube playback: ${error.message || error}`, 'error');
+      } finally {
+        btnYoutubePlaybackLogout.disabled = false;
+      }
     });
   }
   checkGoogleAuthStatus();
@@ -25264,6 +25346,19 @@ function bindCoverHoldZoom(wrapEl) {
 
 
   const btnCopyDiagnostics = document.getElementById('btn-copy-diagnostics');
+  const btnOpenShortcuts = document.getElementById('btn-open-shortcuts');
+  const shortcutsModal = document.getElementById('shortcuts-modal');
+  const btnCloseShortcutsModal = document.getElementById('btn-close-shortcuts-modal');
+  if (btnOpenShortcuts && shortcutsModal) {
+    btnOpenShortcuts.addEventListener('click', () => openModal(shortcutsModal));
+    shortcutsModal.addEventListener('click', (event) => {
+      if (event.target === shortcutsModal) closeModal(shortcutsModal);
+    });
+  }
+  if (btnCloseShortcutsModal && shortcutsModal) {
+    btnCloseShortcutsModal.addEventListener('click', () => closeModal(shortcutsModal));
+  }
+
   if (btnCopyDiagnostics) {
     btnCopyDiagnostics.addEventListener('click', async () => {
       if (window.electronAPI && typeof window.electronAPI.getDiagnostics === 'function') {

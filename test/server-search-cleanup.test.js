@@ -18,6 +18,18 @@ test('removes irrelevant tracks and keeps matching results in relevance order', 
   );
 });
 
+test('keeps tracks when every search term matches the artist name', () => {
+  const tracks = [
+    { id: 'song', title: 'Kape', artist: 'Onda Andar', platform: 'youtube' },
+    { id: 'unrelated', title: 'Different Song', artist: 'Other Artist', platform: 'youtube' }
+  ];
+
+  assert.deepStrictEqual(
+    cleanSearchResults(tracks, 'onda andar').map(track => track.id),
+    ['song']
+  );
+});
+
 test('removes duplicate releases without changing the displayed title', () => {
   const tracks = [
     { id: 'first', title: 'Maple (Official Audio)', artist: 'Chainsaww', platform: 'soundcloud' },

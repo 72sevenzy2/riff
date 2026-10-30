@@ -10487,6 +10487,24 @@ body.classic-sidebar:not(.mini) .main-content,
 body.classic-sidebar:not(.mini) .right-panel:not(.hidden) {
   background: var(--page-bg) !important;
 }
+@media (min-width: 601px) {
+  body.classic-sidebar:not(.mini) .sidebar {
+    position: fixed !important;
+    left: 16px !important;
+    top: 104px !important;
+    bottom: 114px !important;
+    width: 80px !important;
+    height: auto !important;
+    margin: 0 !important;
+    z-index: 3000 !important;
+  }
+  body.hide-titlebar.classic-sidebar:not(.mini) .sidebar {
+    top: 64px !important;
+  }
+  body.classic-sidebar:not(.mini) .main-content {
+    margin-left: 96px !important;
+  }
+}
 body.classic-sidebar:not(.mini) .sidebar,
 body.classic-sidebar:not(.mini) .rail-drawer,
 body.classic-sidebar:not(.mini) .playbar,

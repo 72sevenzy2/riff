@@ -545,7 +545,10 @@ function cleanSearchResults(tracks, query) {
     })
     .filter(item => item && (!queryTokens.length ||
       (item.relevance >= minimumRelevance &&
-        (queryTokens.length < 2 || (item.titleRelevance > 0 && item.artistRelevance > 0)))))
+        (queryTokens.length < 2 ||
+          (item.titleRelevance > 0 && item.artistRelevance > 0) ||
+          item.titleRelevance === queryTokens.length ||
+          item.artistRelevance === queryTokens.length))))
     .sort((a, b) => b.relevance - a.relevance || a.index - b.index)
     .filter(({ track, clean }) => {
       const idKey = clean.id ? `${clean.platform}:${clean.id}` : '';
@@ -1896,8 +1899,11 @@ async function prefetchTrack(trackUrl, trackId, platform) {
   if (!cacheKey || prefetchingSet.size > 2) return;
   if (streamUrlCache.has(cacheKey) || prefetchingSet.has(cacheKey) || streamInfoInflight.has(cacheKey)) return;
   prefetchingSet.add(cacheKey);
+  let resolveInflight;
+  const inflightPromise = new Promise(resolve => { resolveInflight = resolve; });
+  streamInfoInflight.set(cacheKey, inflightPromise);
+  let streamUrl = null;
   try {
-    let streamUrl = null;
     if (platform === 'soundcloud' || (trackUrl && trackUrl.includes('soundcloud.com'))) {
       streamUrl = await fetchDirectSoundCloudStreamServer(trackUrl || cleanId, '');
     } else if (cleanId && /^[a-zA-Z0-9_-]{11}$/.test(cleanId)) {
@@ -1919,6 +1925,10 @@ async function prefetchTrack(trackUrl, trackId, platform) {
     }
   } catch (_) {
   } finally {
+    resolveInflight(streamUrl);
+    if (streamInfoInflight.get(cacheKey) === inflightPromise) {
+      streamInfoInflight.delete(cacheKey);
+    }
     prefetchingSet.delete(cacheKey);
   }
 }

@@ -147,6 +147,7 @@ function runGUI() {
   const gotLock = app.requestSingleInstanceLock();
   if (!gotLock && !allowMulti) { app.quit(); return; }
   if (!gotLock && allowMulti) app.setPath('userData', `${app.getPath('userData')}-instance-${process.pid}`);
+  let youtubePlaybackWindow = null;
   app.on('second-instance', () => {
     if (allowMulti) return;
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1392,6 +1393,130 @@ function runGUI() {
           youtubeCookieImportPromise = null;
         }
       }
+
+      function isYoutubeAuthUrl(value) {
+        try {
+          const parsed = new URL(value);
+          return parsed.protocol === 'https:' &&
+            (parsed.hostname === 'youtube.com' || parsed.hostname.endsWith('.youtube.com') ||
+              parsed.hostname === 'google.com' || parsed.hostname.endsWith('.google.com'));
+        } catch (_) {
+          return false;
+        }
+      }
+
+      async function saveYoutubePlaybackCookies() {
+        const googleSession = session.fromPartition('persist:riff-google');
+        const cookies = await googleSession.cookies.get({});
+        const youtubeCookies = cookies.filter(cookie => {
+          const domain = String(cookie.domain || '').replace(/^\./, '').toLowerCase();
+          return domain === 'youtube.com' || domain.endsWith('.youtube.com') ||
+            domain === 'google.com' || domain.endsWith('.google.com');
+        });
+        const hasAuthCookie = youtubeCookies.some(cookie =>
+          ['SAPISID', '__Secure-3PAPISID', '__Secure-1PAPISID', 'LOGIN_INFO', 'SID'].includes(cookie.name)
+        );
+        if (!hasAuthCookie) {
+          return {
+            success: false,
+            error: 'YouTube sign-in was not detected. Finish signing in, then close the window.'
+          };
+        }
+
+        const lines = ['# Netscape HTTP Cookie File'];
+        for (const cookie of youtubeCookies) {
+          if (!cookie.domain || !cookie.name) continue;
+          const domain = cookie.domain;
+          const includeSubdomains = domain.startsWith('.') ? 'TRUE' : 'FALSE';
+          const httpOnlyDomain = cookie.httpOnly ? `#HttpOnly_${domain}` : domain;
+          const secure = cookie.secure ? 'TRUE' : 'FALSE';
+          const expires = Number.isFinite(cookie.expirationDate) ? Math.floor(cookie.expirationDate) : 0;
+          lines.push(`${httpOnlyDomain}\t${includeSubdomains}\t${cookie.path || '/'}\t${secure}\t${expires}\t${cookie.name}\t${cookie.value}`);
+        }
+
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+        const tempFile = `${YT_COOKIES_FILE}.${process.pid}.tmp`;
+        await fs.promises.writeFile(tempFile, `${lines.join('\n')}\n`, { encoding: 'utf8', mode: 0o600 });
+        await fs.promises.rm(YT_COOKIES_FILE, { force: true });
+        await fs.promises.rename(tempFile, YT_COOKIES_FILE);
+        try { fs.unlinkSync(YT_LOGOUT_FLAG); } catch (_) {}
+
+        if (!hasValidYtCookiesFile()) {
+          await fs.promises.rm(YT_COOKIES_FILE, { force: true });
+          return { success: false, error: 'The YouTube session could not be saved.' };
+        }
+        return { success: true, loggedIn: true };
+      }
+
+      ipcMain.handle('youtube-playback-status', () => ({
+        loggedIn: hasValidYtCookiesFile()
+      }));
+
+      ipcMain.handle('youtube-playback-login', async () => {
+        if (youtubePlaybackWindow && !youtubePlaybackWindow.isDestroyed()) {
+          youtubePlaybackWindow.show();
+          youtubePlaybackWindow.focus();
+          return { success: true };
+        }
+
+        const googleSession = session.fromPartition('persist:riff-google');
+        const loginWindow = new BrowserWindow({
+          width: 1000,
+          height: 760,
+          title: 'Sign in to YouTube',
+          autoHideMenuBar: true,
+          parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+          webPreferences: {
+            session: googleSession,
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true
+          }
+        });
+        youtubePlaybackWindow = loginWindow;
+        loginWindow.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
+          if (isYoutubeAuthUrl(targetUrl)) return { action: 'allow' };
+          shell.openExternal(targetUrl);
+          return { action: 'deny' };
+        });
+        loginWindow.webContents.on('will-navigate', (event, targetUrl) => {
+          if (!isYoutubeAuthUrl(targetUrl)) {
+            event.preventDefault();
+            shell.openExternal(targetUrl);
+          }
+        });
+        loginWindow.once('closed', async () => {
+          if (youtubePlaybackWindow === loginWindow) youtubePlaybackWindow = null;
+          const result = await saveYoutubePlaybackCookies().catch(error => ({
+            success: false,
+            error: error && error.message ? error.message : 'Could not save the YouTube session.'
+          }));
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('youtube-playback-auth', result);
+          }
+        });
+
+        try {
+          await loginWindow.loadURL('https://music.youtube.com/');
+          loginWindow.show();
+          return { success: true };
+        } catch (error) {
+          if (!loginWindow.isDestroyed()) loginWindow.destroy();
+          return { success: false, error: error && error.message ? error.message : 'Could not open YouTube sign-in.' };
+        }
+      });
+
+      ipcMain.handle('youtube-playback-logout', async () => {
+        try {
+          fs.mkdirSync(DATA_DIR, { recursive: true });
+          await fs.promises.writeFile(YT_LOGOUT_FLAG, '1', 'utf8');
+          await fs.promises.rm(YT_COOKIES_FILE, { force: true });
+          await session.fromPartition('persist:riff-google').clearStorageData({ storages: ['cookies'] });
+          return { success: true, loggedIn: false };
+        } catch (error) {
+          return { success: false, error: error && error.message ? error.message : 'Could not sign out of YouTube.' };
+        }
+      });
 
       function getSystemDefaultBrowserSpec() {
         try {
