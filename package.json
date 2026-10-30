@@ -1,6 +1,6 @@
 {
   "name": "riff",
-  "version": "43.2.2",
+  "version": "44.0.0",
   "main": "src/main/main.js",
   "bin": {
     "riff": "src/main/cli.js"
@@ -62,8 +62,9 @@
       "icon": "assets/icon.png"
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
       "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": false
     },
     "linux": {
@@ -79,6 +80,7 @@
       "category": "AudioVideo"
     },
     "mac": {
+      "icon": "assets/icon-512x512.png",
       "category": "public.app-category.music",
       "target": [
         {

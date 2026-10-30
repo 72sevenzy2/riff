@@ -10,7 +10,6 @@ const keepAliveHttpsAgent = new https.Agent({
 const url = require('url');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require("child_process");
 const { StringDecoder } = require("string_decoder");
@@ -18,7 +17,7 @@ const dns = require('dns');
 const net = require('net');
 
 const PORT = 38472;
-const { DATA_DIR, CACHE_DIR, CUSTOM_LYRICS_DIR, LYRICS_DIR, THUMBNAILS_DIR, METADATA_PATH, LIBRARY_DIR, LIBRARY_PATH, ytDlpCommand, resolveDownloadDir, resolveBinary } = require('../shared/platform');
+const { DATA_DIR, CACHE_DIR, CUSTOM_LYRICS_DIR, LYRICS_DIR, THUMBNAILS_DIR, METADATA_PATH, LIBRARY_DIR, LIBRARY_PATH, ytDlpCommand, resolveDownloadDir, defaultDownloadDir, resolveBinary } = require('../shared/platform');
 const YT_COOKIES_FILE = path.join(DATA_DIR, 'yt-cookies.txt');
 
 function getYtAuthHeaders(origin = 'https://www.youtube.com') {
@@ -75,8 +74,8 @@ const I18N_FIX = {
   }
 };
 
-function i18nValueBroken(v) {
-  return typeof v !== 'string' || !v || v.indexOf('') !== -1;
+function i18nValueBroken(key, value) {
+  return typeof value !== 'string' || !value || value === key || value.indexOf(String.fromCharCode(0xFFFD)) !== -1;
 }
 const logger = require('../shared/logger');
 const { getSystemAudioOutputInfo } = require('../shared/audio-output');
@@ -282,11 +281,12 @@ const downloadInFlight = new Map();
   };
 });
 
-setInterval(() => {
+const cacheMaintenanceTimer = setInterval(() => {
   boundMap(searchCache, 20);
   boundMap(lyricsCache, 30);
   if (global.gc) { try { global.gc(); } catch (_) {} }
 }, 300000);
+cacheMaintenanceTimer.unref();
 
 const MAX_CACHE_ENTRIES = 500;
 function cacheSet(map, key, value, max = MAX_CACHE_ENTRIES) {
@@ -514,6 +514,49 @@ function trackFingerprint(track) {
   const clean = normalizeTrack(track);
   if (!clean) return '';
   return getTrackNormalizedKey(clean.artist, clean.title);
+}
+
+function cleanSearchResults(tracks, query) {
+  const queryTokens = String(query || '').toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter(token => token.length > 1);
+  const minimumRelevance = queryTokens.length > 1 ? Math.max(2, Math.ceil(queryTokens.length / 2)) : queryTokens.length;
+  const seenIds = new Set();
+  const seenTracks = new Set();
+  return (Array.isArray(tracks) ? tracks : [])
+    .map((track, index) => {
+      const clean = normalizeTrack(track);
+      if (!clean) return null;
+      if (/\b\d+\s*(?:hours?|hrs?)\b/i.test(clean.title) ||
+          /\b(?:tiktok|nightcore)\s+audios?\b/i.test(clean.title) ||
+          /\b(?:playlist|compilation)\s+of\b/i.test(clean.title)) return null;
+      const text = `${clean.title} ${clean.artist}`.toLowerCase()
+        .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+        .split(/\s+/)
+        .filter(Boolean);
+      const words = new Set(text);
+      const titleWords = new Set(clean.title.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean));
+      const artistWords = new Set(clean.artist.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean));
+      const relevance = queryTokens.reduce((score, token) => score + (words.has(token) ? 1 : 0), 0);
+      const titleRelevance = queryTokens.reduce((score, token) => score + (titleWords.has(token) ? 1 : 0), 0);
+      const artistRelevance = queryTokens.reduce((score, token) => score + (artistWords.has(token) ? 1 : 0), 0);
+      return { track, index, clean, relevance, titleRelevance, artistRelevance };
+    })
+    .filter(item => item && (!queryTokens.length ||
+      (item.relevance >= minimumRelevance &&
+        (queryTokens.length < 2 || (item.titleRelevance > 0 && item.artistRelevance > 0)))))
+    .sort((a, b) => b.relevance - a.relevance || a.index - b.index)
+    .filter(({ track, clean }) => {
+      const idKey = clean.id ? `${clean.platform}:${clean.id}` : '';
+      const fingerprint = trackFingerprint(track);
+      if (idKey && seenIds.has(idKey)) return false;
+      if (fingerprint && seenTracks.has(fingerprint)) return false;
+      if (idKey) seenIds.add(idKey);
+      if (fingerprint) seenTracks.add(fingerprint);
+      return true;
+    })
+    .map(item => item.track);
 }
 
 const recentlyRecommendedTrackIds = new Set();
@@ -2178,6 +2221,7 @@ async function handleSearch(req, res, query, platform = 'ytmusic', limit = 12, o
   if (offset === 0 && (!pool || !Array.isArray(pool))) {
     if (platform === 'soundcloud') {
       pool = (await fetchSoundCloudSearch(qStr, 40).catch(() => [])) || [];
+      pool = cleanSearchResults(pool, qStr);
       searchCache.set(poolCacheKey, pool);
       setTimeout(() => { searchCache.delete(poolCacheKey); }, 300000);
       const sliced = pool.slice(0, limit);
@@ -2199,6 +2243,7 @@ async function handleSearch(req, res, query, platform = 'ytmusic', limit = 12, o
 
     if (platform === 'youtube') {
       pool = (await directYoutubeSearch(qStr, false, 40).catch(() => [])) || [];
+      pool = cleanSearchResults(pool, qStr);
       searchCache.set(poolCacheKey, pool);
       setTimeout(() => { searchCache.delete(poolCacheKey); }, 300000);
       const sliced = pool.slice(0, limit);
@@ -2225,6 +2270,7 @@ async function handleSearch(req, res, query, platform = 'ytmusic', limit = 12, o
       } else {
         pool = (await directYoutubeSearch(qStr, false, 40).catch(() => [])) || [];
       }
+      pool = cleanSearchResults(pool, qStr);
       searchCache.set(poolCacheKey, pool);
       setTimeout(() => { searchCache.delete(poolCacheKey); }, 300000);
       const sliced = pool.slice(0, limit);
@@ -2258,6 +2304,7 @@ async function handleSearch(req, res, query, platform = 'ytmusic', limit = 12, o
         pool = (await directYoutubeSearch(qStr, false, 40).catch(() => [])) || [];
       }
     }
+    pool = cleanSearchResults(pool, qStr);
     searchCache.set(poolCacheKey, pool);
     setTimeout(() => { searchCache.delete(poolCacheKey); }, 300000);
   }
@@ -2643,7 +2690,7 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
             '-f', (forShare ? audioFormat : ytDlpQualityFormat),
             '--', vUrl
           ];
-          const raw = await executeYtDlp(args, 7500);
+          const raw = await executeYtDlp(args, 20000);
           const lines = raw.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
           for (const lineUrl of lines) {
             if (await verifyStreamPlayable(lineUrl)) {
@@ -3602,7 +3649,7 @@ async function handleAudioProxy(req, res, targetUrl, redirectsLeft = 5, origUrl 
 }
 
 function defaultDownloadsDir() {
-  try { return require('electron').app.getPath('downloads'); } catch (e) { return path.join(os.homedir(), 'Downloads'); }
+  return defaultDownloadDir();
 }
 
 function getDownloadsDir() {
@@ -6063,7 +6110,7 @@ async function fetchYoutubePlaylistDirect(listId, platform) {
 }
 
 async function handlePlaylistImport(req, res, inputUrl) {
-  if (typeof inputUrl === 'string' && (inputUrl.includes('on.soundcloud.com') || inputUrl.includes('soundcloud.app.goo.gl'))) {
+  if (typeof inputUrl === 'string' && (inputUrl.includes('on.soundcloud.com') || inputUrl.includes('soundcloud.app.goo.gl') || inputUrl.includes('link.deezer.com'))) {
     try {
       const resp = await fetch(inputUrl, { redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0' } });
       if (resp && resp.url) inputUrl = resp.url;
@@ -6081,6 +6128,55 @@ async function handlePlaylistImport(req, res, inputUrl) {
   const host = (parsed.hostname || '').toLowerCase();
   const isSoundCloud = host === 'soundcloud.com' || host === 'www.soundcloud.com' || host.endsWith('.soundcloud.com');
   const isYouTube = host === 'youtube.com' || host === 'music.youtube.com' || host === 'www.youtube.com' || host === 'youtu.be' || host.endsWith('.youtube.com');
+  const isDeezer = host === 'deezer.com' || host === 'www.deezer.com';
+
+  if (isDeezer) {
+    const playlistMatch = parsed.pathname.match(/^\/playlist\/(\d+)(?:\/|$)/i);
+    if (!playlistMatch) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'Unsupported Deezer link' }));
+    }
+
+    try {
+      const playlist = await fetchItunesJson(`https://api.deezer.com/playlist/${playlistMatch[1]}`);
+      if (!playlist || playlist.error || !playlist.id) throw new Error('Deezer playlist was not found');
+      const items = [];
+      let next = playlist.tracks && playlist.tracks.next;
+      if (playlist.tracks && Array.isArray(playlist.tracks.data)) items.push(...playlist.tracks.data);
+      let pages = 0;
+      while (next && pages < 100) {
+        const page = await fetchItunesJson(next);
+        if (page && Array.isArray(page.data)) items.push(...page.data);
+        next = page && page.next;
+        pages++;
+      }
+
+      const tracks = items.filter(track => track && track.id && track.title && track.artist && track.artist.name)
+        .map(track => ({
+          id: String(track.id),
+          title: String(track.title),
+          artist: String(track.artist.name),
+          duration: Number(track.duration) || 0,
+          thumbnail: track.album && (track.album.cover_xl || track.album.cover_big || track.album.cover) || '',
+          url: track.link || '',
+          platform: 'deezer',
+          isExplicit: Boolean(track.explicit_lyrics)
+        }));
+
+      if (!tracks.length) throw new Error('No tracks found in this Deezer playlist');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        success: true,
+        name: playlist.title || 'Deezer Playlist',
+        cover: playlist.picture_xl || playlist.picture_big || playlist.picture || '',
+        tracks
+      }));
+    } catch (error) {
+      try { logger.error('Deezer playlist import failed: ' + error.message); } catch (_) {}
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: error.message || 'Deezer playlist import failed' }));
+    }
+  }
 
   if (!isSoundCloud && !isYouTube) {
     res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -7445,7 +7541,7 @@ const server = http.createServer(async (req, res) => {
       try { dict = JSON.parse(fs.readFileSync(langFile, 'utf8')); } catch (_) {}
       let dictDirty = false;
       for (const k of Object.keys(dict)) {
-        if (i18nValueBroken(dict[k])) { delete dict[k]; dictDirty = true; }
+        if (i18nValueBroken(k, dict[k])) { delete dict[k]; dictDirty = true; }
       }
       Object.assign(dict, I18N_FIX[safeLang] || {});
 
@@ -7483,14 +7579,14 @@ const server = http.createServer(async (req, res) => {
             let chunkTrans = await callTranslate(joined, safeLang);
             if (chunkTrans && chunkTrans.length === chunk.length) {
               for (let i = 0; i < chunk.length; i++) {
-                if (i18nValueBroken(chunkTrans[i])) continue;
+                if (i18nValueBroken(chunk[i], chunkTrans[i])) continue;
                 dict[chunk[i]] = chunkTrans[i];
                 changed = true;
               }
             } else {
               for (const str of chunk) {
                 const single = await callTranslate(str, safeLang);
-                if (single && single[0] && !i18nValueBroken(single[0])) {
+                if (single && single[0] && !i18nValueBroken(str, single[0])) {
                   dict[str] = single[0];
                   changed = true;
                 }
@@ -8181,7 +8277,17 @@ function startServer(port = PORT) {
   });
 }
 
-module.exports = { startServer, PORT, getServerToken, fetchLyricsDirect, fetchLrcLib, fetchGeniusLyrics, fetchNetEaseWords, fetchKugouLyrics, fetchMusixmatchLyrics, fetchNeteaseLyrics, fetchSoundCloudSearch, ytmusicSearch, parseYrc };
+function stopServer() {
+  if (!server.listening) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+}
+
+module.exports = { startServer, stopServer, PORT, getServerToken, fetchLyricsDirect, fetchLrcLib, fetchGeniusLyrics, fetchNetEaseWords, fetchKugouLyrics, fetchMusixmatchLyrics, fetchNeteaseLyrics, fetchSoundCloudSearch, ytmusicSearch, parseYrc, cleanSearchResults };
 
 if (require.main === module) {
   startServer();

@@ -4,10 +4,8 @@
  * @version 2.0.0
  * @description Spotify-style shuffle that is not trapped in your search results, plus Smart Shuffle. Right-click the shuffle button to switch mode.
  */
-// Needs the plugin API additions from riff-plugin-api.patch
-// (Riff.shuffle, Riff.queue, Riff.api, Riff.library, Riff.sameTrack).
 if (!Riff.shuffle || !Riff.queue || !Riff.api || !Riff.library) {
-  Riff.toast('Better Shuffle needs riff-plugin-api.patch applied to Riff', 'error');
+  Riff.toast('Better Shuffle requires the current plugin API.', 'error');
   return {};
 }
 
@@ -18,13 +16,13 @@ const NAMES = {
   smart: 'Smart shuffle'
 };
 const CFG = {
-  expandSearch: true,     // widen a search shuffle with more tracks by the same artists
+  expandSearch: true,
   artistsToExpand: 4,
   perArtist: 10,
   maxExpand: 50,
-  smartEvery: 3,          // one recommendation after every N of your tracks
+  smartEvery: 3,
   smartBatch: 10,
-  skipSec: 30,            // leaving a track before this counts as a skip
+  skipSec: 30,
   toastSmart: true,
   timeoutMs: 8000
 };
@@ -32,7 +30,6 @@ const CFG = {
 let mode = Riff.storage.get('mode', 'smart');
 if (!MODES.includes(mode)) mode = 'smart';
 
-// ---------- helpers ----------
 const rand = Math.random;
 const artistKey = (t) => String((t && t.artist) || 'unknown').toLowerCase().replace(/\s+/g, ' ').trim();
 const tkey = (t) => (t.platform || '') + ':' + (t.id || t.url || (t.title + '|' + t.artist));
@@ -53,7 +50,6 @@ function withTimeout(promise, ms) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-// Same-artist neighbours get swapped apart when a different artist is available.
 function fixAdjacent(list, prevKey) {
   const a = list.slice();
   const bad = (i) => {
@@ -74,9 +70,6 @@ function fixAdjacent(list, prevKey) {
   return a;
 }
 
-// Spotify-style: each artist's tracks are shuffled, then spread evenly across
-// the whole list (track i of n lands in slice [i/n, (i+1)/n)). Artists end up
-// distributed instead of clumped.
 function arrange(tracks, prevKey) {
   const groups = new Map();
   tracks.forEach((t) => {
@@ -93,7 +86,6 @@ function arrange(tracks, prevKey) {
   return fixAdjacent(scored.map((x) => x.t), prevKey || '');
 }
 
-// ---------- local taste profile ----------
 const taste = Riff.storage.get('taste', { artists: {}, skips: {} });
 const saveTaste = () => { try { Riff.storage.set('taste', taste); } catch (e) {} };
 function bump(t, d) {
@@ -110,7 +102,6 @@ function affinity(t) {
   return (taste.artists[artistKey(t)] || 0) + Math.min(favBoost, 6) - (taste.skips[tkey(t)] || 0) * 1.5;
 }
 
-// ---------- shuffle session ----------
 let S = null;
 let sid = 0;
 
@@ -149,7 +140,6 @@ function syncSession(ctx) {
     S.played.add(ck);
     S.upcoming = S.upcoming.filter((t) => tkey(t) !== ck);
   }
-  // tracks added to the queue by the user (or Riff) join the remaining order
   ctx.queue.forEach((t) => {
     const k = tkey(t);
     if (S.pool.has(k)) return;
@@ -182,7 +172,6 @@ function addToSession(s, added, isSmart) {
   if (!isSmart) s.upcoming = fixAdjacent(s.upcoming, s.lastArtist);
 }
 
-// ---------- fetching more material ----------
 async function enrich(s, ctx) {
   try {
     if (CFG.expandSearch && ctx.context === 'search') await expandSearch(s, ctx);
@@ -229,7 +218,6 @@ async function recommend(s, ctx) {
   addToSession(s, Riff.queue.append(fresh), true);
 }
 
-// ---------- the provider Riff calls on every "next" while shuffle is on ----------
 function takeSmart() {
   if (!S.smartPool.length) return null;
   let best = -1;
@@ -269,7 +257,6 @@ async function pick(ctx) {
 
 const offProvider = Riff.shuffle.setProvider(pick);
 
-// ---------- learn from listening ----------
 const audio = Riff.audio();
 let lastPos = 0;
 let prevTrack = null;
@@ -291,7 +278,6 @@ const offTrack = Riff.on('trackchange', (track) => {
   if (CFG.toastSmart && S && track && S.smartKeys.has(tkey(track))) Riff.toast('Smart shuffle pick: ' + track.title, 'info');
 });
 
-// ---------- mode switch: right-click the shuffle button ----------
 const removeStyle = Riff.addStyle(
   '#btn-shuffle{position:relative}' +
   '#btn-shuffle[data-shuffle-mode="smart"]::after{content:"\\2726";position:absolute;top:0;right:2px;font-size:11px;line-height:1;color:currentColor}' +

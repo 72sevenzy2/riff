@@ -56,7 +56,7 @@ Built with **Electron**, **Vanilla JavaScript**, and **WebGL**, Riff provides re
 - High quality streaming with **YouTube Music, YouTube, and SoundCloud** without third-party advertisements or account requirements
 - **Offline lossless playback with full local library support** for high resolution formats including FLAC, WAV, MP3, OGG, and M4A.
 - **Easy built-in audio editor**, downloading with effects or trimming 10-band & 3-band equalizer, and real-time DSP effects (speed, pitch, reverb, distortion).
-- **1-Click multi-platform playlist migration**: Direct import and resolution of public playlists from Spotify, Apple Music, YouTube Music, and SoundCloud
+- **1-Click multi-platform playlist migration**: Direct import and resolution of public playlists from Spotify, Apple Music, Deezer, YouTube Music, and SoundCloud
 - **Material Design 3 UI**: Dynamic color extraction from album artwork, deep UI theming, responsive layout presets, and an integrated CSS editor
 - **Hardware-Accelerated Visuals**: Canvas and WebGL visualizers including real-time frequency analyzers, an interactive squiggly progress scrubber, and synchronized karaoke lyrics.
 - **Discord Rich Presence**: Real-time playback status reporting track metadata, artist info, and elapsed time to Discord.
@@ -103,7 +103,7 @@ Riff implements the Material Design 3 (M3 Expressive) specification:
 Migrate existing music libraries between platforms in a single operation:
 
 - Import public playlist URLs from **Spotify** (including playlists with 100+ tracks via automated pagination).
-- Import public playlists and albums from **Apple Music**, **SoundCloud**, and **YouTube / YouTube Music**.
+- Import public playlists from **Deezer**, and public playlists and albums from **Apple Music**, **SoundCloud**, and **YouTube / YouTube Music**.
 - Platform-aware search resolution: matches imported track metadata against the selected audio provider to construct immediate local playlists.
 
 ## Synchronized Lyrics Engine
@@ -118,6 +118,8 @@ Migrate existing music libraries between platforms in a single operation:
 Pre-built binaries are available on the [Releases page](https://github.com/rootscripts/riff/releases).
 
 Standard releases include all necessary dependencies (bundled yt-dlp and ffmpeg binaries). No secondary runtime configuration is required on Windows or Linux.
+
+On Windows, the installer lets you choose the installation directory. Uninstalling Riff does not delete your app data.
 
 ### macOS
 
@@ -178,7 +180,7 @@ Yes. Riff is free software published under the permissive MIT license. There are
 No. Streams from YouTube Music, YouTube, and SoundCloud are resolved directly and play without advertisements.
 
 **Is an account or sign-in required?**
-No. Riff requires no account creation, credentials, or authentication. Telemetry and analytic tracking are strictly omitted.
+No account is required for playback or public playlist imports. Optional Google sign-in lets you import your own YouTube likes and playlists; Riff uses Google's OAuth flow and YouTube Data API for that feature. Telemetry and analytic tracking are strictly omitted.
 
 **Which operating systems are supported?**
 Windows 10/11, modern Linux distributions, and macOS (experimental).
@@ -190,7 +192,7 @@ Yes. Riff natively indexes local audio files (including lossless FLAC, WAV, MP3,
 Yes. Downloaded tracks, saved audio segments, and indexed local libraries function without an internet connection.
 
 **How does playlist migration work?**
-Paste any public Spotify, Apple Music, YouTube Music, or SoundCloud playlist link. Riff extracts track titles and artists, batches requests to resolve streams on your active platform, and saves the result as an editable local playlist.
+Paste any public Spotify, Apple Music, Deezer, YouTube Music, or SoundCloud playlist link. Riff extracts track titles and artists, batches requests to resolve streams on your active platform, and saves the result as an editable local playlist.
 
 **Does Riff support synchronized lyrics?**
 Yes. Riff supports online synchronized lyrics, local LRC files, manual timing adjustments, and real-time synchronized karaoke display.

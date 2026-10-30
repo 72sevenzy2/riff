@@ -518,7 +518,9 @@
           }
         } catch (_) {}
       }
-      const vol = this.isMuted ? 0 : Math.max(0, Math.min(1, Number.isFinite(this.volume) ? this.volume : 0.85));
+      const raw = this.isMuted ? 0 : Math.max(0, Math.min(1, Number.isFinite(this.volume) ? this.volume : 0.85));
+      const vol = raw * raw;
+      this.appliedElementVolume = vol;
       if (this._attachedElement) {
         try {
           this._attachedElement.volume = vol;

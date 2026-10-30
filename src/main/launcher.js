@@ -6,7 +6,7 @@ const { execFile } = require('child_process');
 
 const NAME = 'Riff';
 const COMMENT = 'Riff - music player';
-const APP_ID = '';
+const APP_ID = 'io.github.rootscripts.riff';
 
 function winShortcutPath() {
   return path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', `${NAME}.lnk`);
