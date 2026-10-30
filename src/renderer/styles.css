@@ -7265,6 +7265,8 @@ body.mini.mini-lyrics-on #btn-mini-lyrics {
 #view-settings,
 #view-settings.active {
   transform: none !important;
+  overflow-x: clip !important;
+  overflow-y: visible !important;
 }
 #view-settings.active {
   animation: settingsFadeIn 250ms ease both !important;
