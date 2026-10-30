@@ -4304,7 +4304,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const fetchAbortTimeout = setTimeout(() => {
       didTimeoutAbort = true;
       try { state.currentAbortController?.abort(); } catch (_) {}
-    }, 40000);
+    }, 22000);
 
     state.currentTrack = track;
     emitPluginEvent('trackchange', track);
@@ -7608,7 +7608,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       try {
         const playPromise = el.nativeAudio.play();
         if (playPromise && typeof playPromise.catch === 'function') {
-          playPromise.catch(e => console.warn('Play error:', e));
+          playPromise.catch(e => {
+            if (curToken !== smoothFadeToken || !el.nativeAudio?.paused) return;
+            console.warn('Play error:', e);
+            state.isPlaying = false;
+            updatePlayPauseButton(false, false);
+            if (el.trackLoadingOverlay) el.trackLoadingOverlay.classList.add('hidden');
+            showToast(e.message || 'Could not start playback', 'error');
+          });
         }
       } catch (e) {
         console.warn('Play error:', e);
@@ -7965,7 +7972,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
 
-    async function recoverCurrentStream(resumePos = 0) {
+    let activeStreamRecovery = null;
+    function recoverCurrentStream(resumePos = 0) {
+      const token = state.loadToken;
+      if (activeStreamRecovery && activeStreamRecovery.token === token) return activeStreamRecovery.promise;
+      const promise = recoverCurrentStreamOnce(resumePos, token).finally(() => {
+        if (activeStreamRecovery && activeStreamRecovery.promise === promise) activeStreamRecovery = null;
+      });
+      activeStreamRecovery = { token, promise };
+      return promise;
+    }
+
+    async function recoverCurrentStreamOnce(resumePos, myToken) {
       if (el.trackLoadingOverlay) el.trackLoadingOverlay.classList.add('hidden');
       const cur = state.currentTrack;
       if (!cur) {
@@ -7979,16 +7997,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       delete cur._preloadedStreamUrl;
       const retryStage = cur._errorRetryStage || 0;
-      const myToken = state.loadToken;
 
       if (retryStage <= 1) {
         cur._errorRetryStage = retryStage + 1;
         updatePlayPauseButton(false, true);
+        const retryController = new AbortController();
+        const retryTimeout = setTimeout(() => retryController.abort(), 22000);
         try {
           const qQuality = encodeURIComponent(localStorage.getItem('riff_audio_quality') || 'medium');
           const qSearch = encodeURIComponent(cur.searchQuery || ((cur.artist ? cur.artist + ' - ' : '') + (cur.title || '')));
           const retryUrl = `http://127.0.0.1:${state.serverPort}/api/stream-info?url=${encodeURIComponent(cur.url || '')}&id=${encodeURIComponent(cur.id || '')}&platform=${encodeURIComponent(cur.platform || state.platform)}&title=${encodeURIComponent(cur.title || '')}&artist=${encodeURIComponent(cur.artist || '')}&duration=${encodeURIComponent(cur.duration || 0)}&quality=${qQuality}&q=${qSearch}&forceYtDlp=1`;
-          const r = await fetch(retryUrl);
+          const r = await fetch(retryUrl, { signal: retryController.signal });
           const d = await r.json();
           if (myToken !== state.loadToken) return;
           if (d && d.success && d.streamUrl) {
@@ -8021,7 +8040,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             return;
           }
-        } catch (_) {}
+        } catch (_) {
+        } finally {
+          clearTimeout(retryTimeout);
+        }
       }
 
       cur._errorRetryStage = 0;
@@ -8044,13 +8066,34 @@ document.addEventListener('DOMContentLoaded', async () => {
       setTimeout(() => { if (state.currentTrack === cur) playNext(); }, 600);
     }
 
+    let playbackStallTimer = null;
+    function clearPlaybackStallTimer() {
+      if (playbackStallTimer) clearTimeout(playbackStallTimer);
+      playbackStallTimer = null;
+    }
+    function watchPlaybackStall() {
+      clearPlaybackStallTimer();
+      const token = state.loadToken;
+      playbackStallTimer = setTimeout(() => {
+        playbackStallTimer = null;
+        if (token !== state.loadToken || el.nativeAudio.paused || el.nativeAudio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) return;
+        recoverCurrentStream(el.nativeAudio.currentTime || 0);
+      }, 12000);
+    }
+
     el.nativeAudio.addEventListener('error', () => {
+      clearPlaybackStallTimer();
       const pos = (el.nativeAudio && Number.isFinite(el.nativeAudio.currentTime)) ? el.nativeAudio.currentTime : 0;
       recoverCurrentStream(pos);
     });
 
     el.nativeAudio.addEventListener('waiting', () => {
       updatePlayPauseButton(state.isPlaying, true);
+      if (!el.nativeAudio.paused) watchPlaybackStall();
+    });
+
+    el.nativeAudio.addEventListener('stalled', () => {
+      if (!el.nativeAudio.paused) watchPlaybackStall();
     });
 
     function prefetchNextQueueTrack() {
@@ -8067,8 +8110,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     el.nativeAudio.addEventListener('playing', () => {
+      clearPlaybackStallTimer();
       state.isPlaying = true;
       state.consecutivePlayFailures = 0;
+      if (!preloadedTrack10sFired) {
+        preloadedTrack10sFired = true;
+        preloadNextTrackStream();
+      }
       document.body.classList.add('is-playing');
       updatePlayPauseButton(true, false);
     });
@@ -8159,6 +8207,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     el.nativeAudio.addEventListener('pause', () => {
+      clearPlaybackStallTimer();
       isPauseFading = false;
       emitPluginEvent('pause');
       updatePlayPauseButton(false, false);

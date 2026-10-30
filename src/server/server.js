@@ -2527,7 +2527,36 @@ function makeCleanSearchQuery(artist, title) {
   return `${cleanA} ${cleanT}`.trim();
 }
 
-async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube', title = '', artist = '', duration = 0, thumbnail = '', timeoutSec = 12) {
+async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube', title = '', artist = '', duration = 0, thumbnail = '', timeoutSec = 20) {
+  const deadlineAt = Date.now() + timeoutSec * 1000;
+  let timedOut = false;
+  let activeYtDlp = null;
+  const deadlineTimer = setTimeout(() => {
+    timedOut = true;
+    if (activeYtDlp && !activeYtDlp.killed) activeYtDlp.kill('SIGKILL');
+    if (!res.writableEnded) {
+      res.writeHead(504, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Stream resolution timed out' }));
+    }
+  }, timeoutSec * 1000);
+  deadlineTimer.unref();
+  res.once('close', () => {
+    clearTimeout(deadlineTimer);
+    if (!res.writableEnded && activeYtDlp && !activeYtDlp.killed) activeYtDlp.kill('SIGKILL');
+  });
+  const runYtDlp = (args, limit) => {
+    const remaining = deadlineAt - Date.now();
+    if (timedOut || remaining <= 0) return Promise.reject(new Error('Stream resolution timed out'));
+    return executeYtDlp(args, Math.max(1, Math.min(limit, remaining)), {
+      onChild: (proc) => {
+        activeYtDlp = proc;
+        proc.once('close', () => {
+          if (activeYtDlp === proc) activeYtDlp = null;
+        });
+        if (timedOut) proc.kill('SIGKILL');
+      }
+    });
+  };
   artist = stripYoutubeTopic(artist);
   trackUrl = normalizeSoundCloudUrl(trackUrl);
   const parsedUrl = (req && req.url) ? url.parse(req.url, true) : { query: {} };
@@ -2640,6 +2669,7 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
     const q = ((artist ? artist + ' - ' : '') + (title || '')).trim() || queryQ;
 
     const sendStreamResponse = (url, resolvedId = null) => {
+      if (res.writableEnded) return;
       resolveInflight(url);
       streamInfoInflight.delete(cacheKey);
       const finalId = resolvedId || cleanId;
@@ -2690,7 +2720,7 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
             '-f', (forShare ? audioFormat : ytDlpQualityFormat),
             '--', vUrl
           ];
-          const raw = await executeYtDlp(args, 18000);
+          const raw = await runYtDlp(args, 18000);
           const lines = raw.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
           for (const lineUrl of lines) {
             if (await verifyStreamPlayable(lineUrl)) {
@@ -2725,7 +2755,7 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
             '-f', audioFormat,
             '--', candUrl
           ];
-          const raw = await executeYtDlp(args, 10000);
+          const raw = await runYtDlp(args, 10000);
           const lines = raw.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
           const nonDrm = lines.find(l => !/preview|drm|cf-preview-media/i.test(l));
           if (nonDrm && !nonDrm.includes('/preview/') && !nonDrm.includes('cf-preview-media')) s = nonDrm;
@@ -2789,7 +2819,7 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
 
       if (!streamUrl && !needYtAuth) {
         try {
-          const fbRaw = await executeYtDlp([
+          const fbRaw = await runYtDlp([
             '--no-config', '-g', '--no-warnings', '--no-playlist', '--no-check-certificates',
             '--js-runtimes', 'node',
             '--socket-timeout', '8', '--retries', '1',
@@ -2819,7 +2849,7 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
     let shareWebUrl = '';
     if (forShare && (!streamUrl || streamUrl.includes('.m3u8')) && (title || artist)) {
       try {
-        const rawYt = await executeYtDlp([
+        const rawYt = await runYtDlp([
           '--no-config', '--no-warnings', '--no-playlist',
           '--extractor-args', YT_EXTRACTOR_ARGS,
           '--print', '%(webpage_url)s\n%(url)s',
@@ -2863,7 +2893,7 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
     }));
   }
 
-  if (!streamUrl) {
+  if (!streamUrl && !res.writableEnded) {
     try { logger.error('Stream resolve failed: ' + (title || trackUrl)); } catch (_) {}
     res.writeHead(500, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ success: false, needAuth: needYtAuth, error: needYtAuth ? 'YouTube sign-in required for this track' : 'could not extract audio stream' }));
@@ -2884,6 +2914,7 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
   if (cleanId && cleanId !== cacheKey) streamUrlCache.set(cleanId, { timestamp: Date.now(), data });
   if (cleanId) setTimeout(() => downloadTrackToDisk(trackUrl, cleanId, platform, meta), 45000);
 
+  if (res.writableEnded) return;
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(data));
 }
@@ -7918,7 +7949,7 @@ const server = http.createServer(async (req, res) => {
     const duration = parsedUrl.query.duration || 0;
     const thumbnail = parsedUrl.query.thumbnail || '';
     const rawTimeout = parseInt(parsedUrl.query.timeout, 10);
-    const timeoutSec = isNaN(rawTimeout) ? 12 : Math.max(5, Math.min(30, rawTimeout));
+    const timeoutSec = isNaN(rawTimeout) ? 20 : Math.max(5, Math.min(30, rawTimeout));
     return handleStreamInfo(req, res, trackUrl, trackId, platform, title, artist, duration, thumbnail, timeoutSec);
   }
 
