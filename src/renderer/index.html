@@ -2177,9 +2177,15 @@
             </div>
 
             <div class="setting-item">
-              <div class="setting-item-top" style="align-items: center; justify-content: space-between;">
-                <span class="setting-name">Keyboard shortcuts</span>
-                <button class="btn-outline-pill" id="btn-open-shortcuts" style="padding: 6px 14px; font-size: calc(12px * var(--font-scale, 1));">Keyboard shortcuts</button>
+              <div class="setting-item-top" style="align-items: flex-start;">
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                  <span class="setting-name">Global shortcuts</span>
+                  <span class="setting-hint">Ctrl / Cmd + Shift + Space — Play / pause</span>
+                  <span class="setting-hint">Ctrl / Cmd + Shift + Right — Next track</span>
+                  <span class="setting-hint">Ctrl / Cmd + Shift + Left — Previous track</span>
+                  <span class="setting-hint">Ctrl / Cmd + Shift + Up / Down — Volume</span>
+                  <span class="setting-hint">Media keys — Play / pause, next and previous</span>
+                </div>
               </div>
             </div>
 
@@ -3278,22 +3284,6 @@
             </div>
           </div>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal-backdrop hidden" id="shortcuts-modal">
-    <div class="dialog-card" style="width: 520px; max-width: 90vw; max-height: 80vh; display: flex; flex-direction: column;">
-      <div class="dialog-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <h3 style="margin: 0;">Keyboard shortcuts</h3>
-        <button class="btn-icon-pill" id="btn-close-shortcuts-modal" title="Close">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-        </button>
-      </div>
-      <div id="shortcuts-list" style="overflow-y: auto; display: flex; flex-direction: column; gap: 8px; font-size: calc(13px * var(--font-scale, 1)); padding-right: 4px;"></div>
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
-        <span id="shortcut-record-hint" style="font-size: 12px; color: var(--md-sys-color-on-surface-variant);">Click a shortcut to change it.</span>
-        <button class="btn-outline-pill" id="btn-reset-shortcuts" type="button" style="padding: 6px 14px; font-size: 12px;">Reset</button>
       </div>
     </div>
   </div>

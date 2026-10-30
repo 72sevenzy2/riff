@@ -2242,44 +2242,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.body.classList.toggle('keep-bar-timestamps', !getAdv('autohide_timestamps', true));
   document.body.classList.toggle('classic-sidebar', !!getAdv('classic_sidebar', false));
 
-  window.addEventListener('pointermove', (e) => {
-    if (!document.body.classList.contains('hide-titlebar')) {
-      if (document.body.classList.contains('titlebar-peek')) {
-        document.body.classList.remove('titlebar-peek');
-      }
-      return;
-    }
-    if (e.clientY <= 12) {
-      document.body.classList.add('titlebar-peek');
-    } else if (e.clientY > 46) {
-      document.body.classList.remove('titlebar-peek');
-    }
-  });
-
-  let titlebarRevealHideTimer = null;
-  window.addEventListener('mousemove', (e) => {
-    if (!document.body.classList.contains('hide-titlebar')) {
-      document.body.classList.remove('titlebar-reveal');
-      return;
-    }
-    if (e.clientY <= 2) {
-      if (titlebarRevealHideTimer) { clearTimeout(titlebarRevealHideTimer); titlebarRevealHideTimer = null; }
-      document.body.classList.add('titlebar-reveal');
-    } else if (document.body.classList.contains('titlebar-reveal') && e.clientY > 48) {
-      if (!titlebarRevealHideTimer) {
-        titlebarRevealHideTimer = setTimeout(() => {
-          document.body.classList.remove('titlebar-reveal');
-          titlebarRevealHideTimer = null;
-        }, 400);
-      }
-    }
-  });
-  document.addEventListener('mouseleave', () => {
-    document.body.classList.remove('titlebar-reveal');
-    document.body.classList.remove('titlebar-peek');
-    if (titlebarRevealHideTimer) { clearTimeout(titlebarRevealHideTimer); titlebarRevealHideTimer = null; }
-  });
-
   const savedBannerBlur = parseInt(localStorage.getItem('riff_banner_blur') || '3', 10);
   const savedBannerOpacity = parseInt(localStorage.getItem('riff_banner_opacity') || '100', 10);
   const savedBannerFade = parseInt(localStorage.getItem('riff_banner_fade') || '100', 10);
@@ -7666,7 +7628,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   window.addEventListener('keydown', (e) => {
-    if (captureShortcut(e)) return;
     if (!runKeyboardShortcut(e)) return;
     e.preventDefault();
     e.stopImmediatePropagation();
@@ -18655,44 +18616,7 @@ function bindCoverHoldZoom(wrapEl) {
     miniPlayer: { code: 'KeyP', ctrl: false, shift: false, alt: false },
     search: { code: 'KeyK', ctrl: true, shift: false, alt: false }
   };
-  const shortcutLabels = {
-    playPause: 'Play / Pause',
-    next: 'Next track',
-    previous: 'Previous track',
-    seekForward: 'Seek forward 5s',
-    seekBack: 'Seek back 5s',
-    volumeUp: 'Volume up',
-    volumeDown: 'Volume down',
-    mute: 'Mute / Unmute',
-    shuffle: 'Shuffle',
-    repeat: 'Repeat',
-    lyrics: 'Lyrics',
-    karaoke: 'TV Karaoke',
-    miniPlayer: 'Mini player',
-    search: 'Search'
-  };
-  let shortcutBindings = JSON.parse(JSON.stringify(defaultShortcuts));
-  let shortcutRecordingAction = null;
-  try {
-    const saved = JSON.parse(localStorage.getItem('riff_keyboard_shortcuts') || '{}');
-    Object.keys(defaultShortcuts).forEach(action => {
-      const binding = saved[action];
-      if (binding && typeof binding.code === 'string' && typeof binding.ctrl === 'boolean' &&
-          typeof binding.shift === 'boolean' && typeof binding.alt === 'boolean') {
-        shortcutBindings[action] = binding;
-      }
-    });
-  } catch (_) {}
-
-  function saveShortcutBindings() {
-    try {
-      localStorage.setItem('riff_keyboard_shortcuts', JSON.stringify(shortcutBindings));
-      return true;
-    } catch (error) {
-      showToast(`Could not save keyboard shortcuts: ${error.message}`, 'error');
-      return false;
-    }
-  }
+  try { localStorage.removeItem('riff_keyboard_shortcuts'); } catch (_) {}
 
   function shortcutMatches(event, binding) {
     if (!binding || event.code !== binding.code) return false;
@@ -18701,19 +18625,12 @@ function bindCoverHoldZoom(wrapEl) {
       event.altKey === binding.alt;
   }
 
-  function sameShortcut(first, second) {
-    return first.code === second.code &&
-      first.ctrl === second.ctrl &&
-      first.shift === second.shift &&
-      first.alt === second.alt;
-  }
-
   function runKeyboardShortcut(event) {
     if (isTextInput(event.target) && !event.ctrlKey && !event.metaKey && !event.altKey) return false;
     if (isTextInput(event.target) && /^Arrow/.test(event.code) &&
         (event.ctrlKey || event.metaKey || event.shiftKey)) return false;
     if (document.querySelector('.modal-backdrop:not(.hidden)')) return false;
-    const action = Object.keys(shortcutBindings).find(key => shortcutMatches(event, shortcutBindings[key]));
+    const action = Object.keys(defaultShortcuts).find(key => shortcutMatches(event, defaultShortcuts[key]));
     if (!action) return false;
     if (action === 'playPause') {
       if (syncState && syncState.active && syncState.currentIndex < syncState.lines.length) {
@@ -18749,39 +18666,6 @@ function bindCoverHoldZoom(wrapEl) {
       el.searchInput.focus();
       el.searchInput.select();
     }
-    return true;
-  }
-
-  function captureShortcut(event) {
-    if (!shortcutRecordingAction) return false;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    if (event.code === 'Escape') {
-      shortcutRecordingAction = null;
-      renderShortcutRows();
-      return true;
-    }
-    if (['ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight', 'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight'].includes(event.code)) return true;
-    const binding = {
-      code: event.code,
-      ctrl: event.ctrlKey || event.metaKey,
-      shift: event.shiftKey,
-      alt: event.altKey
-    };
-    const duplicate = Object.keys(shortcutBindings).find(action =>
-      action !== shortcutRecordingAction && sameShortcut(binding, shortcutBindings[action])
-    );
-    if (duplicate) {
-      const hint = document.getElementById('shortcut-record-hint');
-      if (hint) hint.textContent = `Already used for ${shortcutLabels[duplicate]}.`;
-      return true;
-    }
-    const action = shortcutRecordingAction;
-    const previous = shortcutBindings[action];
-    shortcutBindings[action] = binding;
-    if (!saveShortcutBindings()) shortcutBindings[action] = previous;
-    shortcutRecordingAction = null;
-    renderShortcutRows();
     return true;
   }
 
@@ -25326,75 +25210,6 @@ function bindCoverHoldZoom(wrapEl) {
   }
 
 
-
-  const btnOpenShortcuts = document.getElementById('btn-open-shortcuts');
-  const shortcutsModal = document.getElementById('shortcuts-modal');
-  const btnCloseShortcutsModal = document.getElementById('btn-close-shortcuts-modal');
-  const shortcutsList = document.getElementById('shortcuts-list');
-  const shortcutRecordHint = document.getElementById('shortcut-record-hint');
-  const btnResetShortcuts = document.getElementById('btn-reset-shortcuts');
-
-  function formatShortcut(binding) {
-    const parts = [];
-    if (binding.ctrl) parts.push('Ctrl');
-    if (binding.alt) parts.push('Alt');
-    if (binding.shift) parts.push('Shift');
-    const key = binding.code === 'Space' ? 'Space'
-      : binding.code === 'ArrowLeft' ? '←'
-        : binding.code === 'ArrowRight' ? '→'
-          : binding.code === 'ArrowUp' ? '↑'
-            : binding.code === 'ArrowDown' ? '↓'
-              : binding.code.startsWith('Key') ? binding.code.slice(3)
-                : binding.code;
-    parts.push(key);
-    return parts.join(' + ');
-  }
-
-  function renderShortcutRows() {
-    if (!shortcutsList) return;
-    shortcutsList.innerHTML = '';
-    Object.keys(shortcutLabels).forEach(action => {
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:12px;';
-      const label = document.createElement('span');
-      label.textContent = shortcutLabels[action];
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'btn-outline-pill';
-      button.style.cssText = 'min-width:110px;padding:5px 10px;font-size:12px;';
-      button.textContent = shortcutRecordingAction === action ? 'Press a key…' : formatShortcut(shortcutBindings[action]);
-      button.addEventListener('click', () => {
-        shortcutRecordingAction = action;
-        if (shortcutRecordHint) shortcutRecordHint.textContent = 'Press a key combination. Escape cancels.';
-        renderShortcutRows();
-      });
-      row.append(label, button);
-      shortcutsList.appendChild(row);
-    });
-    if (!shortcutRecordingAction && shortcutRecordHint) {
-      shortcutRecordHint.textContent = 'Click a shortcut to change it.';
-    }
-  }
-
-  renderShortcutRows();
-  if (btnOpenShortcuts && shortcutsModal) btnOpenShortcuts.addEventListener('click', () => {
-    renderShortcutRows();
-    openModal(shortcutsModal);
-  });
-  if (btnCloseShortcutsModal && shortcutsModal) btnCloseShortcutsModal.addEventListener('click', () => {
-    shortcutRecordingAction = null;
-    closeModal(shortcutsModal);
-  });
-  if (shortcutsModal) shortcutsModal.addEventListener('click', event => {
-    if (event.target === shortcutsModal) shortcutRecordingAction = null;
-  });
-  if (btnResetShortcuts) btnResetShortcuts.addEventListener('click', () => {
-    shortcutRecordingAction = null;
-    const previous = shortcutBindings;
-    shortcutBindings = JSON.parse(JSON.stringify(defaultShortcuts));
-    if (!saveShortcutBindings()) shortcutBindings = previous;
-    renderShortcutRows();
-  });
 
   const btnCopyDiagnostics = document.getElementById('btn-copy-diagnostics');
   if (btnCopyDiagnostics) {
