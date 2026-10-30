@@ -4205,12 +4205,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (nextTrack && !nextTrack._preloadedStreamUrl && !nextTrack.isCached && nextTrack.platform !== 'local') {
       const qQuality = encodeURIComponent(localStorage.getItem('riff_audio_quality') || 'medium');
       const qFallback = encodeURIComponent(nextTrack.searchQuery || ((nextTrack.artist ? nextTrack.artist + ' - ' : '') + nextTrack.title));
-      const fetchUrl = `http://127.0.0.1:${state.serverPort}/api/stream-info?id=${encodeURIComponent(nextTrack.id || '')}&url=${encodeURIComponent(nextTrack.url || '')}&platform=${encodeURIComponent(nextTrack.platform || 'youtube')}&q=${qFallback}&quality=${qQuality}`;
+      const fetchUrl = `http://127.0.0.1:${state.serverPort}/api/stream-info?id=${encodeURIComponent(nextTrack.id || '')}&url=${encodeURIComponent(nextTrack.url || '')}&platform=${encodeURIComponent(nextTrack.platform || 'youtube')}&title=${encodeURIComponent(nextTrack.title || '')}&artist=${encodeURIComponent(nextTrack.artist || '')}&duration=${encodeURIComponent(nextTrack.duration || 0)}&thumbnail=${encodeURIComponent(nextTrack.thumbnail || '')}&q=${qFallback}&quality=${qQuality}`;
       try {
         const res = await fetch(fetchUrl);
         const data = await res.json();
         if (data && data.success && data.streamUrl) {
           nextTrack._preloadedStreamUrl = data.streamUrl;
+          nextTrack._preloadedStreamQuality = localStorage.getItem('riff_audio_quality') || 'medium';
         }
       } catch (_) {}
     }
@@ -4219,6 +4220,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function playTrack(track, queueList = null, startIndex = -1, context = null) {
     if (track && !track._errorRetryStage) track._errorRetryStage = 0;
     if (track && track.artist) track.artist = stripYoutubeTopic(track.artist);
+    if (track && track.platform !== 'soundcloud' && /^(?:sp_|dz_|it_|ym_|cand_)/i.test(String(track.id || ''))) {
+      delete track._preloadedStreamUrl;
+      delete track._preloadedStreamQuality;
+    }
     preloadedTrack10sFired = false;
     lastDisplayedSec = -1;
     if (typeof lastTimeupdateSec !== 'undefined') lastTimeupdateSec = -1;
@@ -8153,7 +8158,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const audio = el.nativeAudio;
       const metaDur = (state.currentTrack && Number.isFinite(state.currentTrack.duration) && state.currentTrack.duration > 0) ? state.currentTrack.duration : 0;
       const audioDur = (audio && Number.isFinite(audio.duration) && audio.duration > 1) ? audio.duration : 0;
-      if (state.currentTrack && audioDur > 1 && !(metaDur > 45 && audioDur < 32)) {
+      if (state.currentTrack && audioDur > 1 && isTrackDurationCompatible(metaDur, audioDur)) {
         const newDur = Math.round(audioDur);
         state.currentTrack.duration = newDur;
         const tid = state.currentTrack.id;
@@ -8249,9 +8254,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     function getReliableTrackDuration() {
       const metaDur = (state.currentTrack && Number.isFinite(state.currentTrack.duration) && state.currentTrack.duration > 0) ? state.currentTrack.duration : 0;
       const audioDur = (!state.audioDurationStale && el.nativeAudio && Number.isFinite(el.nativeAudio.duration) && el.nativeAudio.duration > 1) ? el.nativeAudio.duration : 0;
-      if (metaDur > 45 && audioDur < 32) return metaDur;
+      if (metaDur > 0 && !isTrackDurationCompatible(metaDur, audioDur)) return metaDur;
       if (audioDur > 1) return audioDur;
       return metaDur;
+    }
+
+    function isTrackDurationCompatible(metaDur, audioDur) {
+      return !(metaDur > 0 && audioDur > 1 && Math.abs(metaDur - audioDur) > Math.max(30, metaDur * 0.25));
     }
 
     el.nativeAudio.addEventListener('ended', () => {
@@ -8294,7 +8303,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const audio = el.nativeAudio;
       const metaDur = (state.currentTrack && Number.isFinite(state.currentTrack.duration) && state.currentTrack.duration > 0) ? state.currentTrack.duration : 0;
       const audioDur = (!state.audioDurationStale && audio && Number.isFinite(audio.duration) && audio.duration > 1) ? audio.duration : 0;
-      if (state.currentTrack && audioDur > 1 && !(metaDur > 45 && audioDur < 32)) {
+      if (state.currentTrack && audioDur > 1 && isTrackDurationCompatible(metaDur, audioDur)) {
         const newDur = Math.round(audioDur);
         state.currentTrack.duration = newDur;
         const tid = state.currentTrack.id;
@@ -19305,8 +19314,13 @@ function bindCoverHoldZoom(wrapEl) {
         } else {
           const hasDirectUrl = t.url && /^https?:\/\//i.test(t.url);
           const hasRealId = t.id && !/^(cand_|dz_|it_|sp_|ym_)/i.test(String(t.id)) && hasDirectUrl;
+          const spotifyId = /^[A-Za-z0-9]{22}$/.test(String(t.spotifyId || t.id || ''))
+            ? String(t.spotifyId || t.id)
+            : '';
           converted.push({
-            id: hasRealId ? String(t.id) : ('sp_' + Math.random().toString(36).slice(2, 10)),
+            id: hasRealId ? String(t.id) : (spotifyId ? `sp_${spotifyId}` : 'sp_' + Math.random().toString(36).slice(2, 10)),
+            spotifyId,
+            spotifyUrl: t.spotifyUrl || (spotifyId ? `https://open.spotify.com/track/${spotifyId}` : ''),
             title,
             artist,
             duration: Number(t.duration) || 0,

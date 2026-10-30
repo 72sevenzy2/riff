@@ -2514,10 +2514,10 @@ function scoreImportedCandidate(targetTitle, targetArtist, targetDur, cand) {
   const cDur = Number(cand.duration) || 0;
   if (tDur > 30 && cDur > 30) {
     const diff = Math.abs(tDur - cDur);
+    if (diff > Math.max(30, tDur * 0.25)) return -500;
     if (diff <= 3) score += 35;
     else if (diff <= 8) score += 20;
     else if (diff <= 15) score += 8;
-    else if (diff > 45) score -= 35;
   }
   if (tDur > 45 && cDur > 0 && cDur < 35) return -500;
 
@@ -2603,9 +2603,10 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
 
   const meta = { title, artist, duration, thumbnail };
 
+  const canUseLocalAudio = isRealYtId || isSc;
   const [cachedFile, downloadedName] = await Promise.all([
-    cleanId ? findCachedFile(cleanId) : Promise.resolve(null),
-    (title || artist) ? findDownloadedFile(title, artist) : Promise.resolve(null)
+    canUseLocalAudio && cleanId ? findCachedFile(cleanId) : Promise.resolve(null),
+    canUseLocalAudio && (title || artist) ? findDownloadedFile(title, artist) : Promise.resolve(null)
   ]);
 
   if (!forShare && cachedFile) {
@@ -2629,16 +2630,16 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
     return res.end(JSON.stringify(data));
   }
 
-  const cacheKey = (cleanId || trackUrl || queryQ || `${artist}_${title}`).toLowerCase() + '_' + quality;
+  const cacheKey = 'stream-v2:' + (cleanId || trackUrl || queryQ || `${artist}_${title}`).toLowerCase() + '_' + quality;
   if (forceYtDlp) {
     if (cacheKey) streamUrlCache.delete(cacheKey);
     if (cleanId) streamUrlCache.delete(cleanId + '_' + quality);
   }
-  if (!forShare && !forceYtDlp && cacheKey && (streamUrlCache.has(cacheKey) || (cleanId && streamUrlCache.has(cleanId + '_' + quality)))) {
-    const cached = streamUrlCache.get(cacheKey) || (cleanId ? streamUrlCache.get(cleanId + '_' + quality) : null);
+  if (!forShare && !forceYtDlp && cacheKey && streamUrlCache.has(cacheKey)) {
+    const cached = streamUrlCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp < 7200000)) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      if (cleanId) setTimeout(() => downloadTrackToDisk(trackUrl, cleanId, platform, meta), 45000);
+      if (canUseLocalAudio && cleanId) setTimeout(() => downloadTrackToDisk(trackUrl, cleanId, platform, meta), 45000);
       return res.end(JSON.stringify(cached.data));
     }
   }
@@ -2710,7 +2711,7 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
       if (resolvedId) data.resolvedId = resolvedId;
       if (cacheKey) streamUrlCache.set(cacheKey, { timestamp: Date.now(), data });
       if (finalId && finalId !== cacheKey) streamUrlCache.set(finalId + '_' + quality, { timestamp: Date.now(), data });
-      if (finalId) setTimeout(() => downloadTrackToDisk(trackUrl || `https://www.youtube.com/watch?v=${finalId}`, finalId, 'youtube', meta), 45000);
+      if (canUseLocalAudio && finalId) setTimeout(() => downloadTrackToDisk(trackUrl || `https://www.youtube.com/watch?v=${finalId}`, finalId, 'youtube', meta), 45000);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify(data));
     };
@@ -2809,6 +2810,7 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
       }
       const rankedCandidates = Array.from(candidates.values())
         .map(cand => ({ cand, score: scoreImportedCandidate(title || searchQ, artist, duration, cand) }))
+        .filter(item => item.score >= (artist && !/^unknown artist$/i.test(artist.trim()) ? 70 : 45))
         .sort((a, b) => b.score - a.score)
         .slice(0, maxCand);
       rankedCandidates.forEach(item => failedYtIds.add(item.cand.id));
@@ -2823,35 +2825,9 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
       const bestMatch = streamResults.find(result => result !== null);
       if (bestMatch) return sendStreamResponse(bestMatch.url, bestMatch.id);
 
-      if (!streamUrl) {
-        try {
-          streamUrl = await fetchDirectSoundCloudStreamServer('', q || searchQ);
-          if (streamUrl) return sendStreamResponse(streamUrl);
-        } catch (_) {}
-      }
-
-      if (!streamUrl && !needYtAuth) {
-        try {
-          const fbRaw = await runYtDlp([
-            '--no-config', '-g', '--no-warnings', '--no-playlist', '--no-check-certificates',
-            '--js-runtimes', 'node',
-            '--socket-timeout', '8', '--retries', '1',
-            '--extractor-args', 'youtube:player_client=default,android_vr',
-            '-f', 'bestaudio/18/best',
-            `ytsearch1:${q || searchQ} audio`
-          ], 10000);
-          const fbLines = fbRaw.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
-          for (const fbUrl of fbLines) {
-            if (await verifyStreamPlayable(fbUrl)) {
-              streamUrl = fbUrl;
-              return sendStreamResponse(streamUrl);
-            }
-          }
-        } catch (_) {}
-      }
     }
 
-    if (!streamUrl) {
+    if (!streamUrl && (platform === 'soundcloud' || isSc)) {
       try {
         streamUrl = await fetchDirectSoundCloudStreamServer('', q || searchQ);
         if (streamUrl) return sendStreamResponse(streamUrl);
@@ -2925,7 +2901,7 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
 
   if (cacheKey) streamUrlCache.set(cacheKey, { timestamp: Date.now(), data });
   if (cleanId && cleanId !== cacheKey) streamUrlCache.set(cleanId, { timestamp: Date.now(), data });
-  if (cleanId) setTimeout(() => downloadTrackToDisk(trackUrl, cleanId, platform, meta), 45000);
+  if (canUseLocalAudio && cleanId) setTimeout(() => downloadTrackToDisk(trackUrl, cleanId, platform, meta), 45000);
 
   if (res.writableEnded) return;
   res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -3743,18 +3719,13 @@ async function findDownloadedFile(title, artist) {
   if (!downloadsIndex || Date.now() - downloadsIndexBuiltAt > DOWNLOADS_INDEX_TTL) {
     await buildDownloadsIndex();
   }
+  return findDownloadedFileName(downloadsIndex, title, artist);
+}
+
+function findDownloadedFileName(index, title, artist) {
+  if (!title && !artist) return null;
   const key = `${sanitizeFilename(artist || 'unknown artist')} - ${sanitizeFilename(title || 'untitled')}`.toLowerCase();
-  let found = downloadsIndex.get(key);
-  if (!found && (title || artist)) {
-    const sTitle = sanitizeFilename(title || '').toLowerCase();
-    for (const [k, v] of downloadsIndex.entries()) {
-      if (sTitle && (k.includes(sTitle) || sTitle.includes(k))) {
-        found = v;
-        break;
-      }
-    }
-  }
-  return found || null;
+  return index.get(key) || null;
 }
 
 async function cleanupDownloadArtifacts(dir, beforeSet, baseName, videoId, chosenExt, keepSuccessFile) {
@@ -5392,6 +5363,14 @@ function pathfinderRequest(accessToken, variables) {
   });
 }
 
+function spotifyTrackId(track) {
+  const id = typeof track?.id === 'string' ? track.id : '';
+  if (/^[A-Za-z0-9]{22}$/.test(id)) return id;
+  const uri = typeof track?.uri === 'string' ? track.uri : '';
+  const match = uri.match(/^spotify:track:([A-Za-z0-9]{22})$/);
+  return match ? match[1] : '';
+}
+
 async function fetchFullSpotifyPlaylist(playlistId, accessToken) {
   const uri = `spotify:playlist:${playlistId}`;
   const first = await pathfinderRequest(accessToken, { uri, offset: 0, limit: 100, enableWatchFeedEntrypoint: true });
@@ -5416,7 +5395,17 @@ async function fetchFullSpotifyPlaylist(playlistId, accessToken) {
     const duration = typeof durationMs === 'number' ? Math.round(durationMs / 1000) : 0;
     const sources = t.albumOfTrack?.coverArt?.sources || [];
     const cover = sources.length ? sources[sources.length - 1].url : '';
-    return { title: (t.name || '').trim(), artist: artists.join(', '), duration, cover, thumbnail: cover };
+    const spotifyId = spotifyTrackId(t);
+    return {
+      id: spotifyId,
+      spotifyId,
+      spotifyUrl: spotifyId ? `https://open.spotify.com/track/${spotifyId}` : '',
+      title: (t.name || '').trim(),
+      artist: artists.join(', '),
+      duration,
+      cover,
+      thumbnail: cover
+    };
   }).filter(t => t.title);
   return { tracks, total };
 }
@@ -5449,6 +5438,9 @@ async function trySpotifyWebApi(playlistId) {
         const imgs = t.album?.images || [];
         const cover = imgs.length ? imgs[0].url : '';
         return {
+          id: spotifyTrackId(t),
+          spotifyId: spotifyTrackId(t),
+          spotifyUrl: spotifyTrackId(t) ? `https://open.spotify.com/track/${spotifyTrackId(t)}` : '',
           title: t.name || '',
           artist: Array.isArray(t.artists) ? t.artists.map(a => a.name).join(', ') : '',
           duration: t.duration_ms ? Math.round(t.duration_ms / 1000) : undefined,
@@ -5590,7 +5582,11 @@ async function handleSpotifyImport(req, res, inputUrl) {
         tracks = entity.trackList.slice(0, 100).map(t => {
           const duration = typeof t.duration === 'number' ? Math.round(t.duration / 1000) : (typeof t.duration_ms === 'number' ? Math.round(t.duration_ms / 1000) : 0);
           const trackCover = t.image || t.coverArt?.sources?.[0]?.url || '';
+          const spotifyId = spotifyTrackId(t);
           return {
+            id: spotifyId,
+            spotifyId,
+            spotifyUrl: spotifyId ? `https://open.spotify.com/track/${spotifyId}` : '',
             title: (t.title || t.name || '').trim(),
             artist: (t.subtitle || t.artist || '').trim(),
             duration,
@@ -5614,7 +5610,17 @@ async function handleSpotifyImport(req, res, inputUrl) {
               seen.add(key);
               const durSec = typeof duration === 'number' ? (duration > 1000 ? Math.round(duration / 1000) : Math.round(duration)) : 0;
               const trackCover = node.image || node.coverArt?.sources?.[0]?.url || '';
-              tracks.push({ title: title.trim(), artist: typeof subtitle === 'string' ? subtitle.trim() : '', duration: durSec, thumbnail: trackCover, cover: trackCover });
+              const spotifyId = spotifyTrackId(node);
+              tracks.push({
+                id: spotifyId,
+                spotifyId,
+                spotifyUrl: spotifyId ? `https://open.spotify.com/track/${spotifyId}` : '',
+                title: title.trim(),
+                artist: typeof subtitle === 'string' ? subtitle.trim() : '',
+                duration: durSec,
+                thumbnail: trackCover,
+                cover: trackCover
+              });
             }
             return;
           }
@@ -6799,7 +6805,10 @@ async function handleSpotifyLibrary(req, res, query) {
           const artist = (Array.isArray(t.artists) && t.artists[0]?.name) || '';
           const title = t.name || '';
           const duration = t.duration_ms ? Math.round(t.duration_ms / 1000) : undefined;
-          if (title) likes.push({ title, artist, duration });
+          if (title) {
+            const spotifyId = spotifyTrackId(t);
+            likes.push({ id: spotifyId, spotifyId, spotifyUrl: spotifyId ? `https://open.spotify.com/track/${spotifyId}` : '', title, artist, duration });
+          }
           if (likes.length >= 5000) break;
         }
         nextUrl = data.next || null;
@@ -6847,7 +6856,10 @@ async function handleSpotifyLibrary(req, res, query) {
           const artist = (Array.isArray(t.artists) && t.artists[0]?.name) || '';
           const title = t.name || '';
           const duration = t.duration_ms ? Math.round(t.duration_ms / 1000) : undefined;
-          if (title) plTracks.push({ title, artist, duration });
+          if (title) {
+            const spotifyId = spotifyTrackId(t);
+            plTracks.push({ id: spotifyId, spotifyId, spotifyUrl: spotifyId ? `https://open.spotify.com/track/${spotifyId}` : '', title, artist, duration });
+          }
         }
         let trackNext = pageData.next || null;
         while (trackNext) {
@@ -6866,7 +6878,10 @@ async function handleSpotifyLibrary(req, res, query) {
             const artist = (Array.isArray(t.artists) && t.artists[0]?.name) || '';
             const title = t.name || '';
             const duration = t.duration_ms ? Math.round(t.duration_ms / 1000) : undefined;
-            if (title) plTracks.push({ title, artist, duration });
+            if (title) {
+              const spotifyId = spotifyTrackId(t);
+              plTracks.push({ id: spotifyId, spotifyId, spotifyUrl: spotifyId ? `https://open.spotify.com/track/${spotifyId}` : '', title, artist, duration });
+            }
           }
           trackNext = nextData.next || null;
         }
@@ -8373,7 +8388,7 @@ function stopServer() {
   });
 }
 
-module.exports = { startServer, stopServer, PORT, getServerToken, fetchLyricsDirect, fetchLrcLib, fetchGeniusLyrics, fetchNetEaseWords, fetchKugouLyrics, fetchMusixmatchLyrics, fetchNeteaseLyrics, fetchSoundCloudSearch, ytmusicSearch, parseYrc, cleanSearchResults, decodeUtf8Chunks, hasBrokenLyricText };
+module.exports = { startServer, stopServer, PORT, getServerToken, fetchLyricsDirect, fetchLrcLib, fetchGeniusLyrics, fetchNetEaseWords, fetchKugouLyrics, fetchMusixmatchLyrics, fetchNeteaseLyrics, fetchSoundCloudSearch, ytmusicSearch, parseYrc, cleanSearchResults, scoreImportedCandidate, findDownloadedFileName, decodeUtf8Chunks, hasBrokenLyricText };
 
 if (require.main === module) {
   startServer();
