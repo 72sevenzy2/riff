@@ -1,13 +1,27 @@
-const { app, BrowserWindow, dialog, ipcMain, screen, shell, Tray, Menu, nativeImage, globalShortcut, powerMonitor, session } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, screen, shell, Tray, Menu, nativeImage, globalShortcut, powerMonitor, session, safeStorage } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const http = require('http');
 const url = require('url');
 const { pathToFileURL } = url;
 const { spawn, execFile } = require('child_process');
 const crypto = require('crypto');
 const zlib = require('zlib');
+const {
+  createCodeVerifier,
+  createCodeChallenge,
+  createOAuthState,
+  createAuthorizationUrl,
+  exchangeAuthorizationCode,
+  refreshAccessToken
+} = require('./google-oauth');
+const { fetchYouTubeLibrary } = require('./youtube-data');
 const RFACC_KEY = crypto.createHash('sha256').update('riff-account-key-v1').digest();
+const APP_ID = 'io.github.rootscripts.riff';
+
+app.setName('Riff');
+if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
 
 function encryptAccount(dataObj) {
   const jsonStr = typeof dataObj === 'string' ? dataObj : JSON.stringify(dataObj);
@@ -32,7 +46,7 @@ function decryptAccount(buffer) {
   const decompressed = zlib.inflateRawSync(decrypted);
   return JSON.parse(decompressed.toString('utf8'));
 }
-const { LIBRARY_DIR, DATA_DIR, resolveBinary, tutorialDone, markTutorialDone, readStartupConfig, writeStartupConfig } = require('../shared/platform');
+const { LIBRARY_DIR, DATA_DIR, resolveBinary, tutorialDone, markTutorialDone, readStartupConfig, writeStartupConfig, cookieJarHasYtLogin } = require('../shared/platform');
 const { getLauncherInfo, installLauncher } = require('./launcher');
 const { getSystemAudioOutputInfo } = require('../shared/audio-output');
 const { log, tail, LOG_DIR } = require('../shared/logger');
@@ -133,6 +147,7 @@ function runGUI() {
   const gotLock = app.requestSingleInstanceLock();
   if (!gotLock && !allowMulti) { app.quit(); return; }
   if (!gotLock && allowMulti) app.setPath('userData', `${app.getPath('userData')}-instance-${process.pid}`);
+  let youtubePlaybackWindow = null;
   app.on('second-instance', () => {
     if (allowMulti) return;
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -354,7 +369,6 @@ function runGUI() {
     const primaryDisplay = screen.getPrimaryDisplay();
     const scaleFactor = primaryDisplay.scaleFactor;
 
-    app.setAppUserModelId('io.github.rootscripts.riff');
     mainWindow = new BrowserWindow({
       x: initialBounds.x,
       y: initialBounds.y,
@@ -1120,9 +1134,7 @@ function runGUI() {
         return { ok: true, dir: target, moved: move };
       });
 
-      const defaultDownloadsDir = () => {
-        try { return app.getPath('downloads'); } catch (e) { return null; }
-      };
+      const defaultDownloadsDir = () => require('../shared/platform').defaultDownloadDir();
 
       ipcMain.handle('get-download-dir', () => {
         const platform = require('../shared/platform');
@@ -1332,16 +1344,178 @@ function runGUI() {
 
       const YT_COOKIES_FILE = path.join(DATA_DIR, 'yt-cookies.txt');
       const YT_LOGOUT_FLAG = path.join(DATA_DIR, '.yt-logged-out');
+      let youtubeCookieImportPromise = null;
 
-      function hasValidYtCookiesFile() {
+      function hasValidYtCookiesFile(file = YT_COOKIES_FILE) {
         try {
-          if (!fs.existsSync(YT_COOKIES_FILE)) return false;
-          const txt = fs.readFileSync(YT_COOKIES_FILE, 'utf8');
-          return /\.(?:youtube|google)\.com\s+.*\s+(?:SAPISID|__Secure-3PAPISID|__Secure-1PAPISID|LOGIN_INFO|SID)\s+\S+/i.test(txt);
+          if (!fs.existsSync(file)) return false;
+          return cookieJarHasYtLogin(fs.readFileSync(file, 'utf8'));
         } catch (_) {
           return false;
         }
       }
+
+      async function importYoutubeCookiesToSession() {
+        if (youtubeCookieImportPromise) return youtubeCookieImportPromise;
+        youtubeCookieImportPromise = (async () => {
+          const txt = fs.readFileSync(YT_COOKIES_FILE, 'utf8');
+          const googleSession = session.fromPartition('persist:riff-google');
+          await googleSession.clearStorageData({ storages: ['cookies'] });
+          const rows = txt.split(/\r?\n/);
+          for (const row of rows) {
+            const line = row.startsWith('#HttpOnly_') ? row.slice(10) : row;
+            if (!line || line.startsWith('#')) continue;
+            const fields = line.split('\t');
+            if (fields.length < 7) continue;
+            const [domain, , cookiePath, secure, expires, name, ...valueParts] = fields;
+            if (!domain || !name || valueParts.length === 0) continue;
+            const host = domain.replace(/^\./, '');
+            if (host !== 'google.com' && !host.endsWith('.google.com') &&
+                host !== 'youtube.com' && !host.endsWith('.youtube.com')) continue;
+            const details = {
+              url: `https://${host}${cookiePath.startsWith('/') ? cookiePath : '/'}`,
+              name,
+              value: valueParts.join('\t'),
+              domain,
+              path: cookiePath || '/',
+              secure: secure.toUpperCase() === 'TRUE',
+              httpOnly: row.startsWith('#HttpOnly_')
+            };
+            const expiration = Number(expires);
+            if (Number.isFinite(expiration) && expiration > 0) details.expirationDate = expiration;
+            await googleSession.cookies.set(details);
+          }
+        })();
+        try {
+          await youtubeCookieImportPromise;
+        } finally {
+          youtubeCookieImportPromise = null;
+        }
+      }
+
+      function isYoutubeAuthUrl(value) {
+        try {
+          const parsed = new URL(value);
+          return parsed.protocol === 'https:' &&
+            (parsed.hostname === 'youtube.com' || parsed.hostname.endsWith('.youtube.com') ||
+              parsed.hostname === 'google.com' || parsed.hostname.endsWith('.google.com'));
+        } catch (_) {
+          return false;
+        }
+      }
+
+      async function saveYoutubePlaybackCookies() {
+        const googleSession = session.fromPartition('persist:riff-google');
+        const cookies = await googleSession.cookies.get({});
+        const youtubeCookies = cookies.filter(cookie => {
+          const domain = String(cookie.domain || '').replace(/^\./, '').toLowerCase();
+          return domain === 'youtube.com' || domain.endsWith('.youtube.com') ||
+            domain === 'google.com' || domain.endsWith('.google.com');
+        });
+        const hasAuthCookie = youtubeCookies.some(cookie =>
+          ['SAPISID', '__Secure-3PAPISID', '__Secure-1PAPISID', 'LOGIN_INFO', 'SID'].includes(cookie.name)
+        );
+        if (!hasAuthCookie) {
+          return {
+            success: false,
+            error: 'YouTube sign-in was not detected. Finish signing in, then close the window.'
+          };
+        }
+
+        const lines = ['# Netscape HTTP Cookie File'];
+        for (const cookie of youtubeCookies) {
+          if (!cookie.domain || !cookie.name) continue;
+          const domain = cookie.domain;
+          const includeSubdomains = domain.startsWith('.') ? 'TRUE' : 'FALSE';
+          const httpOnlyDomain = cookie.httpOnly ? `#HttpOnly_${domain}` : domain;
+          const secure = cookie.secure ? 'TRUE' : 'FALSE';
+          const expires = Number.isFinite(cookie.expirationDate) ? Math.floor(cookie.expirationDate) : 0;
+          lines.push(`${httpOnlyDomain}\t${includeSubdomains}\t${cookie.path || '/'}\t${secure}\t${expires}\t${cookie.name}\t${cookie.value}`);
+        }
+
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+        const tempFile = `${YT_COOKIES_FILE}.${process.pid}.tmp`;
+        await fs.promises.writeFile(tempFile, `${lines.join('\n')}\n`, { encoding: 'utf8', mode: 0o600 });
+        await fs.promises.rm(YT_COOKIES_FILE, { force: true });
+        await fs.promises.rename(tempFile, YT_COOKIES_FILE);
+        try { fs.unlinkSync(YT_LOGOUT_FLAG); } catch (_) {}
+
+        if (!hasValidYtCookiesFile()) {
+          await fs.promises.rm(YT_COOKIES_FILE, { force: true });
+          return { success: false, error: 'The YouTube session could not be saved.' };
+        }
+        return { success: true, loggedIn: true };
+      }
+
+      ipcMain.handle('youtube-playback-status', () => ({
+        loggedIn: hasValidYtCookiesFile()
+      }));
+
+      ipcMain.handle('youtube-playback-login', async () => {
+        if (youtubePlaybackWindow && !youtubePlaybackWindow.isDestroyed()) {
+          youtubePlaybackWindow.show();
+          youtubePlaybackWindow.focus();
+          return { success: true };
+        }
+
+        const googleSession = session.fromPartition('persist:riff-google');
+        const loginWindow = new BrowserWindow({
+          width: 1000,
+          height: 760,
+          title: 'Sign in to YouTube',
+          autoHideMenuBar: true,
+          parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+          webPreferences: {
+            session: googleSession,
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true
+          }
+        });
+        youtubePlaybackWindow = loginWindow;
+        loginWindow.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
+          if (isYoutubeAuthUrl(targetUrl)) return { action: 'allow' };
+          shell.openExternal(targetUrl);
+          return { action: 'deny' };
+        });
+        loginWindow.webContents.on('will-navigate', (event, targetUrl) => {
+          if (!isYoutubeAuthUrl(targetUrl)) {
+            event.preventDefault();
+            shell.openExternal(targetUrl);
+          }
+        });
+        loginWindow.once('closed', async () => {
+          if (youtubePlaybackWindow === loginWindow) youtubePlaybackWindow = null;
+          const result = await saveYoutubePlaybackCookies().catch(error => ({
+            success: false,
+            error: error && error.message ? error.message : 'Could not save the YouTube session.'
+          }));
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('youtube-playback-auth', result);
+          }
+        });
+
+        try {
+          await loginWindow.loadURL('https://music.youtube.com/');
+          loginWindow.show();
+          return { success: true };
+        } catch (error) {
+          if (!loginWindow.isDestroyed()) loginWindow.destroy();
+          return { success: false, error: error && error.message ? error.message : 'Could not open YouTube sign-in.' };
+        }
+      });
+
+      ipcMain.handle('youtube-playback-logout', async () => {
+        try {
+          fs.mkdirSync(DATA_DIR, { recursive: true });
+          await fs.promises.writeFile(YT_LOGOUT_FLAG, '1', 'utf8');
+          await fs.promises.rm(YT_COOKIES_FILE, { force: true });
+          await session.fromPartition('persist:riff-google').clearStorageData({ storages: ['cookies'] });
+          return { success: true, loggedIn: false };
+        } catch (error) {
+          return { success: false, error: error && error.message ? error.message : 'Could not sign out of YouTube.' };
+        }
+      });
 
       function getSystemDefaultBrowserSpec() {
         try {
@@ -1368,10 +1542,12 @@ function runGUI() {
           } catch (_) {}
         };
         if (process.platform === 'linux') {
+          // Try Brave first: it is a common logged-in YouTube browser and the
+          // export stops at the first browser that actually has a login.
+          addIfDir(path.join(home, '.config', 'BraveSoftware', 'Brave-Browser'), 'brave');
           addIfDir(path.join(home, '.mozilla', 'firefox'), 'firefox');
           addIfDir(path.join(home, '.config', 'google-chrome'), 'chrome');
           addIfDir(path.join(home, '.config', 'chromium'), 'chromium');
-          addIfDir(path.join(home, '.config', 'BraveSoftware', 'Brave-Browser'), 'brave');
           addIfDir(path.join(home, '.zen'), 'firefox:' + path.join(home, '.zen'));
           addIfDir(path.join(home, '.config', 'zen'), 'firefox:' + path.join(home, '.config', 'zen'));
           addIfDir(path.join(home, '.var/app/app.zen_browser.zen/.zen'), 'firefox:' + path.join(home, '.var/app/app.zen_browser.zen/.zen'));
@@ -1400,96 +1576,253 @@ function runGUI() {
         return specs;
       }
 
-      async function exportYoutubeCookiesToDisk() {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-        if (hasValidYtCookiesFile()) return true;
-
-        const tmpTestCookie = '/tmp/test-yt-cookies.txt';
-        try {
-          if (fs.existsSync(tmpTestCookie)) {
-            const tmpTxt = fs.readFileSync(tmpTestCookie, 'utf8');
-            if (/SAPISID|__Secure-3PAPISID|LOGIN_INFO|SID/.test(tmpTxt)) {
-              fs.writeFileSync(YT_COOKIES_FILE, tmpTxt, 'utf8');
-              try { if (fs.existsSync(YT_LOGOUT_FLAG)) fs.unlinkSync(YT_LOGOUT_FLAG); } catch (_) {}
-              return true;
-            }
+      let exportCookiesPromise = null;
+      function exportYoutubeCookiesToDisk() {
+        if (exportCookiesPromise) return exportCookiesPromise;
+        exportCookiesPromise = (async () => {
+          fs.mkdirSync(DATA_DIR, { recursive: true });
+          if (hasValidYtCookiesFile()) {
+            await importYoutubeCookiesToSession();
+            return true;
           }
-        } catch (_) {}
 
-        const ytdlpBin = resolveBinary('yt-dlp');
-        if (!ytdlpBin) return false;
-
-        const specs = getCandidateBrowserSpecs();
-        for (const spec of specs) {
+          const tmpTestCookie = '/tmp/test-yt-cookies.txt';
           try {
-            await new Promise((resolve) => {
-              execFile(ytdlpBin, [
-                '--no-config',
-                '--cookies-from-browser', spec,
-                '--cookies', YT_COOKIES_FILE,
-                '--skip-download',
-                '--no-warnings',
-                'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
-              ], { timeout: 12000, windowsHide: true }, () => resolve());
-            });
-            if (hasValidYtCookiesFile()) {
-              try { if (fs.existsSync(YT_LOGOUT_FLAG)) fs.unlinkSync(YT_LOGOUT_FLAG); } catch (_) {}
-              return true;
+            if (fs.existsSync(tmpTestCookie)) {
+              const tmpTxt = fs.readFileSync(tmpTestCookie, 'utf8');
+              if (cookieJarHasYtLogin(tmpTxt)) {
+                fs.writeFileSync(YT_COOKIES_FILE, tmpTxt, 'utf8');
+                await importYoutubeCookiesToSession();
+                try { if (fs.existsSync(YT_LOGOUT_FLAG)) fs.unlinkSync(YT_LOGOUT_FLAG); } catch (_) {}
+                return true;
+              }
             }
           } catch (_) {}
+
+          const ytdlpBin = resolveBinary('yt-dlp');
+          if (!ytdlpBin) return false;
+
+          // Export each browser into a scratch jar first: a browser without a
+          // YouTube login must not overwrite cookies from one that has it.
+          const specs = getCandidateBrowserSpecs();
+          for (const spec of specs) {
+            const tmpJar = path.join(DATA_DIR, `.yt-cookies-${process.pid}.tmp`);
+            try { fs.rmSync(tmpJar, { force: true }); } catch (_) {}
+            try {
+              await new Promise((resolve) => {
+                execFile(ytdlpBin, [
+                  '--no-config',
+                  '--cookies-from-browser', spec,
+                  '--cookies', tmpJar,
+                  '--skip-download',
+                  '--no-warnings',
+                  'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+                ], { timeout: 15000, windowsHide: true }, () => resolve());
+              });
+              if (hasValidYtCookiesFile(tmpJar)) {
+                fs.copyFileSync(tmpJar, YT_COOKIES_FILE);
+                await importYoutubeCookiesToSession();
+                try { if (fs.existsSync(YT_LOGOUT_FLAG)) fs.unlinkSync(YT_LOGOUT_FLAG); } catch (_) {}
+                return true;
+              }
+            } catch (_) {
+            } finally {
+              try { fs.rmSync(tmpJar, { force: true }); } catch (_) {}
+            }
+          }
+          return false;
+        })().finally(() => { exportCookiesPromise = null; });
+        return exportCookiesPromise;
+      }
+
+      const GOOGLE_OAUTH_FILE = path.join(DATA_DIR, 'google-oauth.enc');
+
+      function readGoogleOAuthData() {
+        if (!fs.existsSync(GOOGLE_OAUTH_FILE)) return null;
+        if (!safeStorage.isEncryptionAvailable()) {
+          throw new Error('Secure storage is unavailable on this system');
         }
-        return false;
+        return JSON.parse(safeStorage.decryptString(fs.readFileSync(GOOGLE_OAUTH_FILE)));
+      }
+
+      function writeGoogleOAuthData(data) {
+        if (!safeStorage.isEncryptionAvailable()) {
+          throw new Error('Secure storage is unavailable on this system');
+        }
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+        fs.writeFileSync(GOOGLE_OAUTH_FILE, safeStorage.encryptString(JSON.stringify(data)));
+      }
+
+      async function getGoogleAccessToken() {
+        const auth = readGoogleOAuthData();
+        if (!auth || !auth.refreshToken) {
+          throw new Error('Sign in to Google before importing your YouTube library');
+        }
+        if (auth.accessToken && auth.expiresAt > Date.now() + 60000) {
+          return auth.accessToken;
+        }
+        const refreshed = await refreshAccessToken(auth.refreshToken);
+        auth.accessToken = refreshed.access_token;
+        auth.expiresAt = Date.now() + (Number(refreshed.expires_in) || 3600) * 1000;
+        if (refreshed.refresh_token) auth.refreshToken = refreshed.refresh_token;
+        writeGoogleOAuthData(auth);
+        return auth.accessToken;
+      }
+
+      async function startGoogleOAuthLogin() {
+        if (!safeStorage.isEncryptionAvailable()) {
+          throw new Error('Secure storage is unavailable on this system');
+        }
+        const codeVerifier = createCodeVerifier();
+        const state = createOAuthState();
+        const server = http.createServer();
+        await new Promise((resolve, reject) => {
+          server.once('error', reject);
+          server.listen(0, '127.0.0.1', resolve);
+        });
+        const address = server.address();
+        const redirectUri = `http://127.0.0.1:${address.port}`;
+        const authUrl = createAuthorizationUrl({
+          redirectUri,
+          state,
+          codeChallenge: createCodeChallenge(codeVerifier)
+        });
+        let cancelCallback;
+        try {
+          const callback = new Promise((resolve, reject) => {
+            let settled = false;
+            const timeout = setTimeout(() => {
+              finish(new Error('Google sign-in timed out. Complete the authorization in your browser and try again.'));
+            }, 180000);
+            const finish = (error, value) => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timeout);
+              server.removeListener('request', onRequest);
+              if (error) reject(error);
+              else resolve(value);
+            };
+            cancelCallback = () => finish(new Error('Google sign-in could not be completed'));
+            const onRequest = (req, res) => {
+              const isLoopback = req.socket.remoteAddress === '127.0.0.1' ||
+                req.socket.remoteAddress === '::ffff:127.0.0.1';
+              if (!isLoopback) {
+                res.writeHead(403);
+                res.end();
+                return;
+              }
+              const requestUrl = new URL(req.url || '/', redirectUri);
+              if (req.method !== 'GET' || requestUrl.pathname !== '/') {
+                res.writeHead(404);
+                res.end();
+                return;
+              }
+              const returnedState = requestUrl.searchParams.get('state') || '';
+              const expected = Buffer.from(state);
+              const actual = Buffer.from(returnedState);
+              if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) {
+                res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+                res.end('Authorization could not be verified. Return to Riff and try again.');
+                finish(new Error('Google authorization state did not match'));
+                return;
+              }
+              const providerError = requestUrl.searchParams.get('error');
+              if (providerError) {
+                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+                res.end('<!doctype html><title>Riff</title><p>Google sign-in was cancelled. You can close this tab and return to Riff.</p>');
+                finish(new Error(providerError === 'access_denied'
+                  ? 'Google sign-in was cancelled'
+                  : `Google authorization failed: ${providerError}`));
+                return;
+              }
+              const code = requestUrl.searchParams.get('code');
+              if (!code) {
+                res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+                res.end('Google did not return an authorization code. Return to Riff and try again.');
+                finish(new Error('Google did not return an authorization code'));
+                return;
+              }
+              res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+              res.end('<!doctype html><title>Riff</title><p>Google account connected. You can close this tab and return to Riff.</p>');
+              finish(null, { code });
+            };
+            server.on('request', onRequest);
+          });
+          await shell.openExternal(authUrl);
+          const result = await callback;
+          const tokens = await exchangeAuthorizationCode({
+            code: result.code,
+            redirectUri,
+            codeVerifier
+          });
+          if (!tokens.refresh_token) {
+            throw new Error('Google did not provide a refresh token. Revoke Riff access in your Google account and try again.');
+          }
+          writeGoogleOAuthData({
+            accessToken: tokens.access_token,
+            refreshToken: tokens.refresh_token,
+            expiresAt: Date.now() + (Number(tokens.expires_in) || 3600) * 1000,
+            scope: tokens.scope || ''
+          });
+        } finally {
+          if (cancelCallback) cancelCallback();
+          if (server.listening) {
+            await new Promise(resolve => server.close(resolve));
+          }
+        }
       }
 
       ipcMain.handle('google-auth-status', async () => {
         try {
-          if (fs.existsSync(YT_LOGOUT_FLAG)) {
-            return { loggedIn: false };
-          }
-          if (hasValidYtCookiesFile()) {
-            return { loggedIn: true };
-          }
-          const synced = await exportYoutubeCookiesToDisk();
-          return { loggedIn: synced };
+          const auth = readGoogleOAuthData();
+          return { loggedIn: !!(auth && auth.refreshToken) };
         } catch (e) {
-          return { loggedIn: false };
+          return { loggedIn: false, error: e && e.message ? e.message : 'Google sign-in status unavailable' };
         }
       });
 
       ipcMain.handle('google-logout', async () => {
+        let revokeToken = '';
+        let warning = '';
+        try {
+          const auth = readGoogleOAuthData();
+          revokeToken = auth && auth.refreshToken ? auth.refreshToken : '';
+        } catch (e) {
+          warning = e && e.message ? e.message : 'Could not read the saved Google account';
+        }
         try {
           fs.mkdirSync(DATA_DIR, { recursive: true });
           fs.writeFileSync(YT_LOGOUT_FLAG, '1', 'utf8');
+          if (fs.existsSync(GOOGLE_OAUTH_FILE)) fs.unlinkSync(GOOGLE_OAUTH_FILE);
           if (fs.existsSync(YT_COOKIES_FILE)) fs.unlinkSync(YT_COOKIES_FILE);
           const s = session.fromPartition('persist:riff-google');
           await s.clearStorageData();
-          return { success: true };
         } catch (e) {
           return { success: false, error: e && e.message ? e.message : 'Logout failed' };
         }
+        if (revokeToken) {
+          try {
+            const response = await fetch('https://oauth2.googleapis.com/revoke', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({ token: revokeToken }),
+              signal: AbortSignal.timeout(10000)
+            });
+            if (!response.ok) warning = 'Signed out locally, but Google did not confirm token revocation.';
+          } catch (_) {
+            warning = 'Signed out locally, but Google could not be reached to revoke the token.';
+          }
+        }
+        return { success: true, warning };
       });
 
       ipcMain.handle('google-login', async () => {
         try {
-          if (fs.existsSync(YT_LOGOUT_FLAG)) fs.unlinkSync(YT_LOGOUT_FLAG);
-        } catch (_) {}
-
-        const alreadyInBrowser = await exportYoutubeCookiesToDisk();
-        if (alreadyInBrowser && hasValidYtCookiesFile()) {
+          await startGoogleOAuthLogin();
           return { success: true, loggedIn: true };
+        } catch (e) {
+          return { success: false, loggedIn: false, error: e && e.message ? e.message : 'Google sign-in failed' };
         }
-
-        shell.openExternal('https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F');
-
-        const start = Date.now();
-        while (Date.now() - start < 90000) {
-          await new Promise(r => setTimeout(r, 3500));
-          const ok = await exportYoutubeCookiesToDisk();
-          if (ok && hasValidYtCookiesFile()) {
-            return { success: true, loggedIn: true };
-          }
-        }
-        return { success: false, loggedIn: false };
       });
 
       ipcMain.handle('google-import-library', async (event, opts) => {
@@ -1497,11 +1830,23 @@ function runGUI() {
         const doLikes = !opts || opts.doLikes !== false;
         const doPlaylists = !opts || opts.doPlaylists !== false;
 
+        if (platform === 'youtube') {
+          try {
+            const accessToken = await getGoogleAccessToken();
+            return {
+              success: true,
+              ...await fetchYouTubeLibrary(accessToken, { platform, doLikes, doPlaylists })
+            };
+          } catch (e) {
+            return { success: false, error: e && e.message ? e.message : 'Failed to fetch YouTube library' };
+          }
+        }
+
         const s = session.fromPartition('persist:riff-google');
         const cookies = await s.cookies.get({ name: 'SAPISID' });
         const sapisidCookie = Array.isArray(cookies) ? cookies.find(c => c && c.value) : null;
         if (!sapisidCookie) {
-          return { success: false, error: 'Not logged in to Google' };
+          return { success: false, error: 'YouTube Music import still requires an active YouTube Music browser session.' };
         }
         const sapisid = sapisidCookie.value;
 
@@ -1940,6 +2285,21 @@ function runGUI() {
           });
           globalShortcut.register('MediaPreviousTrack', () => {
             mainWindow?.webContents.send('media-control', 'prev');
+          });
+          globalShortcut.register('CommandOrControl+Shift+Space', () => {
+            mainWindow?.webContents.send('media-control', 'play-pause');
+          });
+          globalShortcut.register('CommandOrControl+Shift+Right', () => {
+            mainWindow?.webContents.send('media-control', 'next');
+          });
+          globalShortcut.register('CommandOrControl+Shift+Left', () => {
+            mainWindow?.webContents.send('media-control', 'prev');
+          });
+          globalShortcut.register('CommandOrControl+Shift+Up', () => {
+            mainWindow?.webContents.send('media-control', 'volume-up');
+          });
+          globalShortcut.register('CommandOrControl+Shift+Down', () => {
+            mainWindow?.webContents.send('media-control', 'volume-down');
           });
         } catch (e) {}
         if (tutorialDone()) require('./updater').initUpdater(() => mainWindow);

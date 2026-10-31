@@ -90,7 +90,7 @@ test('Spotify login persists securely, refreshes, restores, and rejects partial 
       const parsed = new URL(url);
       if (parsed.hostname === 'open.spotify.com') {
         embedRequests++;
-        const trackList = [{ title: 'One', subtitle: 'Artist' }];
+        const trackList = [{ title: 'One', subtitle: 'Artist', uri: `spotify:track:${'d'.repeat(22)}` }];
         if (embedUnavailable) trackList.push({ title: '', subtitle: '' });
         return reply(callback, 200, `<script id="__NEXT_DATA__">${JSON.stringify({ props: { pageProps: { state: { data: { entity: { name: 'Public', totalCount: embedTotal, trackList } } } } } })}</script>`);
       }
@@ -101,13 +101,13 @@ test('Spotify login persists securely, refreshes, restores, and rejects partial 
         return reply(callback, 200, { items: [], next: null });
       }
       if (parsed.pathname === `/v1/playlists/${'a'.repeat(22)}`) return reply(callback, 200, apiUnavailable
-        ? { name: 'Available', items: { items: [{ item: { name: 'One', artists: [{ name: 'Artist' }] } }, { item: null }], next: null, total: 2 } }
-        : { name: 'Complete', items: { items: Array.from({ length: 100 }, (_, i) => ({ item: { name: `Track ${i}`, artists: [{ name: 'Artist' }] } })), next: `https://api.spotify.com/v1/playlists/${'a'.repeat(22)}/items?offset=100`, total: 101 } });
-      if (parsed.pathname === `/v1/playlists/${'a'.repeat(22)}/items`) return reply(callback, 200, { items: [{ item: { name: 'Track 100', artists: [{ name: 'Artist' }] } }], next: null });
+        ? { name: 'Available', items: { items: [{ item: { id: 'b'.repeat(22), name: 'One', artists: [{ name: 'Artist' }] } }, { item: null }], next: null, total: 2 } }
+        : { name: 'Complete', items: { items: Array.from({ length: 100 }, (_, i) => ({ item: { id: String(i).padStart(22, '0'), name: `Track ${i}`, artists: [{ name: 'Artist' }] } })), next: `https://api.spotify.com/v1/playlists/${'a'.repeat(22)}/items?offset=100`, total: 101 } });
+      if (parsed.pathname === `/v1/playlists/${'a'.repeat(22)}/items`) return reply(callback, 200, { items: [{ item: { id: 'c'.repeat(22), name: 'Track 100', artists: [{ name: 'Artist' }] } }], next: null });
       throw new Error(`Unexpected request: ${url}`);
     };
 
-    server = require('../server');
+    server = require('../src/server/server');
     let port = await server.startServer(0);
     const token = server.getServerToken();
     const start = await get(port, `/api/spotify-auth-start?clientId=${'a'.repeat(32)}`, token);
@@ -132,15 +132,18 @@ test('Spotify login persists securely, refreshes, restores, and rejects partial 
     assert.strictEqual(linked.status, 200);
     assert.strictEqual(linked.data.tracks.length, 101);
     assert.strictEqual(linked.data.tracks[100].title, 'Track 100');
+    assert.strictEqual(linked.data.tracks[100].spotifyId, 'c'.repeat(22));
+    assert.strictEqual(linked.data.tracks[100].spotifyUrl, `https://open.spotify.com/track/${'c'.repeat(22)}`);
     assert.strictEqual(embedRequests, 0);
     apiUnavailable = true;
     const available = await get(port, `/api/spotify-import?url=https://open.spotify.com/playlist/${'a'.repeat(22)}`, token);
     assert.strictEqual(available.status, 200);
     assert.deepStrictEqual(available.data.tracks.map(track => track.title), ['One']);
+    assert.strictEqual(available.data.tracks[0].spotifyId, 'b'.repeat(22));
 
     await server.stopServer();
-    delete require.cache[require.resolve('../server')];
-    server = require('../server');
+    delete require.cache[require.resolve('../src/server/server')];
+    server = require('../src/server/server');
     port = await server.startServer(0);
     const restoredToken = server.getServerToken();
     assert.strictEqual((await get(port, '/api/spotify-status', restoredToken)).data.connected, true);
@@ -155,6 +158,7 @@ test('Spotify login persists securely, refreshes, restores, and rejects partial 
     const publicPlaylist = await get(port, `/api/spotify-import?url=https://open.spotify.com/playlist/${'a'.repeat(22)}`, restoredToken);
     assert.strictEqual(publicPlaylist.status, 200);
     assert.strictEqual(publicPlaylist.data.tracks[0].title, 'One');
+    assert.strictEqual(publicPlaylist.data.tracks[0].spotifyId, 'd'.repeat(22));
     embedTotal = 2;
     embedUnavailable = true;
     const withUnavailable = await get(port, `/api/spotify-import?url=https://open.spotify.com/playlist/${'a'.repeat(22)}`, restoredToken);
@@ -167,8 +171,8 @@ test('Spotify login persists securely, refreshes, restores, and rejects partial 
     const againState = new URL(again.data.url).searchParams.get('state');
     assert.strictEqual((await get(port, `/api/spotify-callback?state=${againState}&code=ok`, restoredToken)).status, 200);
     await server.stopServer();
-    delete require.cache[require.resolve('../server')];
-    server = require('../server');
+    delete require.cache[require.resolve('../src/server/server')];
+    server = require('../src/server/server');
     port = await server.startServer(0);
     rejectRefresh = true;
     const expired = await get(port, '/api/spotify-status', server.getServerToken());

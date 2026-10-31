@@ -1,5 +1,6 @@
 node_modules/
 dist/
+src/storage.json
 bin/yt-dlp
 bin/yt-dlp.exe
 bin/ffmpeg

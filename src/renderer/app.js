@@ -2203,6 +2203,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     { code: 'zu', name: 'Zulu', flag: '🇿🇦' }
   ];
   window.TRANSLATION_LANGUAGES = TRANSLATION_LANGUAGES;
+  const UI_TRANSLATION_LANGUAGES = TRANSLATION_LANGUAGES.filter(language =>
+    ['en', 'ru', 'uk'].includes(language.code)
+  );
+  const UI_TRANSLATION_LANGUAGE_CODES = new Set(UI_TRANSLATION_LANGUAGES.map(language => language.code));
+
+  function getSupportedUiLanguage(language) {
+    return UI_TRANSLATION_LANGUAGE_CODES.has(language) ? language : 'en';
+  }
 
   var RTL_UI_LANGS = new Set(['ar', 'fa', 'per', 'fas', 'prs', 'pes', 'farsi', 'persian', 'he', 'iw', 'ur', 'ps', 'ckb', 'sd', 'ug', 'yi']);
   function syncDocumentDirection(langCode) {
@@ -2242,42 +2250,47 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.body.classList.toggle('keep-bar-timestamps', !getAdv('autohide_timestamps', true));
   document.body.classList.toggle('classic-sidebar', !!getAdv('classic_sidebar', false));
 
-  window.addEventListener('pointermove', (e) => {
-    if (!document.body.classList.contains('hide-titlebar')) {
-      if (document.body.classList.contains('titlebar-peek')) {
-        document.body.classList.remove('titlebar-peek');
-      }
-      return;
-    }
-    if (e.clientY <= 12) {
-      document.body.classList.add('titlebar-peek');
-    } else if (e.clientY > 46) {
-      document.body.classList.remove('titlebar-peek');
-    }
-  });
-
   let titlebarRevealHideTimer = null;
-  window.addEventListener('mousemove', (e) => {
+  let pointerY = Infinity;
+  const titlebar = document.querySelector('.titlebar');
+  const clearTitlebarRevealHideTimer = () => {
+    if (titlebarRevealHideTimer) {
+      clearTimeout(titlebarRevealHideTimer);
+      titlebarRevealHideTimer = null;
+    }
+  };
+  const scheduleTitlebarRevealHide = () => {
+    clearTitlebarRevealHideTimer();
+    titlebarRevealHideTimer = setTimeout(() => {
+      titlebarRevealHideTimer = null;
+      if (pointerY > 48) document.body.classList.remove('titlebar-reveal');
+    }, 800);
+  };
+  window.addEventListener('pointermove', (event) => {
+    pointerY = event.clientY;
     if (!document.body.classList.contains('hide-titlebar')) {
       document.body.classList.remove('titlebar-reveal');
+      clearTitlebarRevealHideTimer();
       return;
     }
-    if (e.clientY <= 2) {
-      if (titlebarRevealHideTimer) { clearTimeout(titlebarRevealHideTimer); titlebarRevealHideTimer = null; }
+    if (pointerY <= 3) {
+      clearTitlebarRevealHideTimer();
       document.body.classList.add('titlebar-reveal');
-    } else if (document.body.classList.contains('titlebar-reveal') && e.clientY > 48) {
-      if (!titlebarRevealHideTimer) {
-        titlebarRevealHideTimer = setTimeout(() => {
-          document.body.classList.remove('titlebar-reveal');
-          titlebarRevealHideTimer = null;
-        }, 400);
-      }
+    } else if (document.body.classList.contains('titlebar-reveal')) {
+      if (pointerY <= 48) clearTitlebarRevealHideTimer();
+      else if (!titlebarRevealHideTimer) scheduleTitlebarRevealHide();
     }
   });
+  if (titlebar) {
+    titlebar.addEventListener('pointerenter', clearTitlebarRevealHideTimer);
+    titlebar.addEventListener('pointerleave', () => {
+      if (document.body.classList.contains('hide-titlebar')) scheduleTitlebarRevealHide();
+    });
+  }
   document.addEventListener('mouseleave', () => {
+    pointerY = Infinity;
+    clearTitlebarRevealHideTimer();
     document.body.classList.remove('titlebar-reveal');
-    document.body.classList.remove('titlebar-peek');
-    if (titlebarRevealHideTimer) { clearTimeout(titlebarRevealHideTimer); titlebarRevealHideTimer = null; }
   });
 
   const savedBannerBlur = parseInt(localStorage.getItem('riff_banner_blur') || '3', 10);
@@ -3318,12 +3331,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           const bgEndX = sw - padRight;
 
           if (!cachedPrimaryColor) refreshCachedThemeColors();
-          const primaryColor = cachedPrimaryColor;
+          const primaryColor = '#ffffff';
           const dimColor = cachedDimColor;
 
           const centerY = sh / 2;
 
-          const showProgressBg = localStorage.getItem('riff_progress_bg') === 'true';
+          const showProgressBg = localStorage.getItem('riff_progress_bg') !== 'false';
           if (showProgressBg && bgStartX < bgEndX - 1) {
             sCtx.save();
             sCtx.globalAlpha = 0.3;
@@ -3532,6 +3545,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (window.electronAPI && window.electronAPI.onWindowVisibility) {
     window.electronAPI.onWindowVisibility(visible => handleVisibilityChange(visible));
   }
+
+  const setUnfocused = (unfocused) => {
+    if (unfocused === document.body.classList.contains('unfocused')) return;
+    document.body.classList.toggle('unfocused', unfocused);
+  };
+  window.addEventListener('blur', () => setUnfocused(true));
+  window.addEventListener('focus', () => setUnfocused(false));
   setInterval(() => {
     window.electronAPI?.clearWebFrameCache?.();
   }, 3 * 60 * 1000);
@@ -4185,12 +4205,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (nextTrack && !nextTrack._preloadedStreamUrl && !nextTrack.isCached && nextTrack.platform !== 'local') {
       const qQuality = encodeURIComponent(localStorage.getItem('riff_audio_quality') || 'medium');
       const qFallback = encodeURIComponent(nextTrack.searchQuery || ((nextTrack.artist ? nextTrack.artist + ' - ' : '') + nextTrack.title));
-      const fetchUrl = `http://127.0.0.1:${state.serverPort}/api/stream-info?id=${encodeURIComponent(nextTrack.id || '')}&url=${encodeURIComponent(nextTrack.url || '')}&platform=${encodeURIComponent(nextTrack.platform || 'youtube')}&q=${qFallback}&quality=${qQuality}`;
+      const fetchUrl = `http://127.0.0.1:${state.serverPort}/api/stream-info?id=${encodeURIComponent(nextTrack.id || '')}&url=${encodeURIComponent(nextTrack.url || '')}&platform=${encodeURIComponent(nextTrack.platform || 'youtube')}&title=${encodeURIComponent(nextTrack.title || '')}&artist=${encodeURIComponent(nextTrack.artist || '')}&duration=${encodeURIComponent(nextTrack.duration || 0)}&thumbnail=${encodeURIComponent(nextTrack.thumbnail || '')}&q=${qFallback}&quality=${qQuality}`;
       try {
         const res = await fetch(fetchUrl);
         const data = await res.json();
         if (data && data.success && data.streamUrl) {
           nextTrack._preloadedStreamUrl = data.streamUrl;
+          nextTrack._preloadedStreamQuality = localStorage.getItem('riff_audio_quality') || 'medium';
         }
       } catch (_) {}
     }
@@ -4199,6 +4220,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function playTrack(track, queueList = null, startIndex = -1, context = null) {
     if (track && !track._errorRetryStage) track._errorRetryStage = 0;
     if (track && track.artist) track.artist = stripYoutubeTopic(track.artist);
+    if (track && track.platform !== 'soundcloud' && /^(?:sp_|dz_|it_|ym_|cand_)/i.test(String(track.id || ''))) {
+      delete track._preloadedStreamUrl;
+      delete track._preloadedStreamQuality;
+    }
     preloadedTrack10sFired = false;
     lastDisplayedSec = -1;
     if (typeof lastTimeupdateSec !== 'undefined') lastTimeupdateSec = -1;
@@ -4213,6 +4238,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     applyTrackRenames(track);
     if (typeof queueList === "number") { startIndex = queueList; queueList = state.queue; }
     if (!track || !el.nativeAudio) return;
+    const selectedQuality = localStorage.getItem('riff_audio_quality') || 'medium';
+    if (track._preloadedStreamQuality && track._preloadedStreamQuality !== selectedQuality) {
+      delete track._preloadedStreamUrl;
+      delete track._preloadedStreamQuality;
+    }
+    prioritizeTrackStream(track);
     if (el.nativeAudio && !el.nativeAudio.paused) {
       try { el.nativeAudio.pause(); } catch (_) {}
     }
@@ -4291,7 +4322,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const fetchAbortTimeout = setTimeout(() => {
       didTimeoutAbort = true;
       try { state.currentAbortController?.abort(); } catch (_) {}
-    }, 16000);
+    }, 22000);
 
     state.currentTrack = track;
     emitPluginEvent('trackchange', track);
@@ -4318,9 +4349,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       } else {
         state.queueIndex = existingIndex;
       }
-      state.queueHistory = [state.queueIndex];
+      recordPlayedIndex(state.queueIndex);
     }
     updateQueueBadge();
+    if (state.currentView === 'queue') renderQueueView();
 
     track.playedAt = Date.now();
     state.history = state.history.filter(t => !isSameTrack(t, track));
@@ -4412,9 +4444,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (currentToken !== state.loadToken) return;
 
       if (!data || !data.success || !data.streamUrl) {
-        if (data && data.needAuth) {
-          maybeShowYtAuthSheet();
-        }
         if (!navigator.onLine) {
           showToast('Offline: this track is not available in local cache');
           throw new Error('Offline: track not cached locally');
@@ -4459,9 +4488,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         state.isPlaying = false;
         updatePlayPauseButton(false, false);
         if (el.trackLoadingOverlay) el.trackLoadingOverlay.classList.add('hidden');
-        if (!track.platform || track.platform === 'youtube' || track.platform === 'ytmusic') {
-          maybeShowYtAuthSheet();
-        }
         showToast(didTimeoutAbort ? 'Stream request timed out' : (err.message || 'Could not load audio stream'), 'error');
       }
     } finally {
@@ -5329,7 +5355,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     '.setting-item > div:not([class]):not(:has(*))',
     '.setting-value',
     '.m3-dropdown-label',
-    '.m3-dropdown-option',
+    '.m3-dropdown-option:not(:has(*))',
     '.m3-dropdown-trigger > span:not([class])',
     '.sp-modes button',
     '.audio-tab > span:not([class])',
@@ -5339,6 +5365,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     '.cache-stat-label > span:not([class])',
     '.playlist-type-badge',
     '.artist-about-title',
+    '.sp-card-title',
+    '.sp-card-sub',
     '.album-meta-line',
     '.sleep-timer-hint',
     '.hq-label',
@@ -5359,8 +5387,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     '.dialog-card span:not([class])'
   ].join(', ');
 
-  const savedUiLang = localStorage.getItem('riff_ui_lang') || 'en';
+  function isI18nFixed(element) {
+    return element.hasAttribute('data-i18n-fixed');
+  }
+
+  const savedUiLang = getSupportedUiLanguage(localStorage.getItem('riff_ui_lang') || 'en');
+  localStorage.setItem('riff_ui_lang', savedUiLang);
   syncDocumentDirection(savedUiLang);
+  let i18nApplyVersion = 0;
   if (savedUiLang !== 'en') {
     applyI18n(savedUiLang);
     setTimeout(() => applyI18n(savedUiLang), 1500);
@@ -5369,6 +5403,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   function collectI18n() {
     const list = new Set();
     document.querySelectorAll(AUTO_I18N_SELECTORS).forEach(elNode => {
+      if (isI18nFixed(elNode)) return;
       if (!elNode.dataset.i18nOrig) {
         elNode.dataset.i18nOrig = elNode.textContent.trim();
       }
@@ -5379,12 +5414,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (val) list.add(val);
     });
     document.querySelectorAll('input[placeholder], textarea[placeholder]').forEach(input => {
+      if (isI18nFixed(input)) return;
       if (!input.dataset.origPlaceholder) {
         input.dataset.origPlaceholder = input.placeholder;
       }
       if (input.dataset.origPlaceholder) list.add(input.dataset.origPlaceholder);
     });
     document.querySelectorAll('[data-i18n-attr]').forEach(el => {
+      if (isI18nFixed(el)) return;
       const attr = el.getAttribute('data-i18n-attr') || 'placeholder';
       if (!el._i18n_orig_attrs) el._i18n_orig_attrs = {};
       if (!el._i18n_orig_attrs[attr]) {
@@ -5396,8 +5433,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function applyI18n(lang) {
+    const applyVersion = ++i18nApplyVersion;
+    lang = getSupportedUiLanguage(lang || localStorage.getItem('riff_ui_lang') || 'en');
     syncDocumentDirection(lang);
-    lang = lang || localStorage.getItem('riff_ui_lang') || 'en';
     localStorage.setItem('riff_ui_lang', lang);
 
     const found = TRANSLATION_LANGUAGES.find(l => l.code === lang);
@@ -5408,6 +5446,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (lang === 'en') {
       document.querySelectorAll(AUTO_I18N_SELECTORS).forEach(elNode => {
+        if (isI18nFixed(elNode)) return;
         if (elNode.dataset.i18nOrig) {
           elNode.textContent = elNode.dataset.i18nOrig;
           elNode.dataset.i18nShown = elNode.textContent;
@@ -5417,9 +5456,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         } else if (elNode._i18n_orig) elNode.textContent = elNode._i18n_orig;
       });
       document.querySelectorAll('input[placeholder], textarea[placeholder]').forEach(input => {
+        if (isI18nFixed(input)) return;
         if (input.dataset.origPlaceholder) input.placeholder = input.dataset.origPlaceholder;
       });
       document.querySelectorAll('[data-i18n-attr]').forEach(el => {
+        if (isI18nFixed(el)) return;
         const attr = el.getAttribute('data-i18n-attr') || 'placeholder';
         if (el._i18n_orig_attrs && el._i18n_orig_attrs[attr]) {
           el.setAttribute(attr, el._i18n_orig_attrs[attr]);
@@ -5432,6 +5473,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       i18nSessionMap.set(lang, new Map());
     }
     const dict = i18nSessionMap.get(lang);
+
+    if (!dict.size) {
+      try {
+        const stored = JSON.parse(localStorage.getItem('riff_i18n_' + lang) || '{}');
+        Object.keys(stored).forEach(k => { if (stored[k] && !dict.has(k)) dict.set(k, stored[k]); });
+      } catch (_) {}
+    }
 
     const texts = collectI18n();
     const commonToasts = [
@@ -5459,24 +5507,35 @@ document.addEventListener('DOMContentLoaded', async () => {
           body: JSON.stringify({ target: lang, texts: missing })
         });
         const data = await res.json();
+        if (applyVersion !== i18nApplyVersion) return;
         if (data && data.success && Array.isArray(data.translations)) {
           missing.forEach((str, i) => {
-            if (data.translations[i]) {
+            if (data.translations[i] && data.translations[i] !== str) {
               dict.set(str, data.translations[i]);
             }
           });
         }
       } catch (e) {
+        if (applyVersion !== i18nApplyVersion) return;
         console.warn('applyI18n fetch error:', e);
       }
+      try {
+        const toPersist = {};
+        for (const [k, v] of dict.entries()) {
+          if (v && v !== k) toPersist[k] = v;
+        }
+        localStorage.setItem('riff_i18n_' + lang, JSON.stringify(toPersist));
+      } catch (_) {}
     }
 
+    if (applyVersion !== i18nApplyVersion) return;
     const translations = {};
     for (const [k, v] of dict.entries()) {
       translations[k] = v;
     }
 
     document.querySelectorAll(AUTO_I18N_SELECTORS).forEach(elNode => {
+      if (isI18nFixed(elNode)) return;
       if (!elNode.dataset.i18nOrig) elNode.dataset.i18nOrig = elNode.textContent.trim();
       if (!elNode.dataset.origText) elNode.dataset.origText = elNode.dataset.i18nOrig;
       const key = elNode.dataset.i18nOrig || elNode.dataset.origText;
@@ -5488,6 +5547,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     document.querySelectorAll('input[placeholder], textarea[placeholder]').forEach(input => {
+      if (isI18nFixed(input)) return;
       if (!input.dataset.origPlaceholder) input.dataset.origPlaceholder = input.placeholder;
       if (input.dataset.origPlaceholder) {
         const next = translations[input.dataset.origPlaceholder] || input.dataset.origPlaceholder;
@@ -5496,6 +5556,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     document.querySelectorAll('[data-i18n-attr]').forEach(el => {
+      if (isI18nFixed(el)) return;
       const attr = el.getAttribute('data-i18n-attr') || 'placeholder';
       if (!el._i18n_orig_attrs) el._i18n_orig_attrs = {};
       if (!el._i18n_orig_attrs[attr]) el._i18n_orig_attrs[attr] = el.getAttribute(attr) || '';
@@ -6647,6 +6708,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     el.tvKaraoke.addEventListener('mousemove', resetTvIdleTimer);
   }
 
+  const btnTvkCoverMode = document.getElementById('btn-tvk-cover-mode');
+  if (btnTvkCoverMode && el.tvKaraoke) {
+    const applyCoverMode = () => {
+      const on = localStorage.getItem('riff_tvk_cover_mode') === '1';
+      el.tvKaraoke.classList.toggle('tv-cover-mode', on);
+      btnTvkCoverMode.classList.toggle('active', on);
+    };
+    applyCoverMode();
+    btnTvkCoverMode.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const on = localStorage.getItem('riff_tvk_cover_mode') !== '1';
+      localStorage.setItem('riff_tvk_cover_mode', on ? '1' : '0');
+      applyCoverMode();
+      resetTvIdleTimer();
+    });
+  }
+
   const btnTvkPrev = document.getElementById('btn-tvk-prev');
   const btnTvkPlay = document.getElementById('btn-tvk-play');
   const btnTvkNext = document.getElementById('btn-tvk-next');
@@ -6818,6 +6896,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     tv.classList.toggle('tvk-show-lyrics-visualizer', tvkVisLyricsOn);
     const visOpacity = parseInt(localStorage.getItem('riff_tvk_visualizer_opacity') || '85', 10);
     tv.style.setProperty('--tvk-vis-opacity', (Math.max(10, Math.min(100, visOpacity)) / 100).toFixed(2));
+    const bgBlur = parseInt(localStorage.getItem('riff_tvk_bg_blur') || '22', 10);
+    tv.style.setProperty('--tvk-bg-blur', `${Math.max(0, Math.min(60, bgBlur))}px`);
   }
 
   function syncTvkUI() {
@@ -7111,6 +7191,29 @@ document.addEventListener('DOMContentLoaded', async () => {
       sliderTvkVisOpacitySetting.addEventListener('input', onOpInput);
       sliderTvkVisOpacitySetting.addEventListener('change', onOpInput);
     }
+
+    const sliderTvkBgBlur = document.getElementById('tvk-bg-blur');
+    const sliderTvkBgBlurSetting = document.getElementById('slider-tvk-bg-blur-setting');
+    const valTvkBgBlur = document.getElementById('val-tvk-bg-blur');
+    const valTvkBgBlurSetting = document.getElementById('val-tvk-bg-blur-setting');
+    const syncTvkBgBlurUI = (v) => {
+      if (sliderTvkBgBlur && sliderTvkBgBlur.value !== String(v)) sliderTvkBgBlur.value = v;
+      if (sliderTvkBgBlurSetting && sliderTvkBgBlurSetting.value !== String(v)) sliderTvkBgBlurSetting.value = v;
+      if (valTvkBgBlur) valTvkBgBlur.textContent = `${v}px`;
+      if (valTvkBgBlurSetting) valTvkBgBlurSetting.textContent = `${v}px`;
+    };
+    const updateTvkBgBlur = (v) => {
+      const val = Math.max(0, Math.min(60, parseInt(v, 10) || 0));
+      localStorage.setItem('riff_tvk_bg_blur', String(val));
+      syncTvkBgBlurUI(val);
+      applyTvk();
+    };
+    syncTvkBgBlurUI(parseInt(localStorage.getItem('riff_tvk_bg_blur') || '22', 10));
+    [sliderTvkBgBlur, sliderTvkBgBlurSetting].forEach(s => {
+      if (!s) return;
+      s.addEventListener('input', (e) => updateTvkBgBlur(e.target.value));
+      s.addEventListener('change', (e) => updateTvkBgBlur(e.target.value));
+    });
 
     const sliderVizSmooth = document.getElementById('slider-viz-smooth');
     const valVizSmooth = document.getElementById('val-viz-smooth');
@@ -7524,7 +7627,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       try {
         const playPromise = el.nativeAudio.play();
         if (playPromise && typeof playPromise.catch === 'function') {
-          playPromise.catch(e => console.warn('Play error:', e));
+          playPromise.catch(e => {
+            if (curToken !== smoothFadeToken || !el.nativeAudio?.paused) return;
+            console.warn('Play error:', e);
+            state.isPlaying = false;
+            updatePlayPauseButton(false, false);
+            if (el.trackLoadingOverlay) el.trackLoadingOverlay.classList.add('hidden');
+            showToast(e.message || 'Could not start playback', 'error');
+          });
         }
       } catch (e) {
         console.warn('Play error:', e);
@@ -7575,20 +7685,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   window.addEventListener('keydown', (e) => {
-    if (e.code !== 'Space' && e.key !== ' ') return;
-    if (e.ctrlKey || e.altKey || e.metaKey) return;
-    const act = document.activeElement;
-    const isInput = act && (
-      (act.tagName === 'INPUT' && !['range', 'button', 'checkbox', 'radio'].includes((act.type || '').toLowerCase())) ||
-      act.tagName === 'TEXTAREA' ||
-      act.isContentEditable
-    );
-    if (isInput) return;
-    if (syncState && syncState.active) return;
+    if (!runKeyboardShortcut(e)) return;
     e.preventDefault();
     e.stopImmediatePropagation();
-    if (act && (act.tagName === 'BUTTON' || act.classList.contains('track-row')) && typeof act.blur === 'function') act.blur();
-    togglePlayPause();
+    const active = document.activeElement;
+    if (active && (active.tagName === 'BUTTON' || active.classList.contains('track-row')) && typeof active.blur === 'function') active.blur();
   }, true);
 
   function recordPlayedIndex(idx) {
@@ -7596,6 +7697,136 @@ document.addEventListener('DOMContentLoaded', async () => {
     const h = state.queueHistory;
     if (h[h.length - 1] !== idx) h.push(idx);
     if (h.length > 200) h.shift();
+  }
+
+
+  function autoplayEnabled() {
+    return getAdv('autoplay', true);
+  }
+
+  function autoplayArtistList(track) {
+    return String((track && track.artist) || '')
+      .split(/,|&| feat\.? | ft\.? | x /i)
+      .map(a => a.trim())
+      .filter(Boolean);
+  }
+
+  async function buildAutoplayCandidates() {
+    const port = state.serverPort || 38472;
+    const queue = (state.queue || []).filter(Boolean);
+    const seenIds = new Set();
+    const seenKeys = new Set();
+    const remember = (t) => {
+      const id = getTrackCanonicalId(t);
+      if (id) seenIds.add(id);
+      const k = getTrackNormalizedKey(t.artist, t.title);
+      if (k) seenKeys.add(k);
+    };
+    queue.forEach(remember);
+    (state.history || []).slice(0, 60).forEach(t => { if (t) remember(t); });
+
+    const usable = (t) => {
+      if (!t || !t.title) return false;
+      if (isTrackBlocked(t) || isArtistBlocked(t.artist)) return false;
+      const id = getTrackCanonicalId(t);
+      const k = getTrackNormalizedKey(t.artist, t.title);
+      if ((id && seenIds.has(id)) || (k && seenKeys.has(k))) return false;
+      return true;
+    };
+
+    const current = state.currentTrack || queue[queue.length - 1];
+    const ordered = [];
+    const counts = new Map();
+    autoplayArtistList(current).forEach(a => ordered.push(a));
+    queue.forEach(t => autoplayArtistList(t).forEach(a => counts.set(a, (counts.get(a) || 0) + 1)));
+    Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).forEach(([a]) => {
+      if (!ordered.some(x => x.toLowerCase() === a.toLowerCase())) ordered.push(a);
+    });
+    const queueArtists = new Set(ordered.map(a => normalizeArtistName(a)));
+
+    const fetchJson = async (url, options, ms) => {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), ms);
+      try {
+        const res = await fetch(url, Object.assign({ signal: ctrl.signal }, options || {}));
+        return await res.json();
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    const sameArtist = [];
+    const artistJobs = ordered.slice(0, 4).map(name =>
+      fetchJson(`http://127.0.0.1:${port}/api/artist?name=${encodeURIComponent(name)}`, null, 8000)
+        .then(data => (data && data.success && data.artist && Array.isArray(data.artist.tracks)) ? data.artist.tracks : [])
+        .catch(() => [])
+    );
+    const artistResults = await Promise.all(artistJobs);
+    artistResults.forEach(list => {
+      const fresh = list.filter(t => usable(t) && !isTrackFavorited(t));
+      fresh.slice(0, 3).forEach(t => {
+        if (usable(t)) {
+          sameArtist.push(t);
+          remember(t);
+        }
+      });
+    });
+
+    let wave = [];
+    try {
+      const taste = await computeTasteProfile();
+      const data = await fetchJson(`http://127.0.0.1:${port}/api/vibe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          platform: 'youtube',
+          limit: 12,
+          clientProfile: taste,
+          seeds: taste.seeds || [],
+          avoid: getWaveAvoid()
+        })
+      }, 9000);
+      if (data && data.success && Array.isArray(data.tracks)) {
+        wave = data.tracks.filter(t => usable(t) && !autoplayArtistList(t).some(a => queueArtists.has(normalizeArtistName(a))));
+        wave.forEach(remember);
+      }
+    } catch (_) {}
+
+    return sameArtist.slice(0, 2).concat(wave, sameArtist.slice(2));
+  }
+
+  function prepareAutoplay() {
+    if (!autoplayEnabled() || !state.currentTrack) return null;
+    const key = getTrackCanonicalId(state.currentTrack) + '|' + state.queue.length;
+    if (state._autoplayKey === key && state._autoplayPromise) return state._autoplayPromise;
+    state._autoplayKey = key;
+    state._autoplayPromise = buildAutoplayCandidates().catch(() => []);
+    return state._autoplayPromise;
+  }
+
+  function maybePrepareAutoplay() {
+    if (!autoplayEnabled() || state.isRadioQueue || state.isShuffle || state.isRepeat) return;
+    if (!state.currentTrack || !Array.isArray(state.queue) || state.queue.length === 0) return;
+    if (state.queueIndex + 1 < state.queue.length) return;
+    prepareAutoplay();
+  }
+
+  async function startAutoplay() {
+    const pending = prepareAutoplay();
+    if (!pending) return false;
+    const found = await Promise.race([pending, new Promise(r => setTimeout(() => r(null), 4000))]);
+    if (!Array.isArray(found) || found.length === 0) return false;
+    const startIdx = state.queue.length;
+    state.queue.push(...found);
+    state.isRadioQueue = true;
+    state._autoplayPromise = null;
+    state._autoplayKey = '';
+    if (typeof updateQueueBadge === 'function') updateQueueBadge();
+    state.queueIndex = startIdx;
+    recordPlayedIndex(startIdx);
+    playTrack(state.queue[startIdx]);
+    showToast('Autoplay: similar tracks');
+    return true;
   }
 
   async function playNext() {
@@ -7626,9 +7857,39 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
 
+    if (!state.isRadioQueue && !state.isShuffle && state.queueIndex + 1 >= state.queue.length && autoplayEnabled()) {
+      if (await startAutoplay()) return;
+    }
+
     if (state.isShuffle) {
-      const eligible = state.queue.map((t, i) => i).filter(i => !isTrackBlocked(state.queue[i]) && !isArtistBlocked(state.queue[i]?.artist));
-      const nextIdx = eligible.length > 0 ? eligible[Math.floor(Math.random() * eligible.length)] : Math.floor(Math.random() * state.queue.length);
+      const provider = shuffleProvider;
+      let nextIdx = -1;
+      if (provider) {
+        try {
+          const pick = await provider.fn({
+            queue: state.queue.slice(),
+            queueIndex: state.queueIndex,
+            context: state.currentTrackContext,
+            current: state.currentTrack
+          });
+          if (pick) nextIdx = state.queue.findIndex(track => isSameTrack(track, pick));
+          if (nextIdx >= 0 && (isTrackBlocked(state.queue[nextIdx]) || isArtistBlocked(state.queue[nextIdx]?.artist))) {
+            nextIdx = -1;
+          }
+        } catch (e) {
+          reportPluginError(provider.file, e);
+        }
+      }
+      if (state.queue.length === 0) return;
+      if (nextIdx < 0) {
+        const eligible = state.queue.map((track, index) => index)
+          .filter(index => !isTrackBlocked(state.queue[index]) && !isArtistBlocked(state.queue[index]?.artist));
+        if (eligible.length === 0) return;
+        const recent = new Set(state.queueHistory.slice(-Math.max(1, Math.floor(eligible.length / 2))));
+        const pool = eligible.filter(index => !recent.has(index));
+        const candidates = pool.length ? pool : eligible;
+        nextIdx = candidates[Math.floor(Math.random() * candidates.length)];
+      }
       state.queueIndex = nextIdx;
       recordPlayedIndex(nextIdx);
       playTrack(state.queue[nextIdx]);
@@ -7715,9 +7976,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (audioEngine && Number.isFinite(audioEngine.appliedElementVolume) &&
           Math.abs(el.nativeAudio.volume - audioEngine.appliedElementVolume) < 0.005) return;
-      if (extMuted !== state.isMuted || (!extMuted && Math.abs(extVol - state.volume) > 0.015)) {
+      if (extMuted !== state.isMuted || (!extMuted && Math.abs(extVol - state.volume * state.volume) > 0.015)) {
         state.isMuted = extMuted;
-        if (!extMuted) state.volume = extVol;
+        if (!extMuted) state.volume = Math.sqrt(extVol);
         if (el.volumeSlider) el.volumeSlider.value = String(state.volume);
         if (el.volumeIcon) el.volumeIcon.classList.toggle('hidden', state.isMuted);
         if (el.volumeMutedIcon) el.volumeMutedIcon.classList.toggle('hidden', !state.isMuted);
@@ -7729,63 +7990,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
 
-    let ytAuthSheetDismissed = false;
-
-    function hideYtAuthSheet() {
-      const sheet = document.getElementById('yt-auth-sheet');
-      if (sheet) sheet.classList.add('hidden');
-    }
-
-    maybeShowYtAuthSheet = async function() {
-      if (ytAuthSheetDismissed) return;
-      const sheet = document.getElementById('yt-auth-sheet');
-      if (!sheet) return;
-      try {
-        if (window.electronAPI && window.electronAPI.googleAuthStatus) {
-          const st = await window.electronAPI.googleAuthStatus();
-          if (st && st.loggedIn) return;
-        }
-      } catch (_) {}
-      sheet.classList.remove('hidden');
-    }
-
-    const btnYtSheetNo = document.getElementById('btn-yt-sheet-no');
-    if (btnYtSheetNo) {
-      btnYtSheetNo.addEventListener('click', () => {
-        ytAuthSheetDismissed = true;
-        hideYtAuthSheet();
+    let activeStreamRecovery = null;
+    function recoverCurrentStream(resumePos = 0) {
+      const token = state.loadToken;
+      if (activeStreamRecovery && activeStreamRecovery.token === token) return activeStreamRecovery.promise;
+      const promise = recoverCurrentStreamOnce(resumePos, token).finally(() => {
+        if (activeStreamRecovery && activeStreamRecovery.promise === promise) activeStreamRecovery = null;
       });
+      activeStreamRecovery = { token, promise };
+      return promise;
     }
 
-    const btnYtSheetSignin = document.getElementById('btn-yt-sheet-signin');
-    if (btnYtSheetSignin) {
-      btnYtSheetSignin.addEventListener('click', async () => {
-        if (!window.electronAPI || !window.electronAPI.googleLogin) return;
-        const origHtml = btnYtSheetSignin.innerHTML;
-        btnYtSheetSignin.disabled = true;
-        btnYtSheetSignin.innerHTML = '<svg class="m3-btn-shape-spinner" style="width:15px;height:15px;" viewBox="-180 -180 360 360"><path fill="currentColor"/></svg><span>Signing in...</span>';
-        try {
-          const res = await window.electronAPI.googleLogin();
-          if (res && res.loggedIn) {
-            googleConnected = true;
-            if (typeof updateGoogleAuthUI === 'function') updateGoogleAuthUI();
-            hideYtAuthSheet();
-            showToast('Signed in to YouTube!', 'success');
-            if (state.currentTrack) {
-              delete state.currentTrack._preloadedStreamUrl;
-              state.currentTrack._errorRetryStage = 0;
-              playTrack(state.currentTrack, state.queue, state.queueIndex);
-            }
-          }
-        } catch (_) {
-        } finally {
-          btnYtSheetSignin.disabled = false;
-          btnYtSheetSignin.innerHTML = origHtml;
-        }
-      });
-    }
-
-    async function recoverCurrentStream(resumePos = 0) {
+    async function recoverCurrentStreamOnce(resumePos, myToken) {
       if (el.trackLoadingOverlay) el.trackLoadingOverlay.classList.add('hidden');
       const cur = state.currentTrack;
       if (!cur) {
@@ -7799,16 +8015,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       delete cur._preloadedStreamUrl;
       const retryStage = cur._errorRetryStage || 0;
-      const myToken = state.loadToken;
 
       if (retryStage <= 1) {
         cur._errorRetryStage = retryStage + 1;
         updatePlayPauseButton(false, true);
+        const retryController = new AbortController();
+        const retryTimeout = setTimeout(() => retryController.abort(), 22000);
         try {
           const qQuality = encodeURIComponent(localStorage.getItem('riff_audio_quality') || 'medium');
           const qSearch = encodeURIComponent(cur.searchQuery || ((cur.artist ? cur.artist + ' - ' : '') + (cur.title || '')));
           const retryUrl = `http://127.0.0.1:${state.serverPort}/api/stream-info?url=${encodeURIComponent(cur.url || '')}&id=${encodeURIComponent(cur.id || '')}&platform=${encodeURIComponent(cur.platform || state.platform)}&title=${encodeURIComponent(cur.title || '')}&artist=${encodeURIComponent(cur.artist || '')}&duration=${encodeURIComponent(cur.duration || 0)}&quality=${qQuality}&q=${qSearch}&forceYtDlp=1`;
-          const r = await fetch(retryUrl);
+          const r = await fetch(retryUrl, { signal: retryController.signal });
           const d = await r.json();
           if (myToken !== state.loadToken) return;
           if (d && d.success && d.streamUrl) {
@@ -7841,7 +8058,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             return;
           }
-        } catch (_) {}
+        } catch (_) {
+        } finally {
+          clearTimeout(retryTimeout);
+        }
       }
 
       cur._errorRetryStage = 0;
@@ -7861,18 +8081,37 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
       showToast('Could not load audio stream', 'error');
-      if (!cur.platform || cur.platform === 'youtube' || cur.platform === 'ytmusic') {
-        maybeShowYtAuthSheet();
-      }
+      setTimeout(() => { if (state.currentTrack === cur) playNext(); }, 600);
+    }
+
+    let playbackStallTimer = null;
+    function clearPlaybackStallTimer() {
+      if (playbackStallTimer) clearTimeout(playbackStallTimer);
+      playbackStallTimer = null;
+    }
+    function watchPlaybackStall() {
+      clearPlaybackStallTimer();
+      const token = state.loadToken;
+      playbackStallTimer = setTimeout(() => {
+        playbackStallTimer = null;
+        if (token !== state.loadToken || el.nativeAudio.paused || el.nativeAudio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) return;
+        recoverCurrentStream(el.nativeAudio.currentTime || 0);
+      }, 12000);
     }
 
     el.nativeAudio.addEventListener('error', () => {
+      clearPlaybackStallTimer();
       const pos = (el.nativeAudio && Number.isFinite(el.nativeAudio.currentTime)) ? el.nativeAudio.currentTime : 0;
       recoverCurrentStream(pos);
     });
 
     el.nativeAudio.addEventListener('waiting', () => {
       updatePlayPauseButton(state.isPlaying, true);
+      if (!el.nativeAudio.paused) watchPlaybackStall();
+    });
+
+    el.nativeAudio.addEventListener('stalled', () => {
+      if (!el.nativeAudio.paused) watchPlaybackStall();
     });
 
     function prefetchNextQueueTrack() {
@@ -7889,10 +8128,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     el.nativeAudio.addEventListener('playing', () => {
+      clearPlaybackStallTimer();
       state.isPlaying = true;
       state.consecutivePlayFailures = 0;
+      if (!preloadedTrack10sFired) {
+        preloadedTrack10sFired = true;
+        preloadNextTrackStream();
+      }
       document.body.classList.add('is-playing');
       updatePlayPauseButton(true, false);
+      // Start resolving the next track as soon as playback begins instead of
+      // waiting 10s, so the following track starts without a pause.
+      if (!preloadedTrack10sFired) {
+        preloadedTrack10sFired = true;
+        preloadNextTrackStream();
+      }
     });
 
     el.nativeAudio.addEventListener('canplay', () => {
@@ -7914,7 +8164,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const audio = el.nativeAudio;
       const metaDur = (state.currentTrack && Number.isFinite(state.currentTrack.duration) && state.currentTrack.duration > 0) ? state.currentTrack.duration : 0;
       const audioDur = (audio && Number.isFinite(audio.duration) && audio.duration > 1) ? audio.duration : 0;
-      if (state.currentTrack && audioDur > 1 && !(metaDur > 45 && audioDur < 32)) {
+      if (state.currentTrack && audioDur > 1 && isTrackDurationCompatible(metaDur, audioDur)) {
         const newDur = Math.round(audioDur);
         state.currentTrack.duration = newDur;
         const tid = state.currentTrack.id;
@@ -7981,6 +8231,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     el.nativeAudio.addEventListener('pause', () => {
+      clearPlaybackStallTimer();
       isPauseFading = false;
       emitPluginEvent('pause');
       updatePlayPauseButton(false, false);
@@ -8009,9 +8260,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     function getReliableTrackDuration() {
       const metaDur = (state.currentTrack && Number.isFinite(state.currentTrack.duration) && state.currentTrack.duration > 0) ? state.currentTrack.duration : 0;
       const audioDur = (!state.audioDurationStale && el.nativeAudio && Number.isFinite(el.nativeAudio.duration) && el.nativeAudio.duration > 1) ? el.nativeAudio.duration : 0;
-      if (metaDur > 45 && audioDur < 32) return metaDur;
+      if (metaDur > 0 && !isTrackDurationCompatible(metaDur, audioDur)) return metaDur;
       if (audioDur > 1) return audioDur;
       return metaDur;
+    }
+
+    function isTrackDurationCompatible(metaDur, audioDur) {
+      return !(metaDur > 0 && audioDur > 1 && Math.abs(metaDur - audioDur) > Math.max(30, metaDur * 0.25));
     }
 
     el.nativeAudio.addEventListener('ended', () => {
@@ -8054,7 +8309,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const audio = el.nativeAudio;
       const metaDur = (state.currentTrack && Number.isFinite(state.currentTrack.duration) && state.currentTrack.duration > 0) ? state.currentTrack.duration : 0;
       const audioDur = (!state.audioDurationStale && audio && Number.isFinite(audio.duration) && audio.duration > 1) ? audio.duration : 0;
-      if (state.currentTrack && audioDur > 1 && !(metaDur > 45 && audioDur < 32)) {
+      if (state.currentTrack && audioDur > 1 && isTrackDurationCompatible(metaDur, audioDur)) {
         const newDur = Math.round(audioDur);
         state.currentTrack.duration = newDur;
         const tid = state.currentTrack.id;
@@ -8130,6 +8385,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (state.isPlaying && cur > 5 && !state.nextTrackPrefetched) {
         state.nextTrackPrefetched = true;
         prefetchNextQueueTrack();
+        maybePrepareAutoplay();
       }
 
       if (!state.isPlaying && typeof m3cDraw === 'function' && typeof m3cEnabled === 'function' && m3cEnabled()) {
@@ -8451,45 +8707,64 @@ document.addEventListener('DOMContentLoaded', async () => {
     const container = document.getElementById('search-artist-card-container');
     if (!container) return;
     try {
-      const res = await fetch(`http://127.0.0.1:${state.serverPort}/api/artist?name=${encodeURIComponent(query)}`);
+      const normQ = normalizeImportText(query);
+      let lookupName = query;
+      let viaTrack = false;
+      const topArtist = Array.isArray(searchTracks) && searchTracks[0] ? autoplayArtistList(searchTracks[0])[0] : '';
+      if (topArtist) {
+        const na = normalizeImportText(topArtist);
+        const escaped = na.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        if (na.length >= 2 && na !== normQ && new RegExp('(^|\\s)' + escaped + '(\\s|$)').test(normQ)) {
+          lookupName = topArtist;
+          viaTrack = true;
+        }
+      }
+
+      const res = await fetch(`http://127.0.0.1:${state.serverPort}/api/artist?name=${encodeURIComponent(lookupName)}`);
       const data = await res.json();
       if (state.searchToken !== token) return;
       if (!data.success || !data.artist || !data.artist.name) return;
       if (!data.artist.isKnownArtist) return;
 
       const artist = data.artist;
-      const normQ = normalizeImportText(query);
       const normA = normalizeImportText(artist.name);
 
-      const isExact = (normA === normQ);
-      const isClose = (normA.startsWith(normQ) || normQ.startsWith(normA)) && Math.abs(normA.length - normQ.length) <= 3;
-      if (!isExact && !isClose) return;
-
-      if (Array.isArray(searchTracks) && searchTracks.length > 0) {
-        const topTrackTitle = normalizeImportText(searchTracks[0].title || '');
-        if (topTrackTitle === normQ && normA !== normQ) return;
+      if (!viaTrack) {
+        const isExact = (normA === normQ);
+        const isClose = (normA.startsWith(normQ) || normQ.startsWith(normA)) && Math.abs(normA.length - normQ.length) <= 3;
+        if (!isExact && !isClose) return;
+        if (Array.isArray(searchTracks) && searchTracks.length > 0) {
+          const topTrackTitle = normalizeImportText(searchTracks[0].title || '');
+          if (topTrackTitle === normQ && normA !== normQ) return;
+        }
       }
 
       const avatarUrl = artist.avatar || (searchTracks && searchTracks[0] ? searchTracks[0].thumbnail : '');
+      const fans = artist.fans || artist.nb_fan || 0;
+      const label = fans > 0 ? `Artist \u2022 ${fans.toLocaleString()} listeners` : 'Artist';
       container.innerHTML = `
         <div class="search-artist-card" role="button" tabindex="0">
           <div class="search-artist-avatar-wrap">
-            ${avatarUrl ? `<img class="search-artist-avatar" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(artist.name)}" />` : '<div style="width:100%;height:100%;background:var(--md-sys-color-surface-container);"></div>'}
+            ${avatarUrl ? `<img class="search-artist-avatar" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(artist.name)}" />` : '<div style=\"width:100%;height:100%;background:var(--md-sys-color-surface-container);\"></div>'}
           </div>
           <div class="search-artist-info">
-            <span class="search-artist-name">${escapeHtml(artist.name)}</span>
-            <span class="search-artist-label">Artist</span>
+            <span class="search-artist-name">${escapeHtml(artist.name)}${artist.isVerified ? VERIFIED_CHECK_SVG : ''}</span>
+            <span class="search-artist-label">${escapeHtml(label)}</span>
           </div>
         </div>
       `;
 
+      const open = () => {
+        recordSearchArtist(artist.name, avatarUrl, artist.isVerified);
+        openArtistProfile(artist.name);
+      };
       const card = container.querySelector('.search-artist-card');
       if (card) {
-        card.addEventListener('click', () => openArtistProfile(artist.name));
+        card.addEventListener('click', open);
         card.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') {
             e.preventDefault();
-            openArtistProfile(artist.name);
+            open();
           }
         });
       }
@@ -9332,9 +9607,276 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+
+  const SEARCH_HISTORY_KEY = 'riff_search_history_v2';
+  const VERIFIED_CHECK_SVG = '<svg class="verified-check" width="14" height="14" viewBox="0 0 24 24" aria-label="Verified artist"><circle cx="12" cy="12" r="11" fill="currentColor"></circle><path d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="var(--md-sys-color-on-primary, #000)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+
+  function stripFeaturing(title) {
+    return String(title || '')
+      .replace(/\s*[\(\[]\s*(?:feat\.?|ft\.?|featuring)\s[^\)\]]*[\)\]]/gi, '')
+      .replace(/\s+(?:feat\.?|ft\.?|featuring)\s+.+$/i, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+
+  function rankSearchTracks(query, tracks) {
+    if (!Array.isArray(tracks) || tracks.length < 2) return tracks;
+    const q = normalizeMatchText(stripFeaturing(query));
+    if (!q) return tracks;
+    const exact = [];
+    const rest = [];
+    tracks.forEach(t => {
+      const title = normalizeMatchText(stripFeaturing(t.title));
+      const artist = normalizeMatchText(t.artist);
+      const hit = title === q || (artist && (q === artist + ' ' + title || q === title + ' ' + artist));
+      (hit ? exact : rest).push(t);
+    });
+    return exact.length ? exact.concat(rest) : tracks;
+  }
+
+  function getSearchHistory() {
+    const v = safeJson(SEARCH_HISTORY_KEY, []);
+    return Array.isArray(v) ? v : [];
+  }
+
+  function saveSearchHistory(list) {
+    try { localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(list.slice(0, 25))); } catch (_) {}
+  }
+
+  function recordSearchHistory(entry) {
+    if (!entry || !entry.key) return;
+    const list = getSearchHistory().filter(e => e && e.key !== entry.key);
+    list.unshift(Object.assign({ ts: Date.now() }, entry));
+    saveSearchHistory(list);
+  }
+
+  function recordSearchQuery(query, thumb) {
+    const q = String(query || '').trim();
+    if (!q) return;
+    recordSearchHistory({ kind: 'query', key: 'q:' + normalizeMatchText(q), title: q, subtitle: '', query: q, thumb: thumb || '' });
+  }
+
+  function recordSearchTrack(track) {
+    if (!track || !track.title) return;
+    const id = getTrackCanonicalId(track);
+    if (!id) return;
+    let thumb = '';
+    try { thumb = getTrackThumbUrl(track); } catch (_) {}
+    recordSearchHistory({
+      kind: 'track',
+      key: 't:' + id,
+      title: stripFeaturing(track.title),
+      subtitle: track.artist || '',
+      thumb,
+      explicit: !!isTrackExplicit(track),
+      track: {
+        id: track.id, title: track.title, artist: track.artist, album: track.album,
+        duration: track.duration, thumbnail: track.thumbnail || thumb, cover: track.cover,
+        url: track.url, platform: track.platform, isExplicit: track.isExplicit,
+        searchQuery: track.searchQuery
+      }
+    });
+  }
+
+  function recordSearchArtist(name, thumb, verified) {
+    const n = String(name || '').trim();
+    if (!n) return;
+    recordSearchHistory({ kind: 'artist', key: 'a:' + normalizeMatchText(n), title: n, subtitle: '', thumb: thumb || '', verified: !!verified });
+  }
+
+  function initSearchHistory() {
+    const wrapper = document.querySelector('.search-box-wrapper');
+    const input = el.searchInput;
+    if (!wrapper || !input || document.getElementById('search-history-panel')) return;
+
+    const panel = document.createElement('div');
+    panel.id = 'search-history-panel';
+    panel.className = 'search-history-panel hidden';
+    wrapper.appendChild(panel);
+
+    const hide = () => panel.classList.add('hidden');
+
+    const openEntry = (entry) => {
+      hide();
+      if (entry.kind === 'track' && entry.track) {
+        playTrack(entry.track, [entry.track], 0, 'search');
+        recordSearchTrack(entry.track);
+      } else if (entry.kind === 'artist') {
+        input.value = '';
+        if (el.searchClearBtn) el.searchClearBtn.classList.add('hidden');
+        recordSearchArtist(entry.title, entry.thumb, entry.verified);
+        openArtistProfile(entry.title);
+      } else {
+        input.value = entry.query || entry.title || '';
+        if (el.searchClearBtn) el.searchClearBtn.classList.remove('hidden');
+        performSearch(input.value);
+      }
+    };
+
+    const render = () => {
+      const typed = normalizeMatchText(input.value);
+      let list = getSearchHistory();
+      if (typed) {
+        list = list.filter(e => normalizeMatchText(e.title + ' ' + (e.subtitle || '')).includes(typed));
+      }
+      if (list.length === 0) {
+        hide();
+        return;
+      }
+      panel.innerHTML = '';
+      const head = document.createElement('div');
+      head.className = 'sh-head';
+      const label = document.createElement('span');
+      label.textContent = 'Search history';
+      const clear = document.createElement('button');
+      clear.type = 'button';
+      clear.className = 'sh-clear';
+      clear.textContent = 'Clear';
+      clear.addEventListener('mousedown', (ev) => ev.preventDefault());
+      clear.addEventListener('click', () => { saveSearchHistory([]); hide(); });
+      head.append(label, clear);
+      panel.appendChild(head);
+
+      list.slice(0, 12).forEach(entry => {
+        const row = document.createElement('div');
+        row.className = 'sh-row';
+        row.addEventListener('mousedown', (ev) => ev.preventDefault());
+
+        const thumb = document.createElement('div');
+        thumb.className = 'sh-thumb' + (entry.kind === 'artist' ? ' round' : '');
+        if (entry.kind === 'query') {
+          thumb.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line></svg>';
+        } else if (entry.thumb) {
+          const img = document.createElement('img');
+          img.alt = '';
+          img.addEventListener('error', () => img.remove());
+          img.src = entry.thumb;
+          thumb.appendChild(img);
+        }
+
+        const info = document.createElement('div');
+        info.className = 'sh-info';
+        const title = document.createElement('div');
+        title.className = 'sh-title';
+        title.textContent = entry.title;
+        if (entry.kind === 'artist' && entry.verified) title.insertAdjacentHTML('beforeend', VERIFIED_CHECK_SVG);
+        const sub = document.createElement('div');
+        sub.className = 'sh-sub';
+        if (entry.kind === 'track' && entry.explicit) {
+          const badge = document.createElement('span');
+          badge.className = 'explicit-badge';
+          badge.textContent = 'E';
+          sub.appendChild(badge);
+        }
+        const kindLabel = entry.kind === 'track' ? 'Track' : entry.kind === 'artist' ? 'Artist' : 'Search';
+        sub.appendChild(document.createTextNode(entry.subtitle ? kindLabel + ' \u2022 ' + entry.subtitle : kindLabel));
+        info.append(title, sub);
+
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'sh-remove';
+        remove.setAttribute('aria-label', 'Remove');
+        remove.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+        remove.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          saveSearchHistory(getSearchHistory().filter(e => e.key !== entry.key));
+          render();
+        });
+
+        row.append(thumb, info, remove);
+        row.addEventListener('click', () => openEntry(entry));
+        panel.appendChild(row);
+      });
+      panel.classList.remove('hidden');
+    };
+
+    input.addEventListener('focus', render);
+    input.addEventListener('click', render);
+    input.addEventListener('input', render);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === 'Escape') hide();
+    });
+    document.addEventListener('pointerdown', (e) => {
+      if (!wrapper.contains(e.target)) hide();
+    });
+  }
+
+  const streamPrefetchQueue = [];
+  let streamPrefetchActive = 0;
+  const STREAM_PREFETCH_MAX = 2;
+  const SEARCH_STREAM_PREFETCH_LIMIT = 4;
+  const prefetchedTrackKeys = new Set();
+
+  function pumpStreamPrefetch() {
+    while (streamPrefetchActive < STREAM_PREFETCH_MAX && streamPrefetchQueue.length) {
+      const { run } = streamPrefetchQueue.shift();
+      streamPrefetchActive++;
+      run().finally(() => { streamPrefetchActive--; pumpStreamPrefetch(); });
+    }
+  }
+
+  function clearQueuedStreamPrefetch() {
+    streamPrefetchQueue.splice(0).forEach(({ key }) => prefetchedTrackKeys.delete(key));
+  }
+
+  function prioritizeTrackStream(track) {
+    if (!track || track._preloadedStreamUrl) return;
+    const key = getTrackCanonicalId ? getTrackCanonicalId(track) : (track.id || track.url || (track.artist + '_' + track.title));
+    const queuedIndex = streamPrefetchQueue.findIndex(job => job.key === key);
+    if (queuedIndex < 0) return;
+    streamPrefetchQueue.splice(queuedIndex, 1);
+    prefetchedTrackKeys.delete(key);
+  }
+
+  function enqueueStreamPrefetch(track) {
+    if (!track || track.platform === 'local') return;
+    if (track._preloadedStreamUrl) return;
+    const key = getTrackCanonicalId ? getTrackCanonicalId(track) : (track.id || track.url || (track.artist + '_' + track.title));
+    if (!key || prefetchedTrackKeys.has(key)) return;
+    prefetchedTrackKeys.add(key);
+    streamPrefetchQueue.push({ key, run: () => {
+      const quality = localStorage.getItem('riff_audio_quality') || 'medium';
+      const qQuality = encodeURIComponent(quality);
+      const qSearch = encodeURIComponent(track.searchQuery || ((track.artist ? track.artist + ' - ' : '') + (track.title || '')));
+      const u = `http://127.0.0.1:${state.serverPort}/api/stream-info?url=${encodeURIComponent(track.url || '')}&id=${encodeURIComponent(track.id || '')}&platform=${track.platform || state.platform}&title=${encodeURIComponent(track.title || '')}&artist=${encodeURIComponent(track.artist || '')}&duration=${encodeURIComponent(track.duration || 0)}&thumbnail=${encodeURIComponent(track.thumbnail || '')}&quality=${qQuality}&q=${qSearch}`;
+      return fetch(u)
+        .then((r) => r.json())
+        .then((d) => {
+          if (d && d.success && d.streamUrl) {
+            track._preloadedStreamUrl = d.streamUrl;
+            track._preloadedStreamQuality = quality;
+          } else {
+            prefetchedTrackKeys.delete(key);
+          }
+        })
+        .catch(() => { prefetchedTrackKeys.delete(key); });
+    } });
+    pumpStreamPrefetch();
+  }
+
+  function prefetchVisibleTracks(tracks) {
+    if (!Array.isArray(tracks) || !tracks.length) return;
+    tracks
+      .filter(track => track && track.platform === 'soundcloud')
+      .slice(0, SEARCH_STREAM_PREFETCH_LIMIT)
+      .forEach(enqueueStreamPrefetch);
+  }
+
+  function setSearchIconCover(thumb) {
+    const btn = document.getElementById('search-icon-btn');
+    if (!btn) return;
+    let img = btn.querySelector('.search-icon-cover');
+    if (!thumb) { if (img) img.remove(); const svg = btn.querySelector('.search-icon'); if (svg) svg.classList.remove('hidden'); return; }
+    const svg = btn.querySelector('.search-icon');
+    if (!img) { img = document.createElement('img'); img.className = 'search-icon-cover'; img.alt = ''; btn.appendChild(img); }
+    img.src = thumb;
+    if (svg) svg.classList.add('hidden');
+  }
+
   async function performSearch(query) {
     if (!query || !query.trim()) return;
 
+    clearQueuedStreamPrefetch();
     const searchToken = (state.searchToken || 0) + 1;
     state.searchToken = searchToken;
 
@@ -9387,9 +9929,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         throw new Error(data.error || 'Failed to load search results');
       }
 
+      data.tracks = rankSearchTracks(query, data.tracks);
       state.searchResults = data.tracks;
       state.searchOffset = data.tracks.length;
       state.searchHasMore = !!data.hasMore;
+      const firstThumb = data.tracks.length ? getTrackThumbUrl(data.tracks[0]) : '';
+      setSearchIconCover(firstThumb);
+      recordSearchQuery(query, firstThumb);
+      prefetchVisibleTracks(data.tracks);
 
       requestAnimationFrame(() => {
         if (el.searchTracksList) {
@@ -9438,6 +9985,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
                 state.searchOffset += moreTracks.length;
                 state.searchHasMore = !!moreData.hasMore;
+                prefetchVisibleTracks(moreTracks);
               } else {
                 state.searchHasMore = false;
               }
@@ -9551,6 +10099,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     state.queue.push(cloned);
     if (el.queueCount) el.queueCount.textContent = String(state.queue.length);
+    updateQueueBadge();
     if (state.currentView === 'queue' && typeof renderQueueView === 'function') {
       renderQueueView();
     } else if (state.currentView === 'queue' && el.queueTracksList) {
@@ -9746,6 +10295,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="16" y2="18"/><polygon points="3 6 3 10 6 8 3 6"/><line x1="19" y1="15" x2="19" y2="21"/><line x1="16" y1="18" x2="22" y2="18"/></svg>',
         action: () => addTrackToQueue(track)
       },
+      ...(currentPinScope() ? [{
+        id: 'pin',
+        active: isTrackPinned(track),
+        label: isTrackPinned(track) ? 'Unpin' : 'Pin to top',
+        icon: '<svg viewBox="0 0 24 24" fill="' + (isTrackPinned(track) ? 'currentColor' : 'none') + '" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l-1 7 3 3v2H7v-2l3-3-1-7z"/></svg>',
+        action: () => togglePinTrack(track)
+      }] : []),
       {
         id: 'share',
         label: 'Share link',
@@ -9810,10 +10366,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         label: 'Remove from queue',
         icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
         action: () => {
-          state.queue.splice(options.index, 1);
-          if (options.index < state.queueIndex) state.queueIndex--;
-          if (el.queueCount) el.queueCount.textContent = String(state.queue.length);
-          if (typeof renderQueueView === 'function') renderQueueView();
+          removeTrackFromQueue(options.index);
         }
       });
     } else if (state.currentView === 'local') {
@@ -10132,15 +10685,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       } else if (state.currentView === 'queue') {
         const selKeys = new Set(Array.from(state.selectedTracks.keys()));
-        state.queue = state.queue.filter(t => !selKeys.has(getTrackSelectionKey(t)));
-        if (state.queueIndex >= state.queue.length) {
-          state.queueIndex = Math.max(0, state.queue.length - 1);
-        }
-        const qCount = document.getElementById('queue-count');
-        if (qCount) qCount.textContent = String(state.queue.length);
-        if (el.queueCount) el.queueCount.textContent = String(state.queue.length);
-        updateQueueBadge();
-        renderQueueView();
+        const removedIndices = [];
+        state.queue.forEach((track, index) => {
+          if (selKeys.has(getTrackSelectionKey(track))) removedIndices.push(index);
+        });
+        removeQueueTracks(removedIndices);
         showToast(`Removed tracks from queue`);
       }
       clearTrackSelection();
@@ -10211,7 +10760,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         ${rowThumb ? `<img class="track-row-thumb" src="${escapeHtml(rowThumb)}" alt="" onerror="this.style.display='none'">` : ''}
       </div>` : ''}
       <div class="track-row-info">
-      <span class="track-row-title">${escapeHtml(track.title || 'untitled')}</span>
+      <span class="track-row-title">${(context === 'favorites' || context === 'playlist') && isTrackPinned(track) ? '<svg class="track-pin-mark" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l-1 7 3 3v2H7v-2l3-3-1-7z"/></svg>' : ''}${escapeHtml(track.title || 'untitled')}</span>
       <div class="track-row-artist-wrap">${explicitTag}${showArtist ? `<span class="track-row-artist" title="view artist profile">${escapeHtml(track.artist || 'unknown artist')}</span>` : ''}</div>
       </div>
       <span class="track-row-duration">${formatDuration(track.duration)}</span>
@@ -10310,6 +10859,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (context === 'search') {
             state.isRadioQueue = false;
             state.queue = [...tracks];
+            recordSearchTrack(track);
             playTrack(track, tracks, idx, 'search');
             row.blur();
             return;
@@ -10322,7 +10872,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           } else if (context === 'playlist') {
             const pl = state.playlists.find(p => p.id === state.currentPlaylistId);
             if (pl && pl.tracks) {
-              currentList = sortTracksFor('playlist', pl.tracks);
+              currentList = sortTracksFor('playlist', pl.tracks, pl.id);
               clickIndex = currentList.findIndex(t => isSameTrack(t, track));
             }
           } else if (context === 'artist') {
@@ -10719,7 +11269,7 @@ function renderClickableArtists(container, rawArtist, hintTrack = null) {
             if (!artistObj.plays || artistObj.plays <= 0) {
               if (card) {
                 const badgeSpan = card.querySelector('.fav-artist-plays span');
-                if (badgeSpan) badgeSpan.textContent = `${formatCount(newFans)} fans`;
+                if (badgeSpan) badgeSpan.textContent = `${formatCount(newFans)} listeners`;
               }
             }
           }
@@ -10757,7 +11307,7 @@ function renderClickableArtists(container, rawArtist, hintTrack = null) {
 
     const playText = plays > 0
       ? `${formatCount(plays)} play${plays === 1 ? '' : 's'}`
-      : (fans > 0 ? `${formatCount(fans)} fans` : '0 plays');
+      : (fans > 0 ? `${formatCount(fans)} listeners` : '0 plays');
 
     const circleHtml = `
       <div class="fav-artist-circle">
@@ -11061,7 +11611,7 @@ function renderClickableArtists(container, rawArtist, hintTrack = null) {
       if (el.artistVerifiedBadge) el.artistVerifiedBadge.classList.toggle('hidden', !data.artist.isVerified);
 
       const fans = data.artist.fans || data.artist.nb_fan || 0;
-      const rawListeners = data.artist.monthlyListeners || (fans > 0 ? `${formatCount(fans)} monthly listeners` : '');
+      const rawListeners = data.artist.monthlyListeners || (fans > 0 ? `${fans.toLocaleString()} listeners` : '');
       if (el.artistFansLine) {
         if (rawListeners) {
           tSet(el.artistFansLine, rawListeners);
@@ -11306,8 +11856,66 @@ function renderClickableArtists(container, rawArtist, hintTrack = null) {
     localStorage.setItem(TRACK_SORT_KEYS[kind], TRACK_SORT_MODES.includes(mode) ? mode : 'manual');
   }
 
-  function sortTracksFor(kind, tracks) {
-    return sortTracks(tracks, getTrackSortMode(kind));
+  const PINNED_TRACKS_KEY = 'riff_pinned_tracks';
+
+  function pinScopeFor(kind, playlistId) {
+    if (kind === 'favorites') return 'favorites';
+    if (kind === 'playlist' && playlistId) return 'pl:' + playlistId;
+    return '';
+  }
+
+  function getPinnedMap() {
+    const v = safeJson(PINNED_TRACKS_KEY, {});
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+  }
+
+  function currentPinScope() {
+    if (state.currentView === 'favorites') return 'favorites';
+    if (state.currentView === 'playlist-detail' && state.currentPlaylistId) return 'pl:' + state.currentPlaylistId;
+    return '';
+  }
+
+  function isTrackPinned(track, scope = currentPinScope()) {
+    if (!track || !scope) return false;
+    const list = getPinnedMap()[scope];
+    const id = getTrackCanonicalId(track);
+    return Array.isArray(list) && !!id && list.includes(id);
+  }
+
+  function togglePinTrack(track, scope = currentPinScope()) {
+    const id = track ? getTrackCanonicalId(track) : '';
+    if (!id || !scope) return;
+    const map = getPinnedMap();
+    const list = Array.isArray(map[scope]) ? map[scope] : [];
+    const at = list.indexOf(id);
+    if (at >= 0) list.splice(at, 1);
+    else list.push(id);
+    if (list.length) map[scope] = list;
+    else delete map[scope];
+    localStorage.setItem(PINNED_TRACKS_KEY, JSON.stringify(map));
+    showToast(at >= 0 ? 'Track unpinned' : 'Track pinned');
+    if (state.currentView === 'favorites') renderFavoritesView();
+    else if (state.currentView === 'playlist-detail' && state.currentPlaylistId) openPlaylistDetail(state.currentPlaylistId);
+  }
+
+  function floatPinned(scope, tracks) {
+    if (!scope || !Array.isArray(tracks)) return tracks;
+    const ids = getPinnedMap()[scope];
+    if (!Array.isArray(ids) || ids.length === 0) return tracks;
+    const pinned = [];
+    const rest = [];
+    tracks.forEach(t => {
+      const at = ids.indexOf(getTrackCanonicalId(t));
+      if (at >= 0) pinned.push({ t, at });
+      else rest.push(t);
+    });
+    if (pinned.length === 0) return tracks;
+    pinned.sort((a, b) => b.at - a.at);
+    return pinned.map(p => p.t).concat(rest);
+  }
+
+  function sortTracksFor(kind, tracks, playlistId) {
+    return floatPinned(pinScopeFor(kind, playlistId), sortTracks(tracks, getTrackSortMode(kind)));
   }
 
   function stampAddedAt(track) {
@@ -11408,18 +12016,43 @@ function renderClickableArtists(container, rawArtist, hintTrack = null) {
     setNavCount(el.queueCount, state.queue.length);
   }
 
-  function removeTrackFromQueue(qIdx) {
-    if (typeof qIdx !== 'number' || qIdx < 0 || qIdx >= state.queue.length) return;
-    state.queue.splice(qIdx, 1);
-    if (qIdx < state.queueIndex) state.queueIndex--;
-    else if (qIdx === state.queueIndex && state.queue.length > 0) {
-      state.queueIndex = Math.min(state.queueIndex, state.queue.length - 1);
+  function removeQueueTracks(indices) {
+    const removedIndices = Array.from(new Set(indices.filter(index =>
+      Number.isInteger(index) && index >= 0 && index < state.queue.length
+    ))).sort((a, b) => a - b);
+    if (removedIndices.length === 0) return;
+
+    const removed = new Set(removedIndices);
+    const oldQueueIndex = state.queueIndex;
+    const removedBefore = (index) => {
+      let count = 0;
+      for (const removedIndex of removedIndices) {
+        if (removedIndex >= index) break;
+        count++;
+      }
+      return count;
+    };
+    const remapIndex = (index) => removed.has(index) ? -1 : index - removedBefore(index);
+
+    state.queue = state.queue.filter((_, index) => !removed.has(index));
+    if (oldQueueIndex < 0) {
+      state.queueIndex = -1;
+    } else if (removed.has(oldQueueIndex)) {
+      state.queueIndex = oldQueueIndex - removedBefore(oldQueueIndex) - 1;
+    } else {
+      state.queueIndex = remapIndex(oldQueueIndex);
     }
-    const qCount = document.getElementById('queue-count');
-    if (qCount) qCount.textContent = String(state.queue.length);
-    if (el.queueCount) el.queueCount.textContent = String(state.queue.length);
+    state.queueHistory = (Array.isArray(state.queueHistory) ? state.queueHistory : [])
+      .map(remapIndex)
+      .filter(index => index >= 0 && index < state.queue.length);
+
     updateQueueBadge();
     renderQueueView();
+  }
+
+  function removeTrackFromQueue(qIdx) {
+    if (!Number.isInteger(qIdx) || qIdx < 0 || qIdx >= state.queue.length) return;
+    removeQueueTracks([qIdx]);
   }
   const renderQueue = renderQueueView;
   window.renderQueue = renderQueue;
@@ -11458,13 +12091,14 @@ function renderClickableArtists(container, rawArtist, hintTrack = null) {
           if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0 || fromIdx >= state.queue.length || toIdx >= state.queue.length) return;
           const [moved] = state.queue.splice(fromIdx, 1);
           state.queue.splice(toIdx, 0, moved);
-          if (state.queueIndex === fromIdx) {
-            state.queueIndex = toIdx;
-          } else if (fromIdx < state.queueIndex && toIdx >= state.queueIndex) {
-            state.queueIndex--;
-          } else if (fromIdx > state.queueIndex && toIdx <= state.queueIndex) {
-            state.queueIndex++;
-          }
+          const remapIndex = (index) => {
+            if (index === fromIdx) return toIdx;
+            if (fromIdx < toIdx && index > fromIdx && index <= toIdx) return index - 1;
+            if (fromIdx > toIdx && index >= toIdx && index < fromIdx) return index + 1;
+            return index;
+          };
+          state.queueIndex = remapIndex(state.queueIndex);
+          state.queueHistory = state.queueHistory.map(remapIndex);
           renderQueueView();
         });
       }
@@ -11939,7 +12573,8 @@ function renderClickableArtists(container, rawArtist, hintTrack = null) {
     let itemMetrics = [];
     let items = [];
     let draggedHeight = 0;
-    let draggedStartTop = 0;
+    let draggedDy = 0;
+    let startScrollTop = 0;
 
     const scrollParent = container.closest('.main-content, .rail-drawer') || container;
 
@@ -11969,14 +12604,13 @@ function renderClickableArtists(container, rawArtist, hintTrack = null) {
       startIndex = items.indexOf(draggedItem);
       targetIndex = startIndex;
       draggedHeight = draggedItem.offsetHeight;
-      draggedStartTop = draggedItem.offsetTop;
+      draggedDy = 0;
+      startScrollTop = scrollParent.scrollTop;
 
-      itemMetrics = items.map((el, i) => ({
-        el,
-        index: i,
-        top: el.offsetTop,
-        height: el.offsetHeight
-      }));
+      itemMetrics = items.map((el, i) => {
+        const top = el.getBoundingClientRect().top;
+        return { el, index: i, top, startTop: top, height: el.offsetHeight };
+      });
     };
 
     const onPointerDown = (e) => {
@@ -12004,6 +12638,39 @@ function renderClickableArtists(container, rawArtist, hintTrack = null) {
       window.addEventListener('pointercancel', onPointerUp);
     };
 
+    const updateTarget = () => {
+      if (!draggedItem || itemMetrics.length <= 1) return;
+      itemMetrics.forEach(metric => {
+        metric.top = metric.startTop - (scrollParent.scrollTop - startScrollTop);
+      });
+      const currentCenter = draggedItem.getBoundingClientRect().top + draggedHeight / 2;
+      let newTarget = 0;
+      for (let i = 0; i < itemMetrics.length; i++) {
+        const metric = itemMetrics[i];
+        if (currentCenter > metric.top + metric.height / 2) newTarget = i;
+      }
+      newTarget = Math.max(0, Math.min(newTarget, itemMetrics.length - 1));
+      if (newTarget === targetIndex) return;
+      targetIndex = newTarget;
+      const shiftDistance = itemMetrics.length > 1 && Math.abs(itemMetrics[1].top - itemMetrics[0].top) > 0
+        ? Math.abs(itemMetrics[1].top - itemMetrics[0].top)
+        : draggedHeight;
+
+      itemMetrics.forEach(metric => {
+        if (metric.el === draggedItem) return;
+        if (startIndex < targetIndex && metric.index > startIndex && metric.index <= targetIndex) {
+          metric.el.style.setProperty('transform', `translate3d(0, -${shiftDistance}px, 0)`, 'important');
+          metric.el.style.transition = 'transform 180ms cubic-bezier(0.2, 0, 0, 1)';
+        } else if (startIndex > targetIndex && metric.index >= targetIndex && metric.index < startIndex) {
+          metric.el.style.setProperty('transform', `translate3d(0, ${shiftDistance}px, 0)`, 'important');
+          metric.el.style.transition = 'transform 180ms cubic-bezier(0.2, 0, 0, 1)';
+        } else {
+          metric.el.style.removeProperty('transform');
+          metric.el.style.transition = 'transform 180ms cubic-bezier(0.2, 0, 0, 1)';
+        }
+      });
+    };
+
     const onPointerMove = (e) => {
       if (!draggedItem) return;
 
@@ -12018,62 +12685,26 @@ function renderClickableArtists(container, rawArtist, hintTrack = null) {
       }
 
       const dy = e.clientY - startY;
+      draggedDy = dy;
 
       if (scrollParent) {
         const scRect = scrollParent.getBoundingClientRect();
         clearInterval(autoScrollTimer);
         if (e.clientY < scRect.top + 40) {
-          autoScrollTimer = setInterval(() => { scrollParent.scrollTop -= 8; }, 16);
+          autoScrollTimer = setInterval(() => {
+            scrollParent.scrollTop -= 8;
+            updateTarget();
+          }, 16);
         } else if (e.clientY > scRect.bottom - 40) {
-          autoScrollTimer = setInterval(() => { scrollParent.scrollTop += 8; }, 16);
+          autoScrollTimer = setInterval(() => {
+            scrollParent.scrollTop += 8;
+            updateTarget();
+          }, 16);
         }
       }
 
       draggedItem.style.setProperty('transform', `translate3d(0, ${dy}px, 0) scale(1.02)`, 'important');
-
-      if (itemMetrics.length <= 1) return;
-
-      const currentCenter = draggedStartTop + (draggedHeight / 2) + dy;
-      let newTarget = 0;
-      for (let i = 0; i < itemMetrics.length; i++) {
-        const m = itemMetrics[i];
-        const mid = m.top + (m.height / 2);
-        if (currentCenter > mid) {
-          newTarget = i;
-        }
-      }
-      newTarget = Math.max(0, Math.min(newTarget, itemMetrics.length - 1));
-
-      if (newTarget !== targetIndex) {
-        targetIndex = newTarget;
-        const shiftDistance = (itemMetrics.length > 1 && Math.abs(itemMetrics[1].top - itemMetrics[0].top) > 0)
-          ? Math.abs(itemMetrics[1].top - itemMetrics[0].top)
-          : draggedHeight;
-
-        itemMetrics.forEach(metric => {
-          if (metric.el === draggedItem) return;
-          if (startIndex < targetIndex) {
-            if (metric.index > startIndex && metric.index <= targetIndex) {
-              metric.el.style.setProperty('transform', `translate3d(0, -${shiftDistance}px, 0)`, 'important');
-              metric.el.style.transition = 'transform 180ms cubic-bezier(0.2, 0, 0, 1)';
-            } else {
-              metric.el.style.removeProperty('transform');
-              metric.el.style.transition = 'transform 180ms cubic-bezier(0.2, 0, 0, 1)';
-            }
-          } else if (startIndex > targetIndex) {
-            if (metric.index >= targetIndex && metric.index < startIndex) {
-              metric.el.style.setProperty('transform', `translate3d(0, ${shiftDistance}px, 0)`, 'important');
-              metric.el.style.transition = 'transform 180ms cubic-bezier(0.2, 0, 0, 1)';
-            } else {
-              metric.el.style.removeProperty('transform');
-              metric.el.style.transition = 'transform 180ms cubic-bezier(0.2, 0, 0, 1)';
-            }
-          } else {
-            metric.el.style.removeProperty('transform');
-            metric.el.style.transition = 'transform 180ms cubic-bezier(0.2, 0, 0, 1)';
-          }
-        });
-      }
+      updateTarget();
     };
 
     const onPointerUp = () => {
@@ -12099,7 +12730,8 @@ function renderClickableArtists(container, rawArtist, hintTrack = null) {
       if (isDragging) {
         let targetSlotDy = 0;
         if (targetIndex >= 0 && targetIndex < itemMetrics.length && targetIndex !== startIndex) {
-          targetSlotDy = itemMetrics[targetIndex].top - draggedStartTop;
+          const currentTop = item.getBoundingClientRect().top - draggedDy;
+          targetSlotDy = itemMetrics[targetIndex].top - currentTop;
         }
 
         item.style.transition = 'transform 160ms cubic-bezier(0.2, 0, 0, 1)';
@@ -12299,7 +12931,7 @@ function renderClickableArtists(container, rawArtist, hintTrack = null) {
       (t.artist && t.artist.toLowerCase().includes(query))
       );
     }
-    filtered = sortTracksFor('playlist', filtered);
+    filtered = sortTracksFor('playlist', filtered, pl.id);
     if (el.playlistSort) {
       el.playlistSort.value = getTrackSortMode('playlist');
       const plLabel = document.getElementById('playlist-sort-label');
@@ -12456,7 +13088,7 @@ function renderClickableArtists(container, rawArtist, hintTrack = null) {
         item.className = 'playlist-pick-item';
         item.style.animationDelay = `${idx * 25}ms`;
 
-        const isAlreadyAdded = !Array.isArray(track) && track && (pl.tracks || []).some(t => t.id === track.id);
+        const isAlreadyAdded = false;
         if (isAlreadyAdded) item.classList.add('already-added');
 
         const thumbEl = document.createElement('div');
@@ -12510,10 +13142,8 @@ function renderClickableArtists(container, rawArtist, hintTrack = null) {
             let addedCount = 0;
             if (!Array.isArray(pl.tracks)) pl.tracks = [];
             track.forEach(t => {
-              if (!pl.tracks.some(existing => existing.id === t.id)) {
-                pl.tracks.push(stampAddedAt(t));
-                addedCount++;
-              }
+              pl.tracks.push(stampAddedAt(t));
+              addedCount++;
             });
             localStorage.setItem('devsize_playlists', JSON.stringify(state.playlists));
             renderPlaylistsList();
@@ -12523,17 +13153,13 @@ function renderClickableArtists(container, rawArtist, hintTrack = null) {
             showToast(`Added ${addedCount} tracks to "${pl.name}"`, 'success');
             clearTrackSelection();
           } else if (track) {
-            if (!pl.tracks.some(t => t.id === track.id)) {
-              pl.tracks.push(stampAddedAt(track));
-              localStorage.setItem('devsize_playlists', JSON.stringify(state.playlists));
-              renderPlaylistsList();
-              if (state.currentView === 'playlist-detail' && state.currentPlaylistId === pl.id) {
-                openPlaylistDetail(pl.id);
-              }
-              showToast(`Added to "${pl.name}"`, 'success');
-            } else {
-              showToast(`Already in "${pl.name}"`, 'info');
+            pl.tracks.push(stampAddedAt(track));
+            localStorage.setItem('devsize_playlists', JSON.stringify(state.playlists));
+            renderPlaylistsList();
+            if (state.currentView === 'playlist-detail' && state.currentPlaylistId === pl.id) {
+              openPlaylistDetail(pl.id);
             }
+            showToast(`Added to "${pl.name}"`, 'success');
           }
           if (el.addToPlaylistModal) closeModal(el.addToPlaylistModal);
         });
@@ -12682,7 +13308,8 @@ function renderClickableArtists(container, rawArtist, hintTrack = null) {
   function applyStackedRadius(container, itemSelector, horizontal) {
     if (!container) return;
     const raw = Array.isArray(container) ? container : [...container.querySelectorAll(itemSelector)];
-    const items = raw.filter((n) => n.getBoundingClientRect().height > 1 && getComputedStyle(n).display !== 'none');
+    const heights = raw.map((n) => n.offsetHeight);
+    const items = raw.filter((n, i) => heights[i] > 1);
     const stackClasses = ['stack-only', 'stack-first', 'stack-mid', 'stack-last'];
     items.forEach((n, i) => {
       const target = items.length === 1 ? 'stack-only' : i === 0 ? 'stack-first' : i === items.length - 1 ? 'stack-last' : 'stack-mid';
@@ -12702,7 +13329,7 @@ function renderClickableArtists(container, rawArtist, hintTrack = null) {
     const sNav = document.querySelector('.sidebar-nav');
     if (sNav) {
       const all = [...sNav.querySelectorAll('.nav-item')];
-      const visible = all.filter((n) => n.getBoundingClientRect().height > 1 && getComputedStyle(n).display !== 'none');
+      const visible = all.filter((n) => n.offsetHeight > 1);
       if (all.length > 0 && visible.length === 0) {
         if (!stackRetry) {
           stackRetry = true;
@@ -15484,7 +16111,7 @@ function bindCoverHoldZoom(wrapEl) {
 
   const btnProgressBg = document.getElementById('btn-progress-bg');
   function updateProgressBgUI() {
-    const isEnabled = localStorage.getItem('riff_progress_bg') === 'true';
+    const isEnabled = localStorage.getItem('riff_progress_bg') !== 'false';
     document.body.classList.toggle('no-progress-bg', !isEnabled);
     if (btnProgressBg) {
       btnProgressBg.classList.toggle('active', isEnabled);
@@ -15930,7 +16557,7 @@ function bindCoverHoldZoom(wrapEl) {
 
   if (btnProgressBg) {
     btnProgressBg.addEventListener('click', () => {
-      const isBg = localStorage.getItem('riff_progress_bg') === 'true';
+      const isBg = localStorage.getItem('riff_progress_bg') !== 'false';
       const next = !isBg;
       localStorage.setItem('riff_progress_bg', next ? 'true' : 'false');
       updateProgressBgUI();
@@ -16276,14 +16903,14 @@ function bindCoverHoldZoom(wrapEl) {
 
   function showSettingsCategory(cat) {
     if (cat === 'appearance' || cat === 'overview' || !cat) cat = 'home';
-    document.querySelectorAll('#view-settings .setting-item').forEach(i => i.classList.remove('hidden'));
+    document.querySelectorAll('#view-settings .setting-item.hidden').forEach(i => i.classList.remove('hidden'));
     document.querySelectorAll('#view-settings .settings-section').forEach(s => s.classList.toggle('cat-hidden', s.dataset.cat !== cat));
     document.querySelectorAll('#settings-nav .settings-nav-btn').forEach(b => b.classList.toggle('active', b.dataset.cat === cat));
     const pane = document.querySelector('#view-settings .settings-pane'); if (pane) pane.scrollTop = 0;
     try { localStorage.setItem('riff_settings_cat', cat); } catch (e) {}
     if (cat === 'custom-themes' && typeof renderThemeCards === 'function') renderThemeCards();
     if (cat === 'plugins' && typeof reloadPluginsList === 'function') reloadPluginsList();
-    refreshStacks();
+    requestAnimationFrame(() => refreshStacks());
   }
   window.showSettingsCategory = showSettingsCategory;
 
@@ -16522,6 +17149,7 @@ function bindCoverHoldZoom(wrapEl) {
 
   const loadedPlugins = new Map();
   const pluginListeners = [];
+  let shuffleProvider = null;
   function emitPluginEvent(event, data) {
     pluginListeners.filter((l) => l.event === event).forEach((l) => { try { l.cb(data); } catch (e) { reportPluginError(l.file, e); } });
   }
@@ -16554,7 +17182,65 @@ function bindCoverHoldZoom(wrapEl) {
       getTrack: () => state.currentTrack,
       isPlaying: () => state.isPlaying,
       audio: () => el.nativeAudio,
-      query: (sel) => document.querySelector(sel)
+      query: (sel) => document.querySelector(sel),
+      sameTrack: (a, b) => isSameTrack(a, b),
+      shuffle: {
+        setProvider(fn) {
+          shuffleProvider = typeof fn === 'function' ? { fn, file: p.file } : null;
+          return () => {
+            if (shuffleProvider && shuffleProvider.file === p.file) shuffleProvider = null;
+          };
+        },
+        isOn: () => !!state.isShuffle
+      },
+      queue: {
+        get: () => state.queue.slice(),
+        getIndex: () => state.queueIndex,
+        getContext: () => state.currentTrackContext,
+        append(tracks) {
+          const added = [];
+          (Array.isArray(tracks) ? tracks : []).forEach(track => {
+            if (!track || !track.title || (!track.id && !track.url)) return;
+            if (state.queue.some(queued => isSameTrack(queued, track))) return;
+            state.queue.push(track);
+            added.push(track);
+          });
+          if (added.length) {
+            updateQueueBadge();
+            if (state.currentView === 'queue') renderQueueView();
+          }
+          return added;
+        }
+      },
+      library: {
+        favorites: () => (state.favorites || []).slice(),
+        history: () => (state.history || []).slice()
+      },
+      api: {
+        async search(query, options) {
+          const opts = options || {};
+          const limit = Math.max(1, Math.min(parseInt(opts.limit, 10) || 10, 30));
+          const url = `http://127.0.0.1:${state.serverPort}/api/search?q=${encodeURIComponent(query)}&platform=${encodeURIComponent(opts.platform || state.platform)}&limit=${limit}`;
+          const response = await fetch(url, { signal: opts.signal });
+          if (!response.ok) throw new Error(`Search failed (${response.status})`);
+          const data = await response.json();
+          if (!data || !data.success) throw new Error(data && data.error || 'Search failed');
+          if (!Array.isArray(data.tracks)) throw new Error('Search returned an invalid response');
+          return data.tracks;
+        },
+        async vibe(body) {
+          const response = await fetch(`http://127.0.0.1:${state.serverPort}/api/vibe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body || {})
+          });
+          if (!response.ok) throw new Error(`Recommendations failed (${response.status})`);
+          const data = await response.json();
+          if (!data || !data.success) throw new Error(data && data.error || 'Recommendations failed');
+          if (!Array.isArray(data.tracks)) throw new Error('Recommendations returned an invalid response');
+          return data.tracks;
+        }
+      }
     };
   }
   function runPlugin(p) {
@@ -16570,6 +17256,7 @@ function bindCoverHoldZoom(wrapEl) {
     const entry = loadedPlugins.get(p.file);
     try { if (entry && entry.stop) entry.stop(); } catch (e) { reportPluginError(p.file, e); }
     for (let i = pluginListeners.length - 1; i >= 0; i--) if (pluginListeners[i].file === p.file) pluginListeners.splice(i, 1);
+    if (shuffleProvider && shuffleProvider.file === p.file) shuffleProvider = null;
     document.querySelectorAll(`style[data-plugin="${p.file}"]`).forEach((n) => n.remove());
     const hadStop = !!(entry && entry.stop);
     loadedPlugins.delete(p.file);
@@ -17181,8 +17868,8 @@ function bindCoverHoldZoom(wrapEl) {
   const uiLangSearch = document.getElementById('ui-lang-search');
 
   if (uiLangDropdown && uiLangTrigger && uiLangMenu) {
-    const curLang = localStorage.getItem('riff_ui_lang') || 'en';
-    const foundCur = TRANSLATION_LANGUAGES.find(l => l.code === curLang);
+    const curLang = getSupportedUiLanguage(localStorage.getItem('riff_ui_lang') || 'en');
+    const foundCur = UI_TRANSLATION_LANGUAGES.find(l => l.code === curLang);
     if (foundCur && uiLangLabel) {
       uiLangLabel.textContent = `${foundCur.flag} ${foundCur.name} (${foundCur.code})`;
     }
@@ -17190,7 +17877,7 @@ function bindCoverHoldZoom(wrapEl) {
     if (uiLangList) {
       uiLangList.innerHTML = '';
       const frag = document.createDocumentFragment();
-      TRANSLATION_LANGUAGES.forEach(item => {
+      UI_TRANSLATION_LANGUAGES.forEach(item => {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'm3-dropdown-option';
@@ -17338,7 +18025,8 @@ function bindCoverHoldZoom(wrapEl) {
         ]),
         new Promise(r => setTimeout(r, 1400))
       ]);
-    } catch (_) {
+    } catch (error) {
+      showToast(`YouTube sign-in failed: ${error.message}`, 'error');
     } finally {
       animActive = false;
       overlay.classList.remove('visible');
@@ -17372,6 +18060,9 @@ function bindCoverHoldZoom(wrapEl) {
   if (btnConfirmLangRestart) {
     btnConfirmLangRestart.addEventListener('click', () => {
       if (window.electronAPI && window.electronAPI.restartApp) {
+        if (window.electronAPI.storageSaveSync && window.__RIFF_STORAGE_MAP__) {
+          window.electronAPI.storageSaveSync(window.__RIFF_STORAGE_MAP__);
+        }
         window.electronAPI.restartApp();
       } else {
         window.location.reload();
@@ -17611,7 +18302,7 @@ function bindCoverHoldZoom(wrapEl) {
   (function initUpdateUI() {
     const api = window.electronAPI;
     const $ = (id) => document.getElementById(id);
-    let currentAppVersion = '43.2.2';
+    let currentAppVersion = '44.0.0';
     if (api && api.getAppVersion) {
       api.getAppVersion().then((v) => {
         if (v) {
@@ -17982,6 +18673,75 @@ function bindCoverHoldZoom(wrapEl) {
     applyAudioSettings();
   }
 
+  const defaultShortcuts = {
+    playPause: { code: 'Space', ctrl: false, shift: false, alt: false },
+    next: { code: 'ArrowRight', ctrl: true, shift: false, alt: false },
+    previous: { code: 'ArrowLeft', ctrl: true, shift: false, alt: false },
+    seekForward: { code: 'ArrowRight', ctrl: false, shift: true, alt: false },
+    seekBack: { code: 'ArrowLeft', ctrl: false, shift: true, alt: false },
+    volumeUp: { code: 'ArrowUp', ctrl: true, shift: false, alt: false },
+    volumeDown: { code: 'ArrowDown', ctrl: true, shift: false, alt: false },
+    mute: { code: 'KeyM', ctrl: false, shift: false, alt: false },
+    shuffle: { code: 'KeyH', ctrl: false, shift: false, alt: false },
+    repeat: { code: 'KeyR', ctrl: false, shift: false, alt: false },
+    lyrics: { code: 'KeyL', ctrl: false, shift: false, alt: false },
+    karaoke: { code: 'KeyF', ctrl: false, shift: false, alt: false },
+    miniPlayer: { code: 'KeyP', ctrl: false, shift: false, alt: false },
+    search: { code: 'KeyK', ctrl: true, shift: false, alt: false }
+  };
+  try { localStorage.removeItem('riff_keyboard_shortcuts'); } catch (_) {}
+
+  function shortcutMatches(event, binding) {
+    if (!binding || event.code !== binding.code) return false;
+    return (event.ctrlKey || event.metaKey) === binding.ctrl &&
+      event.shiftKey === binding.shift &&
+      event.altKey === binding.alt;
+  }
+
+  function runKeyboardShortcut(event) {
+    if (isTextInput(event.target) && !event.ctrlKey && !event.metaKey && !event.altKey) return false;
+    if (isTextInput(event.target) && /^Arrow/.test(event.code) &&
+        (event.ctrlKey || event.metaKey || event.shiftKey)) return false;
+    if (document.querySelector('.modal-backdrop:not(.hidden)')) return false;
+    const action = Object.keys(defaultShortcuts).find(key => shortcutMatches(event, defaultShortcuts[key]));
+    if (!action) return false;
+    if (action === 'playPause') {
+      if (syncState && syncState.active && syncState.currentIndex < syncState.lines.length) {
+        handleSyncLineClick(syncState.currentIndex);
+      } else {
+        togglePlayPause();
+      }
+    } else if (action === 'next') {
+      playNext();
+    } else if (action === 'previous') {
+      playPrev();
+    } else if (action === 'seekForward' && el.nativeAudio) {
+      el.nativeAudio.currentTime = Math.min(el.nativeAudio.duration || 0, el.nativeAudio.currentTime + 5);
+    } else if (action === 'seekBack' && el.nativeAudio) {
+      el.nativeAudio.currentTime = Math.max(0, el.nativeAudio.currentTime - 5);
+    } else if (action === 'volumeUp') {
+      adjustVolume(0.05);
+    } else if (action === 'volumeDown') {
+      adjustVolume(-0.05);
+    } else if (action === 'mute') {
+      if (el.btnVolumeMute) el.btnVolumeMute.click();
+    } else if (action === 'shuffle') {
+      if (typeof window.toggleShuffle === 'function') window.toggleShuffle();
+    } else if (action === 'repeat') {
+      if (typeof window.toggleRepeat === 'function') window.toggleRepeat();
+    } else if (action === 'lyrics') {
+      if (el.btnToggleLyricsPanel) el.btnToggleLyricsPanel.click();
+    } else if (action === 'karaoke') {
+      if (typeof openTvKaraoke === 'function') openTvKaraoke();
+    } else if (action === 'miniPlayer') {
+      if (typeof toggleMiniWindow === 'function') toggleMiniWindow();
+    } else if (action === 'search' && el.searchInput) {
+      el.searchInput.focus();
+      el.searchInput.select();
+    }
+    return true;
+  }
+
   window.addEventListener('keyup', (e) => {
     if (e.code === 'Space' && !isTextInput(e.target)) {
       e.preventDefault();
@@ -18051,93 +18811,6 @@ function bindCoverHoldZoom(wrapEl) {
       }
     }
 
-    if (e.code === 'Space') {
-      e.preventDefault();
-      if (syncState && syncState.active && syncState.currentIndex < syncState.lines.length) {
-        handleSyncLineClick(syncState.currentIndex);
-      } else {
-        togglePlayPause();
-      }
-      return;
-    }
-
-    if ((e.code === 'KeyK' && (e.ctrlKey || e.metaKey)) || (!inInput && (e.code === 'Slash' || e.key === '/'))) {
-      e.preventDefault();
-      if (el.searchInput) {
-        el.searchInput.focus();
-        el.searchInput.select();
-      }
-      return;
-    }
-
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
-      if (e.code === 'ArrowRight' || e.key === 'ArrowRight') {
-        e.preventDefault();
-        playNext();
-        return;
-      }
-      if (e.code === 'ArrowLeft' || e.key === 'ArrowLeft') {
-        e.preventDefault();
-        playPrev();
-        return;
-      }
-      if (e.code === 'ArrowUp' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        adjustVolume(0.05);
-        return;
-      }
-      if (e.code === 'ArrowDown' || e.key === 'ArrowDown') {
-        e.preventDefault();
-        adjustVolume(-0.05);
-        return;
-      }
-    }
-
-    if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      if (e.code === 'ArrowRight' || e.key === 'ArrowRight') {
-        e.preventDefault();
-        if (el.nativeAudio) el.nativeAudio.currentTime = Math.min(el.nativeAudio.duration || 0, el.nativeAudio.currentTime + 5);
-        return;
-      }
-      if (e.code === 'ArrowLeft' || e.key === 'ArrowLeft') {
-        e.preventDefault();
-        if (el.nativeAudio) el.nativeAudio.currentTime = Math.max(0, el.nativeAudio.currentTime - 5);
-        return;
-      }
-    }
-
-    if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-      if (e.code === 'KeyM') {
-        e.preventDefault();
-        if (el.btnVolumeMute) el.btnVolumeMute.click();
-        return;
-      }
-      if (e.code === 'KeyH') {
-        e.preventDefault();
-        if (typeof window.toggleShuffle === 'function') window.toggleShuffle();
-        return;
-      }
-      if (e.code === 'KeyR') {
-        e.preventDefault();
-        if (typeof window.toggleRepeat === 'function') window.toggleRepeat();
-        return;
-      }
-      if (e.code === 'KeyL') {
-        e.preventDefault();
-        if (el.btnToggleLyricsPanel) el.btnToggleLyricsPanel.click();
-        return;
-      }
-      if (e.code === 'KeyF') {
-        e.preventDefault();
-        if (typeof openTvKaraoke === 'function') openTvKaraoke();
-        return;
-      }
-      if (e.code === 'KeyP') {
-        e.preventDefault();
-        if (typeof toggleMiniWindow === 'function') toggleMiniWindow();
-        return;
-      }
-    }
   }, true);
 
   const btnDiscordRpc = document.getElementById('btn-discord-rpc');
@@ -18647,8 +19320,13 @@ function bindCoverHoldZoom(wrapEl) {
         } else {
           const hasDirectUrl = t.url && /^https?:\/\//i.test(t.url);
           const hasRealId = t.id && !/^(cand_|dz_|it_|sp_|ym_)/i.test(String(t.id)) && hasDirectUrl;
+          const spotifyId = /^[A-Za-z0-9]{22}$/.test(String(t.spotifyId || t.id || ''))
+            ? String(t.spotifyId || t.id)
+            : '';
           converted.push({
-            id: hasRealId ? String(t.id) : ('sp_' + Math.random().toString(36).slice(2, 10)),
+            id: hasRealId ? String(t.id) : (spotifyId ? `sp_${spotifyId}` : 'sp_' + Math.random().toString(36).slice(2, 10)),
+            spotifyId,
+            spotifyUrl: t.spotifyUrl || (spotifyId ? `https://open.spotify.com/track/${spotifyId}` : ''),
             title,
             artist,
             duration: Number(t.duration) || 0,
@@ -19231,6 +19909,21 @@ function bindCoverHoldZoom(wrapEl) {
         showToast('No tracks found in your Spotify library', 'warning');
         return;
       }
+
+      const skippedPlaylists = Array.isArray(data.skippedPlaylists) ? data.skippedPlaylists : [];
+      if (skippedPlaylists.length > 0) {
+        const skippedDetails = skippedPlaylists
+          .map(playlist => `${playlist.name || 'Untitled playlist'}: ${playlist.error || 'Unavailable'}`)
+          .join('\n');
+        const shouldContinue = window.confirm(
+          `Some Spotify playlists could not be loaded:\n\n${skippedDetails}\n\nImport the tracks that are available?`
+        );
+        if (!shouldContinue) {
+          dismissImportSpinnerToast();
+          return;
+        }
+      }
+
       await runSpotifyImport({ likes: data.likes || [], playlists: data.playlists || [], skippedPlaylists: data.skippedPlaylists || [] });
     } catch (err) {
       dismissImportSpinnerToast();
@@ -19850,8 +20543,8 @@ function bindCoverHoldZoom(wrapEl) {
     const btnAdvLogout = document.getElementById('btn-adv-yt-logout');
     if (advStatus) {
       advStatus.textContent = googleConnected
-        ? 'Signed in'
-        : 'Sign in to bypass IP blocks and age restrictions for yt api';
+      ? 'Connected to import your YouTube library'
+      : 'Sign in to import your YouTube library';
       advStatus.style.color = googleConnected ? 'var(--md-sys-color-primary)' : '';
     }
     if (btnAdvLogin) {
@@ -19861,6 +20554,41 @@ function bindCoverHoldZoom(wrapEl) {
       btnAdvLogout.classList.toggle('hidden', !googleConnected);
     }
   }
+
+  const btnYoutubePlaybackLogin = document.getElementById('btn-yt-playback-login');
+  const btnYoutubePlaybackLogout = document.getElementById('btn-yt-playback-logout');
+  const youtubePlaybackAuthStatus = document.getElementById('yt-playback-auth-status');
+
+  function updateYoutubePlaybackAuthUI(loggedIn) {
+    if (youtubePlaybackAuthStatus) {
+      youtubePlaybackAuthStatus.textContent = loggedIn
+        ? 'YouTube session saved locally'
+        : 'Sign in to reduce YouTube stream delays';
+      youtubePlaybackAuthStatus.style.color = loggedIn ? 'var(--md-sys-color-primary)' : '';
+    }
+    if (btnYoutubePlaybackLogin) btnYoutubePlaybackLogin.classList.toggle('hidden', !!loggedIn);
+    if (btnYoutubePlaybackLogout) btnYoutubePlaybackLogout.classList.toggle('hidden', !loggedIn);
+  }
+
+  async function checkYoutubePlaybackAuthStatus() {
+    if (!window.electronAPI || !window.electronAPI.youtubePlaybackStatus) return;
+    try {
+      const result = await window.electronAPI.youtubePlaybackStatus();
+      updateYoutubePlaybackAuthUI(!!(result && result.loggedIn));
+    } catch (error) {
+      showToast(`Could not check YouTube playback sign-in: ${error.message || error}`, 'error');
+    }
+  }
+
+  if (window.electronAPI && window.electronAPI.onYoutubePlaybackAuth) {
+    window.electronAPI.onYoutubePlaybackAuth((result) => {
+      const loggedIn = !!(result && result.success && result.loggedIn);
+      updateYoutubePlaybackAuthUI(loggedIn);
+      if (loggedIn) showToast('YouTube playback sign-in saved.', 'success');
+      else showToast((result && result.error) || 'YouTube playback sign-in was not completed.', 'error');
+    });
+  }
+  checkYoutubePlaybackAuthStatus();
 
   function setLinkImportMode(mode) {
     currentLinkImportMode = mode || 'link';
@@ -19889,7 +20617,7 @@ function bindCoverHoldZoom(wrapEl) {
     }
   }
 
-  function populateTargetDropdown(selectId, triggerId, dropdownId, menuId, labelId, defaultText) {
+  function populateTargetDropdown(selectId, triggerId, dropdownId, menuId, labelId, defaultText, initialOptions = [{ value: 'new', label: defaultText }], playlistLabel = playlist => playlist.name || 'untitled') {
     const sel = document.getElementById(selectId);
     const trig = document.getElementById(triggerId);
     const drop = document.getElementById(dropdownId);
@@ -19897,21 +20625,40 @@ function bindCoverHoldZoom(wrapEl) {
     const lbl = document.getElementById(labelId);
     if (!sel || !menu) return;
 
-    sel.innerHTML = `<option value="new">${defaultText}</option>`;
-    menu.innerHTML = `<button class="m3-dropdown-option selected" data-value="new" type="button">${defaultText}</button>`;
-    if (lbl) lbl.textContent = defaultText;
+    sel.innerHTML = '';
+    menu.innerHTML = '';
+    initialOptions.forEach((option, index) => {
+      const selectOption = document.createElement('option');
+      selectOption.value = option.value;
+      selectOption.textContent = option.label;
+      sel.appendChild(selectOption);
+
+      const menuOption = document.createElement('button');
+      menuOption.type = 'button';
+      menuOption.className = `m3-dropdown-option${index === 0 ? ' selected' : ''}`;
+      menuOption.dataset.value = option.value;
+      menuOption.textContent = option.label;
+      menuOption.setAttribute('role', 'option');
+      menuOption.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
+      menu.appendChild(menuOption);
+    });
+    if (lbl) lbl.textContent = initialOptions[0].label;
+    if (trig) trig.setAttribute('aria-expanded', 'false');
 
     (state.playlists || []).forEach(p => {
+      const label = playlistLabel(p);
       const opt = document.createElement('option');
       opt.value = p.id;
-      opt.textContent = p.name || 'untitled';
+      opt.textContent = label;
       sel.appendChild(opt);
 
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'm3-dropdown-option';
       btn.dataset.value = p.id;
-      btn.textContent = p.name || 'untitled';
+      btn.textContent = label;
+      btn.setAttribute('role', 'option');
+      btn.setAttribute('aria-selected', 'false');
       menu.appendChild(btn);
     });
 
@@ -19920,9 +20667,11 @@ function bindCoverHoldZoom(wrapEl) {
       trig.addEventListener('click', (e) => {
         e.stopPropagation();
         drop.classList.toggle('open');
+        trig.setAttribute('aria-expanded', drop.classList.contains('open') ? 'true' : 'false');
       });
       document.addEventListener('click', () => {
         drop.classList.remove('open');
+        trig.setAttribute('aria-expanded', 'false');
       });
     }
 
@@ -19932,9 +20681,14 @@ function bindCoverHoldZoom(wrapEl) {
         const val = opt.dataset.value;
         sel.value = val;
         if (lbl) lbl.textContent = opt.textContent;
-        menu.querySelectorAll('.m3-dropdown-option').forEach(o => o.classList.remove('selected'));
+        menu.querySelectorAll('.m3-dropdown-option').forEach(o => {
+          o.classList.remove('selected');
+          o.setAttribute('aria-selected', 'false');
+        });
         opt.classList.add('selected');
+        opt.setAttribute('aria-selected', 'true');
         if (drop) drop.classList.remove('open');
+        if (trig) trig.setAttribute('aria-expanded', 'false');
       });
     });
   }
@@ -19949,6 +20703,7 @@ function bindCoverHoldZoom(wrapEl) {
 
   if (btnGoogleLogin) {
     btnGoogleLogin.addEventListener('click', async () => {
+      let loginError = '';
       if (googleLoginStatus) {
         googleLoginStatus.textContent = 'Logging in...';
         googleLoginStatus.style.color = 'var(--md-sys-color-on-surface-variant)';
@@ -19957,8 +20712,14 @@ function bindCoverHoldZoom(wrapEl) {
         if (window.electronAPI && window.electronAPI.googleLogin) {
           const res = await window.electronAPI.googleLogin();
           googleConnected = !!(res && res.loggedIn);
+          if (!googleConnected && res && res.error) loginError = res.error;
         }
-      } catch (e) {}
+      } catch (error) {
+        loginError = error && error.message ? error.message : String(error);
+        googleConnected = false;
+      }
+      if (loginError) showToast(`Google sign-in failed: ${loginError}`, 'error');
+      else if (!googleConnected) showToast('Google sign-in was not completed.', 'error');
       updateGoogleAuthUI();
     });
   }
@@ -19967,11 +20728,13 @@ function bindCoverHoldZoom(wrapEl) {
     btnGoogleLogout.addEventListener('click', async () => {
       try {
         if (window.electronAPI && window.electronAPI.googleLogout) {
-          await window.electronAPI.googleLogout();
+          const result = await window.electronAPI.googleLogout();
+          if (result && result.warning) showToast(result.warning, 'warning');
         }
       } catch (e) {}
       googleConnected = false;
       updateGoogleAuthUI();
+      checkYoutubePlaybackAuthStatus();
     });
   }
 
@@ -19988,10 +20751,12 @@ function bindCoverHoldZoom(wrapEl) {
         googleConnected = !!(res && res.loggedIn);
         updateGoogleAuthUI();
         if (googleConnected) {
-          hideYtAuthSheet();
           showToast('Signed in to YouTube!', 'success');
+        } else {
+          showToast(res && res.error ? res.error : 'Google sign-in was not completed.', 'error');
         }
-      } catch (_) {
+      } catch (error) {
+        showToast(`YouTube sign-in failed: ${error && error.message ? error.message : String(error)}`, 'error');
       } finally {
         btnAdvYtLogin.disabled = false;
         btnAdvYtLogin.innerHTML = orig;
@@ -20003,12 +20768,53 @@ function bindCoverHoldZoom(wrapEl) {
     btnAdvYtLogout.addEventListener('click', async () => {
       try {
         if (window.electronAPI && window.electronAPI.googleLogout) {
-          await window.electronAPI.googleLogout();
+          const result = await window.electronAPI.googleLogout();
+          if (result && result.warning) showToast(result.warning, 'warning');
         }
       } catch (_) {}
       googleConnected = false;
       updateGoogleAuthUI();
+      checkYoutubePlaybackAuthStatus();
       showToast('Signed out of YouTube', 'info');
+    });
+  }
+
+  if (btnYoutubePlaybackLogin) {
+    btnYoutubePlaybackLogin.addEventListener('click', async () => {
+      if (!window.electronAPI || !window.electronAPI.youtubePlaybackLogin) return;
+      btnYoutubePlaybackLogin.disabled = true;
+      try {
+        const result = await window.electronAPI.youtubePlaybackLogin();
+        if (result && result.success) {
+          showToast('Sign in to YouTube in the opened window, then close it to save your session.', 'info');
+        } else {
+          showToast((result && result.error) || 'Could not open YouTube sign-in.', 'error');
+        }
+      } catch (error) {
+        showToast(`Could not open YouTube sign-in: ${error.message || error}`, 'error');
+      } finally {
+        btnYoutubePlaybackLogin.disabled = false;
+      }
+    });
+  }
+
+  if (btnYoutubePlaybackLogout) {
+    btnYoutubePlaybackLogout.addEventListener('click', async () => {
+      if (!window.electronAPI || !window.electronAPI.youtubePlaybackLogout) return;
+      btnYoutubePlaybackLogout.disabled = true;
+      try {
+        const result = await window.electronAPI.youtubePlaybackLogout();
+        if (result && result.success) {
+          updateYoutubePlaybackAuthUI(false);
+          showToast('YouTube playback session removed from this device.', 'info');
+        } else {
+          showToast((result && result.error) || 'Could not sign out of YouTube playback.', 'error');
+        }
+      } catch (error) {
+        showToast(`Could not sign out of YouTube playback: ${error.message || error}`, 'error');
+      } finally {
+        btnYoutubePlaybackLogout.disabled = false;
+      }
     });
   }
   checkGoogleAuthStatus();
@@ -20024,11 +20830,12 @@ function bindCoverHoldZoom(wrapEl) {
       else if (platform === 'ytmusic') titleEl.textContent = 'Import from YouTube Music';
       else if (platform === 'soundcloud') titleEl.textContent = 'Import from SoundCloud';
       else if (platform === 'yandex') titleEl.textContent = 'Import from Yandex Music';
+      else if (platform === 'deezer') titleEl.textContent = 'Import from Deezer';
       else titleEl.textContent = 'Import from link';
     }
 
     if (linkModesContainer) {
-      if (platform === 'soundcloud' || platform === 'yandex') {
+      if (platform === 'soundcloud' || platform === 'yandex' || platform === 'deezer') {
         linkModesContainer.classList.add('hidden');
       } else {
         linkModesContainer.classList.remove('hidden');
@@ -20048,20 +20855,26 @@ function bindCoverHoldZoom(wrapEl) {
         linkImportUrl.placeholder = 'Paste a SoundCloud playlist or track link';
       } else if (platform === 'yandex') {
         linkImportUrl.placeholder = 'Paste a Yandex Music playlist, album or track link';
+      } else if (platform === 'deezer') {
+        linkImportUrl.placeholder = 'Paste a Deezer public playlist link';
       } else {
-        linkImportUrl.placeholder = 'Paste a YouTube, YouTube Music, SoundCloud or Yandex Music link';
+        linkImportUrl.placeholder = 'Paste a YouTube, YouTube Music, SoundCloud, Yandex Music or Deezer link';
       }
     }
 
-    const linkTargetSelect = document.getElementById('link-import-target');
-    if (linkTargetSelect) {
-      linkTargetSelect.innerHTML = [
-        '<option value="__new__">Create new playlist</option>',
-        '<option value="__favorites__">Add directly to Favorites</option>',
-        ...(state.playlists || []).map(pl => `<option value="${escapeHtml(pl.id)}">Merge into: ${escapeHtml(pl.name || 'untitled')}</option>`)
-      ].join('');
-      linkTargetSelect.value = '__new__';
-    }
+    populateTargetDropdown(
+      'link-import-target',
+      'link-target-trigger',
+      'link-target-dropdown',
+      'link-target-menu',
+      'link-target-label',
+      'Create new playlist',
+      [
+        { value: '__new__', label: 'Create new playlist' },
+        { value: '__favorites__', label: 'Add directly to Favorites' }
+      ],
+      playlist => `Merge into: ${playlist.name || 'untitled'}`
+    );
     populateTargetDropdown('google-import-target', 'google-target-trigger', 'google-target-dropdown', 'google-target-menu', 'google-target-label', 'Separate playlists');
 
     if (linkImportProgressWrap) linkImportProgressWrap.classList.add('hidden');
@@ -20259,6 +21072,10 @@ function bindCoverHoldZoom(wrapEl) {
 
       if (!res || !res.success) {
         dismissImportSpinnerToast();
+        if (res && res.error) {
+          showToast(res.error, 'error');
+          return;
+        }
         const errInfo = classifyImportError(currentLinkImportPlatform, 403, res || {});
         showToast(errInfo.userMessage || errInfo.title || 'Failed to import Google library', 'error');
         return;
@@ -20332,7 +21149,9 @@ function bindCoverHoldZoom(wrapEl) {
         }
       }
 
-      const finishMsg = `Imported ${totalTracks} tracks`;
+      const finishMsg = res.warning
+        ? `Imported ${totalTracks} tracks. ${res.warning}`
+        : `Imported ${totalTracks} tracks`;
       if (activeImportToast) {
         const toast = activeImportToast;
         const iconSpan = toast.querySelector('.toast-icon');
@@ -20394,7 +21213,7 @@ function bindCoverHoldZoom(wrapEl) {
       if (typeof showToast === 'function') showToast('No playlists to export', 'error');
       return;
     }
-    let appVer = '43.2.2';
+    let appVer = '44.0.0';
     try {
       if (window.electronAPI && window.electronAPI.getAppVersion) {
         const v = await window.electronAPI.getAppVersion();
@@ -20703,7 +21522,7 @@ function bindCoverHoldZoom(wrapEl) {
   linkImportBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       document.getElementById('create-playlist-modal')?.classList.add('hidden');
-      if (btn.dataset.platform) setPlatform(btn.dataset.platform, false);
+      if (btn.dataset.platform && btn.dataset.platform !== 'deezer') setPlatform(btn.dataset.platform, false);
       openLinkImportModal(btn.dataset.platform || '');
     });
   });
@@ -21534,6 +22353,28 @@ function bindCoverHoldZoom(wrapEl) {
     });
   }
 
+  const btnPlayPlaylistShuffle = document.getElementById('btn-play-playlist-shuffle');
+  if (btnPlayPlaylistShuffle) {
+    btnPlayPlaylistShuffle.addEventListener('click', () => {
+      const pl = (state.playlists || []).find(p => p.id === state.currentPlaylistId);
+      if (!pl || !pl.tracks || pl.tracks.length === 0) return;
+      const list = sortTracksFor('playlist', pl.tracks, pl.id);
+      const shuffled = [...list];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      state.isRadioQueue = false;
+      state.queueHistory = [];
+      if (!state.isShuffle) {
+        state.isShuffle = true;
+        localStorage.setItem('riff_shuffle', '1');
+        if (el.btnShuffle) el.btnShuffle.classList.add('active');
+      }
+      playTrack(shuffled[0], shuffled, 0, 'playlist');
+    });
+  }
+
   refreshNavBadges();
   renderPlaylistsList();
   renderPresets();
@@ -22269,7 +23110,7 @@ function bindCoverHoldZoom(wrapEl) {
     state._waveReplenishBusy = true;
     try {
       const port = state.serverPort || 38472;
-      const taste = typeof computeTasteProfile === 'function' ? computeTasteProfile() : { seeds: [], topArtists: [] };
+      const taste = typeof computeTasteProfile === 'function' ? await computeTasteProfile() : { seeds: [], topArtists: [] };
       const avoid = typeof getWaveAvoid === 'function' ? getWaveAvoid() : { ids: [], keys: [], artists: [] };
       const seenIds = new Set();
       const seenKeys = new Set();
@@ -22317,6 +23158,46 @@ function bindCoverHoldZoom(wrapEl) {
       }
     } catch (_) {} finally { state._waveReplenishBusy = false; }
     return false;
+  }
+
+
+  function blendFavoritesIntoWave(waveTracks) {
+    try {
+      if (!Array.isArray(waveTracks) || waveTracks.length === 0) return waveTracks;
+      const recent = (state.history || []).filter(Boolean).slice(0, 20);
+      const favs = (state.favorites || []).filter(Boolean);
+      if (recent.length === 0 || favs.length === 0) return waveTracks;
+
+      const artistKeys = (name) => String(name || '').split(/,|&| feat\.? | ft\.? | x /i).map(a => normalizeArtistName(a)).filter(Boolean);
+      const recentArtists = new Set();
+      recent.forEach(t => artistKeys(t.artist).forEach(a => recentArtists.add(a)));
+      const justPlayed = new Set(recent.slice(0, 5).map(t => getTrackCanonicalId(t)));
+      const inWave = new Set(waveTracks.map(t => getTrackCanonicalId(t)));
+
+      const pool = favs.filter(t => {
+        const id = getTrackCanonicalId(t);
+        if (!id || inWave.has(id) || justPlayed.has(id)) return false;
+        if (isTrackBlocked(t) || isArtistBlocked(t.artist)) return false;
+        return artistKeys(t.artist).some(a => recentArtists.has(a));
+      });
+      if (pool.length === 0) return waveTracks;
+
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+      const picks = pool.slice(0, Math.max(2, Math.floor(waveTracks.length / 4)));
+      const out = [];
+      let next = 0;
+      waveTracks.forEach((t, i) => {
+        out.push(t);
+        if ((i + 1) % 3 === 0 && next < picks.length) out.push(picks[next++]);
+      });
+      while (next < picks.length && out.length < waveTracks.length + picks.length) out.push(picks[next++]);
+      return out;
+    } catch (_) {
+      return waveTracks;
+    }
   }
 
   async function playMyWave() {
@@ -22455,7 +23336,7 @@ function bindCoverHoldZoom(wrapEl) {
           titleEl.textContent = item.name || 'Unknown';
           const pText = item.plays > 0
             ? `${formatCount(item.plays)} play${item.plays === 1 ? '' : 's'}`
-            : (item.fans > 0 ? `${formatCount(item.fans)} fans` : '0 plays');
+            : (item.fans > 0 ? `${formatCount(item.fans)} listeners` : '0 plays');
           artistEl.textContent = pText;
         } else {
           titleEl.textContent = item.title || 'Untitled';
@@ -22620,7 +23501,7 @@ function bindCoverHoldZoom(wrapEl) {
         const item = source[0];
         const pText = item.plays > 0
           ? `${formatCount(item.plays)} play${item.plays === 1 ? '' : 's'}`
-          : (item.fans > 0 ? `${formatCount(item.fans)} fans` : '0 plays');
+          : (item.fans > 0 ? `${formatCount(item.fans)} listeners` : '0 plays');
         focusedMeta.innerHTML = `
           <div class="my-wave-focused-title" id="my-wave-focused-title">${escapeHtml(item.name || 'Unknown')}</div>
           <div class="my-wave-focused-artist" id="my-wave-focused-artist">${escapeHtml(pText)}</div>
@@ -22994,6 +23875,7 @@ function bindCoverHoldZoom(wrapEl) {
         return false;
       }
 
+      if (!state.isHotPicks) uniqueTracks = blendFavoritesIntoWave(uniqueTracks);
       myWaveCurrentTracks = uniqueTracks;
       state.vibeTracks = uniqueTracks;
       try { localStorage.setItem('riff_my_wave_cache', JSON.stringify({ ts: Date.now(), tracks: state.vibeTracks })); } catch (_) {}
@@ -23197,8 +24079,45 @@ function bindCoverHoldZoom(wrapEl) {
     wrap.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>';
   }
 
+  function normalizeCoverUrl(u) {
+    if (!u || typeof u !== 'string') return '';
+    u = u.trim();
+    if (u.startsWith('//')) return 'https:' + u;
+    if (/^http:\/\/(?!127\.0\.0\.1|localhost)/i.test(u)) return 'https://' + u.slice(7);
+    return u;
+  }
+
+  function coverCandidates(track) {
+    if (!track) return [];
+    const out = [];
+    const add = (u) => {
+      u = normalizeCoverUrl(u);
+      if (u && !out.includes(u)) out.push(u);
+    };
+    try { add(getTrackThumbUrl(track)); } catch (_) {}
+    add(track.thumbnail);
+    add(track.cover);
+    add(track.image);
+    add(track.artworkUrl);
+    const id = String(track.id || '');
+    if (/^[A-Za-z0-9_-]{11}$/.test(id) && !/^(cand_|dz_|it_|sp_|ym_)/i.test(id)) {
+      add('https://i.ytimg.com/vi/' + id + '/hqdefault.jpg');
+      add('https://i.ytimg.com/vi/' + id + '/mqdefault.jpg');
+    }
+    return out;
+  }
+
+  function coverCandidatesFromTracks(tracks, max = 8) {
+    const out = [];
+    (Array.isArray(tracks) ? tracks.slice(0, max) : []).forEach(t => {
+      coverCandidates(t).forEach(u => { if (!out.includes(u)) out.push(u); });
+    });
+    return out;
+  }
+
   function appendCoverImage(wrap, cover) {
-    if (!cover) {
+    const list = (Array.isArray(cover) ? cover : [cover]).filter(Boolean);
+    if (list.length === 0) {
       showCoverPlaceholder(wrap);
       return null;
     }
@@ -23206,8 +24125,13 @@ function bindCoverHoldZoom(wrapEl) {
     img.loading = 'lazy';
     img.decoding = 'async';
     img.alt = '';
-    img.addEventListener('error', () => showCoverPlaceholder(wrap), { once: true });
-    img.src = cover;
+    let attempt = 0;
+    img.addEventListener('error', () => {
+      attempt++;
+      if (attempt < list.length) img.src = list[attempt];
+      else showCoverPlaceholder(wrap);
+    });
+    img.src = list[0];
     wrap.appendChild(img);
     return img;
   }
@@ -23225,8 +24149,9 @@ function bindCoverHoldZoom(wrapEl) {
         const gImg = document.createElement('img');
         gImg.loading = 'lazy';
         gImg.decoding = 'async';
-        gImg.src = c || '';
         gImg.alt = '';
+        gImg.addEventListener('error', () => { gImg.style.visibility = 'hidden'; });
+        gImg.src = c || '';
         grid.appendChild(gImg);
       });
       coverWrap.appendChild(grid);
@@ -23540,10 +24465,8 @@ function bindCoverHoldZoom(wrapEl) {
 
     let myWaveCard;
     if (hasWave) {
-      const firstWaveTrack = myWaveCurrentTracks[0];
-      const waveThumb = (typeof getTrackThumbUrl === 'function' ? getTrackThumbUrl(firstWaveTrack) : '') || firstWaveTrack.thumbnail || firstWaveTrack.cover || '';
       myWaveCard = spCard({
-        cover: waveThumb,
+        cover: coverCandidatesFromTracks(myWaveCurrentTracks),
         title: 'For you',
         sub: 'Based on your taste',
         onClick: playMyWave
@@ -23579,7 +24502,7 @@ function bindCoverHoldZoom(wrapEl) {
 
     mixes.forEach((mix, i) => {
       const fourCovers = getMix4Covers(mix);
-      const cover = fourCovers[0] || '';
+      const cover = coverCandidatesFromTracks(mix.tracks);
       const sub = (mix.artists && mix.artists.length > 0) ? mix.artists.join(', ') : '';
       const card = spCard({
         cover,
@@ -24442,13 +25365,20 @@ function bindCoverHoldZoom(wrapEl) {
 
 
 
+  const btnCopyDiagnostics = document.getElementById('btn-copy-diagnostics');
   const btnOpenShortcuts = document.getElementById('btn-open-shortcuts');
   const shortcutsModal = document.getElementById('shortcuts-modal');
   const btnCloseShortcutsModal = document.getElementById('btn-close-shortcuts-modal');
-  if (btnOpenShortcuts && shortcutsModal) btnOpenShortcuts.addEventListener('click', () => openModal(shortcutsModal));
-  if (btnCloseShortcutsModal && shortcutsModal) btnCloseShortcutsModal.addEventListener('click', () => closeModal(shortcutsModal));
+  if (btnOpenShortcuts && shortcutsModal) {
+    btnOpenShortcuts.addEventListener('click', () => openModal(shortcutsModal));
+    shortcutsModal.addEventListener('click', (event) => {
+      if (event.target === shortcutsModal) closeModal(shortcutsModal);
+    });
+  }
+  if (btnCloseShortcutsModal && shortcutsModal) {
+    btnCloseShortcutsModal.addEventListener('click', () => closeModal(shortcutsModal));
+  }
 
-  const btnCopyDiagnostics = document.getElementById('btn-copy-diagnostics');
   if (btnCopyDiagnostics) {
     btnCopyDiagnostics.addEventListener('click', async () => {
       if (window.electronAPI && typeof window.electronAPI.getDiagnostics === 'function') {
@@ -25035,6 +25965,160 @@ function bindCoverHoldZoom(wrapEl) {
     }
   }
 
+
+
+  function initSpotifyPromo() {
+    const card = document.getElementById('spotify-promo');
+    const btnImport = document.getElementById('btn-spotify-promo-import');
+    const btnClose = document.getElementById('btn-spotify-promo-close');
+    if (!card || !btnImport || !btnClose) return;
+    if (localStorage.getItem('riff_spotify_promo_dismissed') !== '1') card.hidden = false;
+    btnImport.addEventListener('click', () => {
+      if (typeof openSpotifyImportModal === 'function') openSpotifyImportModal();
+    });
+    btnClose.addEventListener('click', () => {
+      card.hidden = true;
+      localStorage.setItem('riff_spotify_promo_dismissed', '1');
+    });
+  }
+
+  function initQueuePanel() {
+    const btn = document.getElementById('btn-toggle-queue-panel');
+    if (!btn || document.getElementById('np-queue-panel')) return;
+
+    const panel = document.createElement('aside');
+    panel.id = 'np-queue-panel';
+    panel.className = 'np-queue-panel';
+    panel.innerHTML = `
+      <div class="np-queue-head">
+        <div class="np-queue-tabs">
+          <button type="button" class="np-queue-tab active" data-tab="queue">Queue</button>
+          <button type="button" class="np-queue-tab" data-tab="recent">Recently played</button>
+        </div>
+        <button type="button" class="btn-icon-pill np-queue-close" aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="np-queue-body" id="np-queue-body"></div>`;
+    document.body.appendChild(panel);
+
+    const body = panel.querySelector('#np-queue-body');
+    let tab = 'queue';
+    let signature = '';
+
+    const makeRow = (track, onClick, playing) => {
+      const row = document.createElement('div');
+      row.className = 'np-queue-row' + (playing ? ' playing' : '');
+      const thumb = typeof getTrackThumbUrl === 'function' ? getTrackThumbUrl(track) : '';
+      const art = document.createElement('div');
+      art.className = 'np-queue-art';
+      if (thumb) {
+        const img = document.createElement('img');
+        img.alt = '';
+        img.loading = 'lazy';
+        img.addEventListener('error', () => { img.remove(); });
+        img.src = thumb;
+        art.appendChild(img);
+      }
+      const info = document.createElement('div');
+      info.className = 'np-queue-info';
+      const title = document.createElement('span');
+      title.className = 'np-queue-title';
+      title.textContent = track.title || 'untitled';
+      const artist = document.createElement('span');
+      artist.className = 'np-queue-artist';
+      artist.textContent = track.artist || '';
+      info.append(title, artist);
+      row.append(art, info);
+      if (onClick) row.addEventListener('click', onClick);
+      return row;
+    };
+
+    const heading = (text) => {
+      const h = document.createElement('div');
+      h.className = 'np-queue-heading';
+      h.textContent = text;
+      return h;
+    };
+
+    const render = () => {
+      body.innerHTML = '';
+      const current = state.currentTrack;
+      if (tab === 'recent') {
+        const recent = (state.history || []).filter(Boolean).slice(0, 40);
+        if (!recent.length) {
+          const empty = document.createElement('div');
+          empty.className = 'np-queue-empty';
+          empty.textContent = 'Nothing played yet';
+          body.appendChild(empty);
+          return;
+        }
+        recent.forEach(t => body.appendChild(makeRow(t, () => playTrack(t, recent, recent.indexOf(t)), false)));
+        return;
+      }
+      if (!current) {
+        const empty = document.createElement('div');
+        empty.className = 'np-queue-empty';
+        empty.textContent = 'Nothing is playing';
+        body.appendChild(empty);
+        return;
+      }
+      body.appendChild(heading('Now playing'));
+      body.appendChild(makeRow(current, null, true));
+      const start = Math.max(0, state.queueIndex + 1);
+      const upcoming = (state.queue || []).slice(start, start + 50);
+      if (upcoming.length) {
+        body.appendChild(heading('Next up'));
+        upcoming.forEach((t, i) => {
+          const idx = start + i;
+          body.appendChild(makeRow(t, () => playTrack(state.queue[idx], state.queue, idx), false));
+        });
+      } else {
+        const empty = document.createElement('div');
+        empty.className = 'np-queue-empty';
+        empty.textContent = 'Nothing queued next';
+        body.appendChild(empty);
+      }
+    };
+
+    const currentSignature = () => {
+      const cur = state.currentTrack;
+      const q = state.queue || [];
+      const upcoming = q.slice(state.queueIndex + 1, state.queueIndex + 51)
+        .map(track => getTrackCanonicalId(track)).join(',');
+      return [tab, cur ? getTrackCanonicalId(cur) : '', state.queueIndex, q.length, upcoming, (state.history || []).length].join('|');
+    };
+
+    const refresh = () => {
+      if (!panel.classList.contains('open')) return;
+      const sig = currentSignature();
+      if (sig === signature) return;
+      signature = sig;
+      render();
+    };
+
+    const setOpen = (open) => {
+      panel.classList.toggle('open', open);
+      btn.classList.toggle('active', open);
+      localStorage.setItem('riff_queue_panel_open', open ? '1' : '0');
+      signature = '';
+      refresh();
+    };
+
+    btn.addEventListener('click', () => setOpen(!panel.classList.contains('open')));
+    panel.querySelector('.np-queue-close').addEventListener('click', () => setOpen(false));
+    panel.querySelectorAll('.np-queue-tab').forEach(t => {
+      t.addEventListener('click', () => {
+        tab = t.dataset.tab;
+        panel.querySelectorAll('.np-queue-tab').forEach(x => x.classList.toggle('active', x === t));
+        signature = '';
+        refresh();
+      });
+    });
+    setInterval(refresh, 700);
+    if (localStorage.getItem('riff_queue_panel_open') === '1') setOpen(true);
+  }
+
   function initSearchFilterChips() {
     const container = document.getElementById('search-filter-chips');
     if (!container) return;
@@ -25110,6 +26194,9 @@ function bindCoverHoldZoom(wrapEl) {
   initSidebarOrderCustomizer();
   renderBlockedItemsSettings();
   initSearchFilterChips();
+  initSearchHistory();
+  initQueuePanel();
+  initSpotifyPromo();
   initMouseNavInterceptor();
   initDesktopShortcutSetting();
   initLikeAlbumTracksSetting();
@@ -25162,5 +26249,3 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
-
-

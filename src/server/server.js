@@ -10,7 +10,6 @@ const keepAliveHttpsAgent = new https.Agent({
 const url = require('url');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require("child_process");
 const { StringDecoder } = require("string_decoder");
@@ -18,8 +17,30 @@ const dns = require('dns');
 const net = require('net');
 
 const PORT = 38472;
-const { DATA_DIR, CACHE_DIR, CUSTOM_LYRICS_DIR, LYRICS_DIR, THUMBNAILS_DIR, METADATA_PATH, LIBRARY_DIR, LIBRARY_PATH, ytDlpCommand, resolveDownloadDir, resolveBinary } = require('../shared/platform');
+const { DATA_DIR, CACHE_DIR, CUSTOM_LYRICS_DIR, LYRICS_DIR, THUMBNAILS_DIR, METADATA_PATH, LIBRARY_DIR, LIBRARY_PATH, ytDlpCommand, resolveDownloadDir, defaultDownloadDir, resolveBinary, clearBinaryCache, cookieJarHasYtLogin } = require('../shared/platform');
 const YT_COOKIES_FILE = path.join(DATA_DIR, 'yt-cookies.txt');
+
+// A browser cookie export can contain .google.com session cookies without the
+// user actually being signed in to YouTube. Passing those to yt-dlp makes the
+// YouTube extractor fail with "The page needs to be reloaded.", so only treat
+// the cookies as usable when YouTube itself has a login cookie.
+let ytCookieCache = { mtime: -1, valid: false };
+function hasYtLoginCookies() {
+  try {
+    if (!fs.existsSync(YT_COOKIES_FILE)) {
+      ytCookieCache = { mtime: -1, valid: false };
+      return false;
+    }
+    const stat = fs.statSync(YT_COOKIES_FILE);
+    if (stat.mtimeMs === ytCookieCache.mtime) return ytCookieCache.valid;
+    const txt = fs.readFileSync(YT_COOKIES_FILE, 'utf8');
+    const valid = cookieJarHasYtLogin(txt);
+    ytCookieCache = { mtime: stat.mtimeMs, valid };
+    return valid;
+  } catch (_) {
+    return false;
+  }
+}
 
 function getYtAuthHeaders(origin = 'https://www.youtube.com') {
 	try {
@@ -75,8 +96,8 @@ const I18N_FIX = {
 	}
 };
 
-function i18nValueBroken(v) {
-	return typeof v !== 'string' || !v || v.indexOf('') !== -1;
+function i18nValueBroken(key, value) {
+  return typeof value !== 'string' || !value || value === key || value.indexOf(String.fromCharCode(0xFFFD)) !== -1;
 }
 const logger = require('../shared/logger');
 const { getSystemAudioOutputInfo } = require('../shared/audio-output');
@@ -282,11 +303,12 @@ const downloadInFlight = new Map();
 	};
 });
 
-setInterval(() => {
-	boundMap(searchCache, 20);
-	boundMap(lyricsCache, 30);
-	if (global.gc) { try { global.gc(); } catch (_) { } }
+const cacheMaintenanceTimer = setInterval(() => {
+  boundMap(searchCache, 20);
+  boundMap(lyricsCache, 30);
+  if (global.gc) { try { global.gc(); } catch (_) {} }
 }, 300000);
+cacheMaintenanceTimer.unref();
 
 const MAX_CACHE_ENTRIES = 500;
 function cacheSet(map, key, value, max = MAX_CACHE_ENTRIES) {
@@ -516,6 +538,52 @@ function trackFingerprint(track) {
 	return getTrackNormalizedKey(clean.artist, clean.title);
 }
 
+function cleanSearchResults(tracks, query) {
+  const queryTokens = String(query || '').toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter(token => token.length > 1);
+  const minimumRelevance = queryTokens.length > 1 ? Math.max(2, Math.ceil(queryTokens.length / 2)) : queryTokens.length;
+  const seenIds = new Set();
+  const seenTracks = new Set();
+  return (Array.isArray(tracks) ? tracks : [])
+    .map((track, index) => {
+      const clean = normalizeTrack(track);
+      if (!clean) return null;
+      if (/\b\d+\s*(?:hours?|hrs?)\b/i.test(clean.title) ||
+          /\b(?:tiktok|nightcore)\s+audios?\b/i.test(clean.title) ||
+          /\b(?:playlist|compilation)\s+of\b/i.test(clean.title)) return null;
+      const text = `${clean.title} ${clean.artist}`.toLowerCase()
+        .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+        .split(/\s+/)
+        .filter(Boolean);
+      const words = new Set(text);
+      const titleWords = new Set(clean.title.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean));
+      const artistWords = new Set(clean.artist.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean));
+      const relevance = queryTokens.reduce((score, token) => score + (words.has(token) ? 1 : 0), 0);
+      const titleRelevance = queryTokens.reduce((score, token) => score + (titleWords.has(token) ? 1 : 0), 0);
+      const artistRelevance = queryTokens.reduce((score, token) => score + (artistWords.has(token) ? 1 : 0), 0);
+      return { track, index, clean, relevance, titleRelevance, artistRelevance };
+    })
+    .filter(item => item && (!queryTokens.length ||
+      (item.relevance >= minimumRelevance &&
+        (queryTokens.length < 2 ||
+          (item.titleRelevance > 0 && item.artistRelevance > 0) ||
+          item.titleRelevance === queryTokens.length ||
+          item.artistRelevance === queryTokens.length))))
+    .sort((a, b) => b.relevance - a.relevance || a.index - b.index)
+    .filter(({ track, clean }) => {
+      const idKey = clean.id ? `${clean.platform}:${clean.id}` : '';
+      const fingerprint = trackFingerprint(track);
+      if (idKey && seenIds.has(idKey)) return false;
+      if (fingerprint && seenTracks.has(fingerprint)) return false;
+      if (idKey) seenIds.add(idKey);
+      if (fingerprint) seenTracks.add(fingerprint);
+      return true;
+    })
+    .map(item => item.track);
+}
+
 const recentlyRecommendedTrackIds = new Set();
 const recentlyRecommendedKeys = new Set();
 
@@ -546,61 +614,70 @@ function evictStreamCache(rawUrl) {
 }
 
 function verifyStreamPlayable(streamUrl, userAgent, redirectsLeft = 3) {
-	return new Promise((resolve) => {
-		if (!streamUrl || typeof streamUrl !== 'string') return resolve(false);
-		if (streamUrl.includes('.m3u8')) return resolve(true);
-		let settled = false;
-		const done = (ok) => {
-			if (settled) return;
-			settled = true;
-			resolve(ok);
-		};
-		try {
-			const parsed = new URL(streamUrl);
-			const cParam = (parsed.searchParams.get('c') || '').toUpperCase();
-			let ua = userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-			if (!userAgent) {
-				if (cParam === 'IOS') ua = 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)';
-				else if (cParam === 'ANDROID_VR') ua = 'com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip';
-			}
-			const req = https.request(streamUrl, {
-				method: 'GET',
-				agent: keepAliveHttpsAgent,
-				family: 4,
-				timeout: 2500,
-				headers: {
-					'Host': parsed.host,
-					'Range': 'bytes=0-',
-					'User-Agent': ua
-				}
-			}, (res) => {
-				if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirectsLeft > 0) {
-					res.resume();
-					const nextUrl = new URL(res.headers.location, streamUrl).toString();
-					return verifyStreamPlayable(nextUrl, ua, redirectsLeft - 1).then(done);
-				}
-				if (res.statusCode !== 200 && res.statusCode !== 206) {
-					res.destroy();
-					return done(false);
-				}
-				let received = 0;
-				res.on('data', (chunk) => {
-					received += chunk.length;
-					if (received >= 16384) {
-						res.destroy();
-						done(true);
-					}
-				});
-				res.on('end', () => done(received >= 16384 || received > 0));
-				res.on('error', () => done(false));
-			});
-			req.on('timeout', () => { req.destroy(); done(false); });
-			req.on('error', () => done(false));
-			req.end();
-		} catch (_) {
-			done(false);
-		}
-	});
+  return new Promise((resolve) => {
+    if (!streamUrl || typeof streamUrl !== 'string') return resolve(false);
+    if (streamUrl.includes('.m3u8')) return resolve(true);
+    let settled = false;
+    const done = (ok) => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+    try {
+      const parsed = new URL(streamUrl);
+      const cParam = (parsed.searchParams.get('c') || '').toUpperCase();
+      let ua = userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36';
+      if (!userAgent) {
+        if (cParam === 'IOS') ua = 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)';
+        else if (cParam === 'ANDROID_VR') ua = 'com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip';
+      }
+      const isGooglevideo = parsed.hostname.endsWith('googlevideo.com');
+      const req = https.request(streamUrl, {
+        method: 'GET',
+        agent: keepAliveHttpsAgent,
+        family: 4,
+        timeout: 5000,
+        headers: Object.assign({
+          'Host': parsed.host,
+          'Range': 'bytes=0-',
+          'User-Agent': ua,
+          // Same header set yt-dlp/ffmpeg uses for googlevideo.
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-us,en;q=0.5',
+          'Sec-Fetch-Mode': 'navigate'
+        }, isGooglevideo ? {
+          // googlevideo rejects WEB_EMBEDDED_PLAYER URLs without these.
+          'Origin': 'https://www.youtube.com',
+          'Referer': 'https://www.youtube.com/'
+        } : {})
+      }, (res) => {
+        if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirectsLeft > 0) {
+          res.resume();
+          const nextUrl = new URL(res.headers.location, streamUrl).toString();
+          return verifyStreamPlayable(nextUrl, ua, redirectsLeft - 1).then(done);
+        }
+        if (res.statusCode !== 200 && res.statusCode !== 206) {
+          res.destroy();
+          return done(false);
+        }
+        let received = 0;
+        res.on('data', (chunk) => {
+          received += chunk.length;
+          if (received >= 16384) {
+            res.destroy();
+            done(true);
+          }
+        });
+        res.on('end', () => done(received >= 16384 || received > 0));
+        res.on('error', () => done(false));
+      });
+      req.on('timeout', () => { req.destroy(); done(false); });
+      req.on('error', () => done(false));
+      req.end();
+    } catch (_) {
+      done(false);
+    }
+  });
 }
 const verifyGoogleVideoStream = verifyStreamPlayable;
 
@@ -1604,79 +1681,111 @@ function directYoutubeSearch(query, isMusic = false, limit = 40) {
 }
 
 function executeYtDlp(args, timeoutMs = 15000, opts = {}) {
-	return new Promise((resolve, reject) => {
-		const cleanEnv = Object.assign({}, process.env);
-		let finalArgs = Array.isArray(args) ? [...args] : [];
-		const prependFlags = [];
-		if (!finalArgs.includes('--force-ipv4')) prependFlags.push('--force-ipv4');
-		if (!finalArgs.includes('--geo-bypass')) prependFlags.push('--geo-bypass');
-		if (!finalArgs.includes('--js-runtimes')) {
-			prependFlags.push('--js-runtimes', 'node');
-		}
-		if (!finalArgs.includes('--remote-components')) prependFlags.push('--remote-components', 'ejs:github');
-		if (fs.existsSync(YT_COOKIES_FILE) && !finalArgs.includes('--cookies')) {
-			prependFlags.push('--cookies', YT_COOKIES_FILE);
-		}
-		if (prependFlags.length > 0) {
-			finalArgs.unshift(...prependFlags);
-		}
-		const hasProxy = finalArgs.some(a => typeof a === 'string' && (a === '--proxy' || a.startsWith('--proxy=')));
-		if (!hasProxy) {
-			if (serverActiveProxy) {
-				finalArgs.unshift('--proxy', serverActiveProxy);
-			} else {
-				delete cleanEnv.HTTP_PROXY;
-				delete cleanEnv.HTTPS_PROXY;
-				delete cleanEnv.ALL_PROXY;
-				delete cleanEnv.http_proxy;
-				delete cleanEnv.https_proxy;
-				delete cleanEnv.all_proxy;
-				finalArgs.unshift('--proxy', '');
-			}
-		}
-		const cmd = ytDlpCommand(finalArgs);
-		const YTDLP_PATH = cmd.bin;
-		const proc = spawn(YTDLP_PATH, cmd.args, { windowsHide: true, env: cleanEnv });
-		if (opts && typeof opts.onChild === 'function') {
-			try { opts.onChild(proc); } catch (_) { }
-		}
-		let stdout = '';
-		let stderr = '';
-		const outDecoder = new StringDecoder('utf8');
-		const errDecoder = new StringDecoder('utf8');
-		let timer = null;
+  return new Promise((resolve, reject) => {
+    const cleanEnv = Object.assign({}, process.env);
+    let finalArgs = Array.isArray(args) ? [...args] : [];
+    const prependFlags = [];
+    let cookieJarPath = null;
+    const cleanupCookieJar = () => {
+      if (!cookieJarPath) return;
+      const p = cookieJarPath;
+      cookieJarPath = null;
+      try { fs.unlinkSync(p); } catch (_) {}
+    };
+    if (!finalArgs.includes('--force-ipv4')) prependFlags.push('--force-ipv4');
+    if (!finalArgs.includes('--geo-bypass')) prependFlags.push('--geo-bypass');
+    if (!finalArgs.includes('--js-runtimes')) {
+      prependFlags.push('--js-runtimes', 'node');
+    }
+    if (!finalArgs.includes('--remote-components')) prependFlags.push('--remote-components', 'ejs:github');
+    if (!opts.noCookies && hasYtLoginCookies() && !finalArgs.includes('--cookies')) {
+      // Several yt-dlp processes can run at once (playback, prefetch, download).
+      // Give each one a private copy of the jar so they cannot rewrite the
+      // shared cookie file concurrently and corrupt the YouTube session.
+      try {
+        cookieJarPath = path.join(DATA_DIR, `.yt-cookies-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.tmp`);
+        fs.copyFileSync(YT_COOKIES_FILE, cookieJarPath);
+        prependFlags.push('--cookies', cookieJarPath);
+      } catch (_) {
+        cleanupCookieJar();
+        prependFlags.push('--cookies', YT_COOKIES_FILE);
+      }
+    }
+    if (prependFlags.length > 0) {
+      finalArgs.unshift(...prependFlags);
+    }
+    const hasProxy = finalArgs.some(a => typeof a === 'string' && (a === '--proxy' || a.startsWith('--proxy=')));
+    if (!hasProxy) {
+      if (serverActiveProxy) {
+        finalArgs.unshift('--proxy', serverActiveProxy);
+      } else {
+        delete cleanEnv.HTTP_PROXY;
+        delete cleanEnv.HTTPS_PROXY;
+        delete cleanEnv.ALL_PROXY;
+        delete cleanEnv.http_proxy;
+        delete cleanEnv.https_proxy;
+        delete cleanEnv.all_proxy;
+        finalArgs.unshift('--proxy', '');
+      }
+    }
+    const cmd = ytDlpCommand(finalArgs);
+    const YTDLP_PATH = cmd.bin;
+    const proc = spawn(YTDLP_PATH, cmd.args, { windowsHide: true, env: cleanEnv });
+    if (opts && typeof opts.onChild === 'function') {
+      try { opts.onChild(proc); } catch (_) {}
+    }
+    let stdout = '';
+    let stderr = '';
+    const outDecoder = new StringDecoder('utf8');
+    const errDecoder = new StringDecoder('utf8');
+    let timer = null;
 
-		if (timeoutMs > 0) {
-			timer = setTimeout(() => {
-				try { proc.kill('SIGKILL'); } catch (e) { }
-				reject(new Error(`yt-dlp timed out after ${timeoutMs}ms`));
-			}, timeoutMs);
-		}
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        try { proc.kill('SIGKILL'); } catch (e) {}
+        cleanupCookieJar();
+        reject(new Error(`yt-dlp timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    }
 
 		proc.stdout.on('data', (d) => { stdout += outDecoder.write(d); });
 		proc.stderr.on('data', (d) => { stderr += errDecoder.write(d); });
 
-		proc.on('close', (code) => {
-			if (timer) clearTimeout(timer);
-			if (code === 0) {
-				resolve(stdout);
-			} else {
-				const firstArgs = (args || []).slice(0, 3).join(' ');
-				const errSnippet = String(stderr || `code ${code}`).slice(0, 300);
-				const isWarn = !stderr || /not available|unavailable|private video|timed out/i.test(errSnippet);
-				try { logger.log(isWarn ? 'warn' : 'error', `yt-dlp failed: ${firstArgs} - ${errSnippet}`); } catch (_) { }
-				reject(new Error(stderr || `yt-dlp exited with code ${code}`));
-			}
-		});
+    proc.on('close', (code) => {
+      if (timer) clearTimeout(timer);
+      cleanupCookieJar();
+      if (code === 0) {
+        resolve(stdout);
+      } else {
+        const firstArgs = (args || []).slice(0, 3).join(' ');
+        const errSnippet = String(stderr || `code ${code}`).slice(0, 300);
+        const isWarn = !stderr || /not available|unavailable|private video|timed out/i.test(errSnippet);
+        if (!opts.quiet) {
+          try { logger.log(isWarn ? 'warn' : 'error', `yt-dlp failed: ${firstArgs} - ${errSnippet}`); } catch (_) {}
+        }
+        reject(new Error(stderr || `yt-dlp exited with code ${code}`));
+      }
+    });
 
-		proc.on('error', (err) => {
-			if (timer) clearTimeout(timer);
-			const firstArgs = (args || []).slice(0, 3).join(' ');
-			const errSnippet = String(err && err.message ? err.message : err).slice(0, 300);
-			try { logger.log('error', `yt-dlp spawn error: ${firstArgs} - ${errSnippet}`); } catch (_) { }
-			reject(err);
-		});
-	});
+    proc.on('error', (err) => {
+      if (timer) clearTimeout(timer);
+      cleanupCookieJar();
+      const firstArgs = (args || []).slice(0, 3).join(' ');
+      const errSnippet = String(err && err.message ? err.message : err).slice(0, 300);
+      try { logger.log('error', `yt-dlp spawn error: ${firstArgs} - ${errSnippet}`); } catch (_) {}
+      // A managed yt-dlp can disappear between resolution and spawn (failed
+      // self-update, cleared data dir). Drop the stale cache entry and retry
+      // once so we can fall back to a binary from PATH.
+      if (err && err.code === 'ENOENT' && !opts.retried) {
+        clearBinaryCache();
+        try {
+          resolveBinary('yt-dlp');
+        } catch (_) {}
+        return executeYtDlp(args, timeoutMs, Object.assign({}, opts, { retried: true })).then(resolve, reject);
+      }
+      reject(err);
+    });
+  });
 }
 
 const thumbHostFails = new Map();
@@ -1843,41 +1952,48 @@ async function downloadTrackToDisk(trackUrl, trackId, platform, meta = {}) {
 }
 
 async function prefetchTrack(trackUrl, trackId, platform) {
-	trackUrl = normalizeSoundCloudUrl(trackUrl);
-	let cleanId = cleanTrackId(trackId);
-	if (!cleanId && trackUrl && trackUrl.includes('v=')) {
-		cleanId = cleanTrackId(trackUrl.split('v=')[1].split('&')[0]);
-	}
-	const quality = 'medium';
-	const cacheKey = (cleanId || trackUrl).toLowerCase() + '_' + quality;
-	if (!cacheKey || prefetchingSet.size > 2) return;
-	if (streamUrlCache.has(cacheKey) || prefetchingSet.has(cacheKey) || streamInfoInflight.has(cacheKey)) return;
-	prefetchingSet.add(cacheKey);
-	try {
-		let streamUrl = null;
-		if (platform === 'soundcloud' || (trackUrl && trackUrl.includes('soundcloud.com'))) {
-			streamUrl = await fetchDirectSoundCloudStreamServer(trackUrl || cleanId, '');
-		} else if (cleanId && /^[a-zA-Z0-9_-]{11}$/.test(cleanId)) {
-			streamUrl = await fetchDirectYoutubeStreamServer(cleanId, quality);
-		}
-		if (streamUrl) {
-			const isHls = streamUrl.includes('.m3u8');
-			const proxied = 'http://127.0.0.1:' + PORT + '/api/audio-proxy?url=' + encodeURIComponent(streamUrl);
-			const data = {
-				success: true,
-				isLocal: false,
-				streamUrl: isHls ? streamUrl : proxied,
-				rawStreamUrl: streamUrl,
-				proxyUrl: proxied,
-				isHls
-			};
-			cacheSet(streamUrlCache, cacheKey, { timestamp: Date.now(), data });
-			if (cleanId) cacheSet(streamUrlCache, cleanId + '_' + quality, { timestamp: Date.now(), data });
-		}
-	} catch (_) {
-	} finally {
-		prefetchingSet.delete(cacheKey);
-	}
+  trackUrl = normalizeSoundCloudUrl(trackUrl);
+  let cleanId = cleanTrackId(trackId);
+  if (!cleanId && trackUrl && trackUrl.includes('v=')) {
+    cleanId = cleanTrackId(trackUrl.split('v=')[1].split('&')[0]);
+  }
+  const quality = 'medium';
+  const cacheKey = (cleanId || trackUrl).toLowerCase() + '_' + quality;
+  if (!cacheKey || prefetchingSet.size > 2) return;
+  if (streamUrlCache.has(cacheKey) || prefetchingSet.has(cacheKey) || streamInfoInflight.has(cacheKey)) return;
+  prefetchingSet.add(cacheKey);
+  let resolveInflight;
+  const inflightPromise = new Promise(resolve => { resolveInflight = resolve; });
+  streamInfoInflight.set(cacheKey, inflightPromise);
+  let streamUrl = null;
+  try {
+    if (platform === 'soundcloud' || (trackUrl && trackUrl.includes('soundcloud.com'))) {
+      streamUrl = await fetchDirectSoundCloudStreamServer(trackUrl || cleanId, '');
+    } else if (cleanId && /^[a-zA-Z0-9_-]{11}$/.test(cleanId)) {
+      streamUrl = await fetchDirectYoutubeStreamServer(cleanId, quality);
+    }
+    if (streamUrl) {
+      const isHls = streamUrl.includes('.m3u8');
+      const proxied = 'http://127.0.0.1:' + PORT + '/api/audio-proxy?url=' + encodeURIComponent(streamUrl);
+      const data = {
+        success: true,
+        isLocal: false,
+        streamUrl: isHls ? streamUrl : proxied,
+        rawStreamUrl: streamUrl,
+        proxyUrl: proxied,
+        isHls
+      };
+      cacheSet(streamUrlCache, cacheKey, { timestamp: Date.now(), data });
+      if (cleanId) cacheSet(streamUrlCache, cleanId + '_' + quality, { timestamp: Date.now(), data });
+    }
+  } catch (_) {
+  } finally {
+    resolveInflight(streamUrl);
+    if (streamInfoInflight.get(cacheKey) === inflightPromise) {
+      streamInfoInflight.delete(cacheKey);
+    }
+    prefetchingSet.delete(cacheKey);
+  }
 }
 
 const YTM_SONGS_PARAMS = 'EgWKAQIIAWoMEA4QChADEAQQCRAF';
@@ -1885,66 +2001,71 @@ const YTM_CLIENT_VERSION = '1.20250101.01.00';
 let ytmFailUntil = 0;
 let ytmFailCount = 0;
 
-async function ytmSearchRequest(query, params = YTM_SONGS_PARAMS, attempt = 0) {
-	const reqBody = {
-		context: { client: { clientName: 'WEB_REMIX', clientVersion: YTM_CLIENT_VERSION, hl: 'en', gl: 'US' } },
-		query
-	};
-	if (params) reqBody.params = params;
-	const body = JSON.stringify(reqBody);
+async function ytmSearchRequest(query, params = YTM_SONGS_PARAMS, attempt = 0, timeoutMs = 10000, maxRetries = 2) {
+  const reqBody = {
+    context: { client: { clientName: 'WEB_REMIX', clientVersion: YTM_CLIENT_VERSION, hl: 'en', gl: 'US' } },
+    query
+  };
+  if (params) reqBody.params = params;
+  const body = JSON.stringify(reqBody);
 
-	return new Promise((resolve, reject) => {
-		const req = https.request({
-			hostname: 'music.youtube.com',
-			path: '/youtubei/v1/search?prettyPrint=false',
-			method: 'POST',
-			agent: attempt === 0 ? keepAliveHttpsAgent : false,
-			family: 4,
-			timeout: 10000,
-			headers: {
-				'Content-Type': 'application/json',
-				'Content-Length': Buffer.byteLength(body),
-				'Origin': 'https://music.youtube.com',
-				'Referer': 'https://music.youtube.com/',
-				'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
-			}
-		}, (res) => {
-			if (res.statusCode < 200 || res.statusCode >= 300) {
-				try { logger.log('warn', `ytmusic search status ${res.statusCode}`); } catch (_) { }
-				res.resume();
-				return reject(new Error(`ytmusic status ${res.statusCode}`));
-			}
-			let raw = '';
-			res.setEncoding('utf8');
-			res.on('data', chunk => { raw += chunk; });
-			res.on('end', () => {
-				try {
-					resolve(JSON.parse(raw));
-				} catch (err) {
-					try { logger.log('warn', `ytmusic search parse error: ${err.message}`); } catch (_) { }
-					reject(err);
-				}
-			});
-		});
-		req.on('timeout', () => {
-			req.destroy();
-			if (attempt < 2) {
-				return resolve(ytmSearchRequest(query, params, attempt + 1));
-			}
-			const timeoutErr = new Error('The operation was aborted due to timeout');
-			try { logger.log('warn', `ytmusic search error: ${timeoutErr.message}`); } catch (_) { }
-			reject(timeoutErr);
-		});
-		req.on('error', (err) => {
-			if (attempt < 2 && /ECONNRESET|socket hang up|EPIPE|ETIMEDOUT/i.test(err && err.message || '')) {
-				return resolve(ytmSearchRequest(query, params, attempt + 1));
-			}
-			try { logger.log('warn', `ytmusic search error: ${err.message}`); } catch (_) { }
-			reject(err);
-		});
-		req.write(body);
-		req.end();
-	});
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: 'music.youtube.com',
+      path: '/youtubei/v1/search?prettyPrint=false',
+      method: 'POST',
+      agent: attempt === 0 ? keepAliveHttpsAgent : false,
+      family: 4,
+      timeout: timeoutMs,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        'Origin': 'https://music.youtube.com',
+        'Referer': 'https://music.youtube.com/',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+      }
+    }, (res) => {
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        try { logger.log('warn', `ytmusic search status ${res.statusCode}`); } catch (_) {}
+        res.resume();
+        return reject(new Error(`ytmusic status ${res.statusCode}`));
+      }
+      let raw = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { raw += chunk; });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(raw));
+        } catch (err) {
+          try { logger.log('warn', `ytmusic search parse error: ${err.message}`); } catch (_) {}
+          reject(err);
+        }
+      });
+    });
+    let retryStarted = false;
+    const retryOrReject = (err) => {
+      if (retryStarted) return;
+      retryStarted = true;
+      if (attempt < maxRetries) {
+        return resolve(ytmSearchRequest(query, params, attempt + 1, timeoutMs, maxRetries));
+      }
+      try { logger.log('warn', `ytmusic search error: ${err.message}`); } catch (_) {}
+      reject(err);
+    };
+    req.on('timeout', () => {
+      req.destroy();
+      retryOrReject(new Error('The operation was aborted due to timeout'));
+    });
+    req.on('error', (err) => {
+      if (/ECONNRESET|socket hang up|EPIPE|ETIMEDOUT/i.test(err && err.message || '')) {
+        return retryOrReject(err);
+      }
+      try { logger.log('warn', `ytmusic search error: ${err.message}`); } catch (_) {}
+      reject(err);
+    });
+    req.write(body);
+    req.end();
+  });
 }
 
 function parseYtmDuration(text) {
@@ -2129,38 +2250,39 @@ async function fetchSoundCloudSearch(query, limit = 20) {
 	return [];
 }
 
-async function ytmusicSearch(query) {
-	let json;
-	try {
-		json = await ytmSearchRequest(query);
-	} catch (_) {
-		try {
-			json = await ytmSearchRequest(query);
-		} catch (_) {
-			return [];
-		}
-	}
-	try {
-		const songs = parseYtmSongs(json);
-		if (songs && songs.length > 0) {
-			return songs.map(s => {
-				const artist = stripYoutubeTopic(s.artist);
-				ytArtistCache.set(s.id, artist);
-				return {
-					id: s.id,
-					title: s.title,
-					artist: stripYoutubeTopic(artist),
-					album: s.album,
-					duration: s.duration || 180,
-					thumbnail: s.thumbnail || `https://i.ytimg.com/vi/${s.id}/hqdefault.jpg`,
-					url: `https://www.youtube.com/watch?v=${s.id}`,
-					platform: 'youtube',
-					isExplicit: !!s.isExplicit
-				};
-			});
-		}
-	} catch (_) { }
-	return [];
+async function ytmusicSearch(query, options = {}) {
+  const timeoutMs = options.timeoutMs || 10000;
+  const maxRetries = Number.isInteger(options.maxRetries) ? options.maxRetries : 2;
+  const useFallback = options.fallback !== false;
+  let json;
+  try {
+    json = await ytmSearchRequest(query, YTM_SONGS_PARAMS, 0, timeoutMs, maxRetries);
+  } catch (_) {
+    if (!useFallback) return [];
+    try { return await directYoutubeSearch(query, true).then(tracks => tracks || []); } catch (_) { return []; }
+  }
+  try {
+    const songs = parseYtmSongs(json);
+    if (songs && songs.length > 0) {
+      return songs.map(s => {
+        const artist = stripYoutubeTopic(s.artist);
+        ytArtistCache.set(s.id, artist);
+        return {
+          id: s.id,
+          title: s.title,
+          artist: stripYoutubeTopic(artist),
+          album: s.album,
+          duration: s.duration || 180,
+          thumbnail: s.thumbnail || `https://i.ytimg.com/vi/${s.id}/hqdefault.jpg`,
+          url: `https://www.youtube.com/watch?v=${s.id}`,
+          platform: 'youtube',
+          isExplicit: !!s.isExplicit
+        };
+      });
+    }
+  } catch (_) {}
+  if (!useFallback) return [];
+  return [];
 }
 
 async function handleSearch(req, res, query, platform = 'ytmusic', limit = 12, offset = 0) {
@@ -2175,92 +2297,96 @@ async function handleSearch(req, res, query, platform = 'ytmusic', limit = 12, o
 	const poolCacheKey = `pool:${platform}:${qStr.toLowerCase()}`;
 	let pool = searchCache.get(poolCacheKey);
 
-	if (offset === 0 && (!pool || !Array.isArray(pool))) {
-		if (platform === 'soundcloud') {
-			pool = (await fetchSoundCloudSearch(qStr, 40).catch(() => [])) || [];
-			searchCache.set(poolCacheKey, pool);
-			setTimeout(() => { searchCache.delete(poolCacheKey); }, 300000);
-			const sliced = pool.slice(0, limit);
-			await Promise.all(sliced.map(async t => {
-				if (t.isCached === undefined && t.id) {
-					t.isCached = !!(await findCachedFile(t.id));
-				}
-			}));
-			if (sliced[0] && sliced[0].url) {
-				prefetchTrack(sliced[0].url, sliced[0].id, sliced[0].platform || 'soundcloud').catch(() => { });
-			}
-			res.writeHead(200, { 'Content-Type': 'application/json' });
-			return res.end(JSON.stringify({
-				success: true,
-				tracks: sliced,
-				hasMore: limit < pool.length
-			}));
-		}
+  if (offset === 0 && (!pool || !Array.isArray(pool))) {
+    if (platform === 'soundcloud') {
+      pool = (await fetchSoundCloudSearch(qStr, 40).catch(() => [])) || [];
+      pool = cleanSearchResults(pool, qStr);
+      searchCache.set(poolCacheKey, pool);
+      setTimeout(() => { searchCache.delete(poolCacheKey); }, 300000);
+      const sliced = pool.slice(0, limit);
+      await Promise.all(sliced.map(async t => {
+        if (t.isCached === undefined && t.id) {
+          t.isCached = !!(await findCachedFile(t.id));
+        }
+      }));
+      if (sliced[0] && sliced[0].url) {
+        prefetchTrack(sliced[0].url, sliced[0].id, sliced[0].platform || 'soundcloud').catch(() => {});
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        success: true,
+        tracks: sliced,
+        hasMore: limit < pool.length
+      }));
+    }
 
-		if (platform === 'youtube') {
-			pool = (await directYoutubeSearch(qStr, false, 40).catch(() => [])) || [];
-			searchCache.set(poolCacheKey, pool);
-			setTimeout(() => { searchCache.delete(poolCacheKey); }, 300000);
-			const sliced = pool.slice(0, limit);
-			await Promise.all(sliced.map(async t => {
-				if (t.isCached === undefined && t.id) {
-					t.isCached = !!(await findCachedFile(t.id));
-				}
-			}));
-			if (sliced[0] && sliced[0].url) {
-				prefetchTrack(sliced[0].url, sliced[0].id, sliced[0].platform || 'youtube').catch(() => { });
-			}
-			res.writeHead(200, { 'Content-Type': 'application/json' });
-			return res.end(JSON.stringify({
-				success: true,
-				tracks: sliced,
-				hasMore: limit < pool.length
-			}));
-		}
+    if (platform === 'youtube') {
+      pool = (await directYoutubeSearch(qStr, false, 40).catch(() => [])) || [];
+      pool = cleanSearchResults(pool, qStr);
+      searchCache.set(poolCacheKey, pool);
+      setTimeout(() => { searchCache.delete(poolCacheKey); }, 300000);
+      const sliced = pool.slice(0, limit);
+      await Promise.all(sliced.map(async t => {
+        if (t.isCached === undefined && t.id) {
+          t.isCached = !!(await findCachedFile(t.id));
+        }
+      }));
+      if (sliced[0] && sliced[0].url) {
+        prefetchTrack(sliced[0].url, sliced[0].id, sliced[0].platform || 'youtube').catch(() => {});
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        success: true,
+        tracks: sliced,
+        hasMore: limit < pool.length
+      }));
+    }
 
-		if (platform === 'ytmusic') {
-			const ytmTracks = (await ytmusicSearch(qStr).catch(() => [])) || [];
-			if (ytmTracks.length > 0) {
-				pool = [...ytmTracks];
-			} else {
-				pool = (await directYoutubeSearch(qStr, false, 40).catch(() => [])) || [];
-			}
-			searchCache.set(poolCacheKey, pool);
-			setTimeout(() => { searchCache.delete(poolCacheKey); }, 300000);
-			const sliced = pool.slice(0, limit);
-			await Promise.all(sliced.map(async t => {
-				if (t.isCached === undefined && t.id) {
-					t.isCached = !!(await findCachedFile(t.id));
-				}
-			}));
-			if (sliced[0] && sliced[0].url) {
-				prefetchTrack(sliced[0].url, sliced[0].id, sliced[0].platform || 'youtube').catch(() => { });
-			}
-			res.writeHead(200, { 'Content-Type': 'application/json' });
-			return res.end(JSON.stringify({
-				success: true,
-				tracks: sliced,
-				hasMore: limit < pool.length
-			}));
-		}
-	}
+    if (platform === 'ytmusic') {
+      const ytmTracks = (await ytmusicSearch(qStr).catch(() => [])) || [];
+      if (ytmTracks.length > 0) {
+        pool = [...ytmTracks];
+      } else {
+        pool = (await directYoutubeSearch(qStr, false, 40).catch(() => [])) || [];
+      }
+      pool = cleanSearchResults(pool, qStr);
+      searchCache.set(poolCacheKey, pool);
+      setTimeout(() => { searchCache.delete(poolCacheKey); }, 300000);
+      const sliced = pool.slice(0, limit);
+      await Promise.all(sliced.map(async t => {
+        if (t.isCached === undefined && t.id) {
+          t.isCached = !!(await findCachedFile(t.id));
+        }
+      }));
+      if (sliced[0] && sliced[0].url) {
+        prefetchTrack(sliced[0].url, sliced[0].id, sliced[0].platform || 'youtube').catch(() => {});
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        success: true,
+        tracks: sliced,
+        hasMore: limit < pool.length
+      }));
+    }
+  }
 
-	if (!pool || !Array.isArray(pool)) {
-		if (platform === 'soundcloud') {
-			pool = (await fetchSoundCloudSearch(qStr, 40).catch(() => [])) || [];
-		} else if (platform === 'youtube') {
-			pool = (await directYoutubeSearch(qStr, false, 40).catch(() => [])) || [];
-		} else {
-			const ytmTracks = (await ytmusicSearch(qStr).catch(() => [])) || [];
-			if (ytmTracks.length > 0) {
-				pool = [...ytmTracks];
-			} else {
-				pool = (await directYoutubeSearch(qStr, false, 40).catch(() => [])) || [];
-			}
-		}
-		searchCache.set(poolCacheKey, pool);
-		setTimeout(() => { searchCache.delete(poolCacheKey); }, 300000);
-	}
+  if (!pool || !Array.isArray(pool)) {
+    if (platform === 'soundcloud') {
+      pool = (await fetchSoundCloudSearch(qStr, 40).catch(() => [])) || [];
+    } else if (platform === 'youtube') {
+      pool = (await directYoutubeSearch(qStr, false, 40).catch(() => [])) || [];
+    } else {
+      const ytmTracks = (await ytmusicSearch(qStr).catch(() => [])) || [];
+      if (ytmTracks.length > 0) {
+        pool = [...ytmTracks];
+      } else {
+        pool = (await directYoutubeSearch(qStr, false, 40).catch(() => [])) || [];
+      }
+    }
+    pool = cleanSearchResults(pool, qStr);
+    searchCache.set(poolCacheKey, pool);
+    setTimeout(() => { searchCache.delete(poolCacheKey); }, 300000);
+  }
 
 	const sliced = pool.slice(offset, offset + limit);
 	await Promise.all(sliced.map(async t => {
@@ -2447,16 +2573,16 @@ function scoreImportedCandidate(targetTitle, targetArtist, targetDur, cand) {
 		else if (inCand && inTarget) score += 22;
 	}
 
-	const tDur = Number(targetDur) || 0;
-	const cDur = Number(cand.duration) || 0;
-	if (tDur > 30 && cDur > 30) {
-		const diff = Math.abs(tDur - cDur);
-		if (diff <= 3) score += 35;
-		else if (diff <= 8) score += 20;
-		else if (diff <= 15) score += 8;
-		else if (diff > 45) score -= 35;
-	}
-	if (tDur > 45 && cDur > 0 && cDur < 35) return -500;
+  const tDur = Number(targetDur) || 0;
+  const cDur = Number(cand.duration) || 0;
+  if (tDur > 30 && cDur > 30) {
+    const diff = Math.abs(tDur - cDur);
+    if (diff > Math.max(30, tDur * 0.25)) return -500;
+    if (diff <= 3) score += 35;
+    else if (diff <= 8) score += 20;
+    else if (diff <= 15) score += 8;
+  }
+  if (tDur > 45 && cDur > 0 && cDur < 35) return -500;
 
 	return score;
 }
@@ -2480,22 +2606,55 @@ function makeCleanSearchQuery(artist, title) {
 	return `${cleanA} ${cleanT}`.trim();
 }
 
-async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube', title = '', artist = '', duration = 0, thumbnail = '', timeoutSec = 12) {
-	artist = stripYoutubeTopic(artist);
-	trackUrl = normalizeSoundCloudUrl(trackUrl);
-	const parsedUrl = (req && req.url) ? url.parse(req.url, true) : { query: {} };
-	const forShare = Boolean(parsedUrl.query && parsedUrl.query.forShare === '1');
-	const forceYtDlp = Boolean(parsedUrl.query && parsedUrl.query.forceYtDlp === '1');
-	const quality = (parsedUrl.query && parsedUrl.query.quality) || 'medium';
-	const queryQ = (parsedUrl.query && parsedUrl.query.q) ? String(parsedUrl.query.q).trim() : '';
-	let cleanId = cleanTrackId(trackId);
-	if (!cleanId && trackUrl && trackUrl.includes('v=')) {
-		cleanId = cleanTrackId(trackUrl.split('v=')[1].split('&')[0]);
-	}
-	const isRealYtId = /^[a-zA-Z0-9_-]{11}$/.test(cleanId) && !/^(cand_|dz_|it_|sp_|ym_)/i.test(cleanId);
-	if (!isRealYtId && trackUrl && /cand_|dz_|it_|sp_|ym_/i.test(trackUrl)) {
-		trackUrl = '';
-	}
+async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube', title = '', artist = '', duration = 0, thumbnail = '', timeoutSec = 20) {
+  const deadlineAt = Date.now() + timeoutSec * 1000;
+  let timedOut = false;
+  const activeYtDlps = new Set();
+  const stopActiveYtDlps = () => {
+    for (const proc of activeYtDlps) {
+      if (!proc.killed) proc.kill('SIGKILL');
+    }
+  };
+  const deadlineTimer = setTimeout(() => {
+    timedOut = true;
+    stopActiveYtDlps();
+    if (!res.writableEnded) {
+      res.writeHead(504, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Stream resolution timed out' }));
+    }
+  }, timeoutSec * 1000);
+  deadlineTimer.unref();
+  res.once('close', () => {
+    clearTimeout(deadlineTimer);
+    if (!res.writableEnded) stopActiveYtDlps();
+  });
+  const runYtDlp = (args, limit, extraOpts = {}) => {
+    const remaining = deadlineAt - Date.now();
+    if (timedOut || remaining <= 0) return Promise.reject(new Error('Stream resolution timed out'));
+    return executeYtDlp(args, Math.max(1, Math.min(limit, remaining)), {
+      ...extraOpts,
+      onChild: (proc) => {
+        activeYtDlps.add(proc);
+        proc.once('close', () => activeYtDlps.delete(proc));
+        if (timedOut) proc.kill('SIGKILL');
+      }
+    });
+  };
+  artist = stripYoutubeTopic(artist);
+  trackUrl = normalizeSoundCloudUrl(trackUrl);
+  const parsedUrl = (req && req.url) ? url.parse(req.url, true) : { query: {} };
+  const forShare = Boolean(parsedUrl.query && parsedUrl.query.forShare === '1');
+  const forceYtDlp = Boolean(parsedUrl.query && parsedUrl.query.forceYtDlp === '1');
+  const quality = (parsedUrl.query && parsedUrl.query.quality) || 'medium';
+  const queryQ = (parsedUrl.query && parsedUrl.query.q) ? String(parsedUrl.query.q).trim() : '';
+  let cleanId = cleanTrackId(trackId);
+  if (!cleanId && trackUrl && trackUrl.includes('v=')) {
+    cleanId = cleanTrackId(trackUrl.split('v=')[1].split('&')[0]);
+  }
+  const isRealYtId = /^[a-zA-Z0-9_-]{11}$/.test(cleanId) && !/^(cand_|dz_|it_|sp_|ym_)/i.test(cleanId);
+  if (!isRealYtId && trackUrl && /cand_|dz_|it_|sp_|ym_/i.test(trackUrl)) {
+    trackUrl = '';
+  }
 
 	const isSc = platform === "soundcloud" || (trackUrl && trackUrl.includes("soundcloud.com"));
 	if (isSc && (!title && !artist) && trackUrl) {
@@ -2508,10 +2667,11 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
 
 	const meta = { title, artist, duration, thumbnail };
 
-	const [cachedFile, downloadedName] = await Promise.all([
-		cleanId ? findCachedFile(cleanId) : Promise.resolve(null),
-		(title || artist) ? findDownloadedFile(title, artist) : Promise.resolve(null)
-	]);
+  const canUseLocalAudio = isRealYtId || isSc;
+  const [cachedFile, downloadedName] = await Promise.all([
+    canUseLocalAudio && cleanId ? findCachedFile(cleanId) : Promise.resolve(null),
+    canUseLocalAudio && (title || artist) ? findDownloadedFile(title, artist) : Promise.resolve(null)
+  ]);
 
 	if (!forShare && cachedFile) {
 		const data = {
@@ -2534,19 +2694,19 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
 		return res.end(JSON.stringify(data));
 	}
 
-	const cacheKey = (cleanId || trackUrl || queryQ || `${artist}_${title}`).toLowerCase() + '_' + quality;
-	if (forceYtDlp) {
-		if (cacheKey) streamUrlCache.delete(cacheKey);
-		if (cleanId) streamUrlCache.delete(cleanId + '_' + quality);
-	}
-	if (!forShare && !forceYtDlp && cacheKey && (streamUrlCache.has(cacheKey) || (cleanId && streamUrlCache.has(cleanId + '_' + quality)))) {
-		const cached = streamUrlCache.get(cacheKey) || (cleanId ? streamUrlCache.get(cleanId + '_' + quality) : null);
-		if (cached && (Date.now() - cached.timestamp < 7200000)) {
-			res.writeHead(200, { 'Content-Type': 'application/json' });
-			if (cleanId) setTimeout(() => downloadTrackToDisk(trackUrl, cleanId, platform, meta), 45000);
-			return res.end(JSON.stringify(cached.data));
-		}
-	}
+  const cacheKey = 'stream-v2:' + (cleanId || trackUrl || queryQ || `${artist}_${title}`).toLowerCase() + '_' + quality;
+  if (forceYtDlp) {
+    if (cacheKey) streamUrlCache.delete(cacheKey);
+    if (cleanId) streamUrlCache.delete(cleanId + '_' + quality);
+  }
+  if (!forShare && !forceYtDlp && cacheKey && streamUrlCache.has(cacheKey)) {
+    const cached = streamUrlCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < 7200000)) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      if (canUseLocalAudio && cleanId) setTimeout(() => downloadTrackToDisk(trackUrl, cleanId, platform, meta), 45000);
+      return res.end(JSON.stringify(cached.data));
+    }
+  }
 
 	if (!forceYtDlp && streamInfoInflight.has(cacheKey)) {
 		const inflightUrl = await streamInfoInflight.get(cacheKey).catch(() => null);
@@ -2592,32 +2752,33 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
 
 		const q = ((artist ? artist + ' - ' : '') + (title || '')).trim() || queryQ;
 
-		const sendStreamResponse = (url, resolvedId = null) => {
-			resolveInflight(url);
-			streamInfoInflight.delete(cacheKey);
-			const finalId = resolvedId || cleanId;
-			if (forShare) {
-				const shareWebUrl = finalId ? `https://www.youtube.com/watch?v=${finalId}` : (trackUrl || '');
-				res.writeHead(200, { 'Content-Type': 'application/json' });
-				return res.end(JSON.stringify({ success: true, streamUrl: url, shareWebUrl }));
-			}
-			const isHls = url.includes('.m3u8');
-			const proxied = 'http://127.0.0.1:' + PORT + '/api/audio-proxy?url=' + encodeURIComponent(url);
-			const data = {
-				success: true,
-				isLocal: false,
-				streamUrl: isHls ? url : proxied,
-				rawStreamUrl: url,
-				proxyUrl: proxied,
-				isHls: isHls
-			};
-			if (resolvedId) data.resolvedId = resolvedId;
-			if (cacheKey) streamUrlCache.set(cacheKey, { timestamp: Date.now(), data });
-			if (finalId && finalId !== cacheKey) streamUrlCache.set(finalId + '_' + quality, { timestamp: Date.now(), data });
-			if (finalId) setTimeout(() => downloadTrackToDisk(trackUrl || `https://www.youtube.com/watch?v=${finalId}`, finalId, 'youtube', meta), 45000);
-			res.writeHead(200, { 'Content-Type': 'application/json' });
-			return res.end(JSON.stringify(data));
-		};
+    const sendStreamResponse = (url, resolvedId = null) => {
+      if (res.writableEnded) return;
+      resolveInflight(url);
+      streamInfoInflight.delete(cacheKey);
+      const finalId = resolvedId || cleanId;
+      if (forShare) {
+        const shareWebUrl = finalId ? `https://www.youtube.com/watch?v=${finalId}` : (trackUrl || '');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: true, streamUrl: url, shareWebUrl }));
+      }
+      const isHls = url.includes('.m3u8');
+      const proxied = 'http://127.0.0.1:' + PORT + '/api/audio-proxy?url=' + encodeURIComponent(url);
+      const data = {
+        success: true,
+        isLocal: false,
+        streamUrl: isHls ? url : proxied,
+        rawStreamUrl: url,
+        proxyUrl: proxied,
+        isHls: isHls
+      };
+      if (resolvedId) data.resolvedId = resolvedId;
+      if (cacheKey) streamUrlCache.set(cacheKey, { timestamp: Date.now(), data });
+      if (finalId && finalId !== cacheKey) streamUrlCache.set(finalId + '_' + quality, { timestamp: Date.now(), data });
+      if (canUseLocalAudio && finalId) setTimeout(() => downloadTrackToDisk(trackUrl || `https://www.youtube.com/watch?v=${finalId}`, finalId, 'youtube', meta), 45000);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(data));
+    };
 
     const resolveYtCandidateStream = async (candId) => {
       const vid = extractYtIdFromAny(candId);
@@ -2628,64 +2789,97 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
         if (s) return s;
       }
       const vUrl = `https://www.youtube.com/watch?v=${vid}`;
-      const hasCookies = fs.existsSync(YT_COOKIES_FILE);
-      const clientSpecs = hasCookies
-        ? ['web,tv,ios', 'default']
-        : ['web_embedded,web,tv', 'ios'];
-      for (const clientSpec of clientSpecs) {
-        if (s) break;
-        try {
-          const args = [
-            '--no-config', '-g', '--no-warnings', '--no-playlist', '--no-check-certificates',
-            '--js-runtimes', 'node', '--remote-components', 'ejs:github',
-            '--socket-timeout', '6', '--retries', '1',
-            '--extractor-args', 'youtube:player_client=' + clientSpec,
-            '-f', (forShare ? audioFormat : ytDlpQualityFormat),
-            '--', vUrl
-          ];
-          const raw = await executeYtDlp(args, 18000);
-          const lines = raw.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
-          for (const lineUrl of lines) {
-            if (await verifyStreamPlayable(lineUrl)) {
-              s = lineUrl;
+      const hasCookies = hasYtLoginCookies();
+      // web_embedded yields WEB_EMBEDDED_PLAYER URLs that work with a plain
+      // YouTube Origin header. Try it cookie-free first: it is the fastest and
+      // most reliable path, and cookies can trigger "unavailable (152-18)".
+      const attempts = [];
+      attempts.push({ clientSpec: 'web_embedded,web,tv', cookies: false });
+      if (hasCookies) attempts.push({ clientSpec: 'web_embedded,web,tv', cookies: true });
+      attempts.push({ clientSpec: 'ios', cookies: false });
+      if (hasCookies) attempts.push({ clientSpec: 'default', cookies: true });
+      let lastAttemptError = '';
+      let stopAttempts = false;
+      for (const attempt of attempts) {
+        if (s || stopAttempts) break;
+        // Rapid track skipping makes YouTube intermittently answer with
+        // "Requested format is not available" / "The page needs to be
+        // reloaded." even for otherwise playable videos. Retry once.
+        for (let tryNo = 0; tryNo < 2 && !s && !stopAttempts; tryNo++) {
+          let retryable = false;
+          try {
+            const args = [
+              '--no-config', '-g', '--no-warnings', '--no-playlist', '--no-check-certificates',
+              '--js-runtimes', 'node', '--remote-components', 'ejs:github',
+              '--socket-timeout', '6', '--retries', '1',
+              '--extractor-args', 'youtube:player_client=' + attempt.clientSpec,
+              '-f', (forShare ? audioFormat : ytDlpQualityFormat),
+              '--', vUrl
+            ];
+            const raw = await runYtDlp(args, 18000, { noCookies: !attempt.cookies, quiet: true });
+            const lines = raw.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
+            for (const lineUrl of lines) {
+              let verified = false;
+              // googlevideo 403s are often transient right after extraction
+              // (edge propagation / rate limiting), so check a few times.
+              for (let check = 0; check < 3 && !verified; check++) {
+                verified = await verifyStreamPlayable(lineUrl);
+                if (!verified) await new Promise((r) => setTimeout(r, 500 + check * 500));
+              }
+              // If yt-dlp produced a googlevideo URL, prefer trying it over
+              // skipping the track; the media element can still recover.
+              if (!verified && /googlevideo\.com/i.test(lineUrl)) verified = true;
+              if (verified) {
+                s = lineUrl;
+                break;
+              }
+            }
+          } catch (err) {
+            const msg = String((err && err.message) || err || '');
+            lastAttemptError = msg;
+            if (/confirm your age|not a bot|Sign in to confirm|age-restricted|LOGIN_REQUIRED/i.test(msg)) {
+              needYtAuth = true;
+              // Still try the cookie attempt before giving up on login-gated videos.
+              if (!hasCookies || attempt.cookies) stopAttempts = true;
               break;
             }
+            if (/Video unavailable|This video is not available|Private video/i.test(msg)) {
+              stopAttempts = true;
+              break;
+            }
+            retryable = /format is not available|page needs to be reloaded|429|too many requests|temporar/i.test(msg);
           }
-        } catch (err) {
-          const msg = String((err && err.message) || err || '');
-          if (/confirm your age|not a bot|Sign in to confirm|age-restricted|LOGIN_REQUIRED/i.test(msg)) {
-            needYtAuth = true;
-            break;
-          }
-          if (/Video unavailable|This video is not available|Private video/i.test(msg)) {
-            break;
-          }
+          if (!retryable || tryNo === 1) break;
+          await new Promise((r) => setTimeout(r, 900));
         }
+      }
+      if (!s) {
+        try { logger.log('warn', `No stream for ${vid}: ${String(lastAttemptError || 'all attempts failed').slice(0, 200)}`); } catch (_) {}
       }
       return s;
     };
 
-		const resolveScCandidateStream = async (candUrl, candId) => {
-			let s = null;
-			try {
-				s = await fetchDirectSoundCloudStreamServer(candUrl || candId, '');
-			} catch (_) { }
-			if (!s && candUrl && isSafeMediaUrl(candUrl)) {
-				try {
-					const args = [
-						'--no-config', '-g', '--no-warnings', '--no-playlist', '--no-check-certificates',
-						'--socket-timeout', '8', '--retries', '1',
-						'-f', audioFormat,
-						'--', candUrl
-					];
-					const raw = await executeYtDlp(args, 10000);
-					const lines = raw.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
-					const nonDrm = lines.find(l => !/preview|drm|cf-preview-media/i.test(l));
-					if (nonDrm && !nonDrm.includes('/preview/') && !nonDrm.includes('cf-preview-media')) s = nonDrm;
-				} catch (_) { }
-			}
-			return s;
-		};
+    const resolveScCandidateStream = async (candUrl, candId) => {
+      let s = null;
+      try {
+        s = await fetchDirectSoundCloudStreamServer(candUrl || candId, '');
+      } catch (_) {}
+      if (!s && candUrl && isSafeMediaUrl(candUrl)) {
+        try {
+          const args = [
+            '--no-config', '-g', '--no-warnings', '--no-playlist', '--no-check-certificates',
+            '--socket-timeout', '8', '--retries', '1',
+            '-f', audioFormat,
+            '--', candUrl
+          ];
+          const raw = await runYtDlp(args, 10000);
+          const lines = raw.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
+          const nonDrm = lines.find(l => !/preview|drm|cf-preview-media/i.test(l));
+          if (nonDrm && !nonDrm.includes('/preview/') && !nonDrm.includes('cf-preview-media')) s = nonDrm;
+        } catch (_) {}
+      }
+      return s;
+    };
 
 		const failedYtIds = new Set();
 
@@ -2698,107 +2892,76 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
 			failedYtIds.add(cleanId);
 		}
 
-		const searchQ = makeCleanSearchQuery(artist, title) || q;
-		if (!streamUrl && searchQ) {
-			const maxCand = needYtAuth ? 1 : 3;
-			try {
-				const ytmHits = await ytmusicSearch(searchQ);
-				if (Array.isArray(ytmHits) && ytmHits.length > 0) {
-					const scored = ytmHits
-						.filter(c => c && c.id && !failedYtIds.has(c.id))
-						.map(c => ({ cand: c, score: scoreImportedCandidate(title || searchQ, artist, duration, c) }))
-						.sort((a, b) => b.score - a.score);
-					for (const item of scored.slice(0, maxCand)) {
-						failedYtIds.add(item.cand.id);
-						streamUrl = await resolveYtCandidateStream(item.cand.id);
-						if (streamUrl) return sendStreamResponse(streamUrl, item.cand.id);
-					}
-				}
-			} catch (_) { }
+    const searchQ = makeCleanSearchQuery(artist, title) || q;
+    if (!streamUrl && searchQ) {
+      const maxCand = needYtAuth ? 1 : 3;
+      const [ytmHits, ytHits] = await Promise.all([
+        ytmusicSearch(searchQ, { timeoutMs: 3500, maxRetries: 0, fallback: false }).catch(() => []),
+        directYoutubeSearch(searchQ, false, 12).catch(() => [])
+      ]);
+      const candidates = new Map();
+      for (const candidate of [...(ytmHits || []), ...(ytHits || [])]) {
+        if (candidate && candidate.id && !failedYtIds.has(candidate.id) && !candidates.has(candidate.id)) {
+          candidates.set(candidate.id, candidate);
+        }
+      }
+      const rankedCandidates = Array.from(candidates.values())
+        .map(cand => ({ cand, score: scoreImportedCandidate(title || searchQ, artist, duration, cand) }))
+        .filter(item => item.score >= (artist && !/^unknown artist$/i.test(artist.trim()) ? 70 : 45))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, maxCand);
+      rankedCandidates.forEach(item => failedYtIds.add(item.cand.id));
+      const streamResults = await Promise.all(rankedCandidates.map(async ({ cand }) => {
+        try {
+          const url = await resolveYtCandidateStream(cand.id);
+          return url ? { url, id: cand.id } : null;
+        } catch (_) {
+          return null;
+        }
+      }));
+      const bestMatch = streamResults.find(result => result !== null);
+      if (bestMatch) return sendStreamResponse(bestMatch.url, bestMatch.id);
 
-			if (!streamUrl) {
-				try {
-					const ytHits = await directYoutubeSearch(searchQ, false, 12);
-					if (Array.isArray(ytHits) && ytHits.length > 0) {
-						const scored = ytHits
-							.filter(c => c && c.id && !failedYtIds.has(c.id))
-							.map(c => ({ cand: c, score: scoreImportedCandidate(title || searchQ, artist, duration, c) }))
-							.sort((a, b) => b.score - a.score);
-						for (const item of scored.slice(0, maxCand)) {
-							failedYtIds.add(item.cand.id);
-							streamUrl = await resolveYtCandidateStream(item.cand.id);
-							if (streamUrl) return sendStreamResponse(streamUrl, item.cand.id);
-						}
-					}
-				} catch (_) { }
-			}
+    }
 
-			if (!streamUrl) {
-				try {
-					streamUrl = await fetchDirectSoundCloudStreamServer('', q || searchQ);
-					if (streamUrl) return sendStreamResponse(streamUrl);
-				} catch (_) { }
-			}
-
-			if (!streamUrl && !needYtAuth) {
-				try {
-					const fbRaw = await executeYtDlp([
-						'--no-config', '-g', '--no-warnings', '--no-playlist', '--no-check-certificates',
-						'--js-runtimes', 'node',
-						'--socket-timeout', '8', '--retries', '1',
-						'--extractor-args', 'youtube:player_client=default,android_vr',
-						'-f', 'bestaudio/18/best',
-						`ytsearch1:${q || searchQ} audio`
-					], 10000);
-					const fbLines = fbRaw.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
-					for (const fbUrl of fbLines) {
-						if (await verifyStreamPlayable(fbUrl)) {
-							streamUrl = fbUrl;
-							return sendStreamResponse(streamUrl);
-						}
-					}
-				} catch (_) { }
-			}
-		}
-
-		if (!streamUrl) {
-			try {
-				streamUrl = await fetchDirectSoundCloudStreamServer('', q || searchQ);
-				if (streamUrl) return sendStreamResponse(streamUrl);
-			} catch (_) { }
-		}
+    if (!streamUrl && (platform === 'soundcloud' || isSc)) {
+      try {
+        streamUrl = await fetchDirectSoundCloudStreamServer('', q || searchQ);
+        if (streamUrl) return sendStreamResponse(streamUrl);
+      } catch (_) {}
+    }
 
 
-		let shareWebUrl = '';
-		if (forShare && (!streamUrl || streamUrl.includes('.m3u8')) && (title || artist)) {
-			try {
-				const rawYt = await executeYtDlp([
-					'--no-config', '--no-warnings', '--no-playlist',
-					'--extractor-args', YT_EXTRACTOR_ARGS,
-					'--print', '%(webpage_url)s\n%(url)s',
-					'-f', 'bestaudio[ext=m4a]/bestaudio',
-					'ytsearch1:' + ((artist ? artist + ' - ' : '') + title).trim() + ' audio'
-				], 10000);
-				const lines = rawYt.trim().split(String.fromCharCode(10)).map(l => l.trim()).filter(Boolean);
-				if (lines.length >= 2) {
-					shareWebUrl = lines[0];
-					streamUrl = lines[1];
-				} else if (lines.length === 1) {
-					if (lines[0].startsWith('http') && (lines[0].includes('youtube.com') || lines[0].includes('youtu.be'))) {
-						shareWebUrl = lines[0];
-					} else if (lines[0].startsWith('http')) {
-						streamUrl = lines[0];
-					}
-				}
-			} catch (e) { }
-		}
-		if (forShare && !shareWebUrl) {
-			if (trackUrl && (trackUrl.includes('youtube.com') || trackUrl.includes('youtu.be'))) {
-				shareWebUrl = trackUrl;
-			} else if (cleanId && isYt) {
-				shareWebUrl = `https://www.youtube.com/watch?v=${cleanId}`;
-			}
-		}
+    let shareWebUrl = '';
+    if (forShare && (!streamUrl || streamUrl.includes('.m3u8')) && (title || artist)) {
+      try {
+        const rawYt = await runYtDlp([
+          '--no-config', '--no-warnings', '--no-playlist',
+          '--extractor-args', YT_EXTRACTOR_ARGS,
+          '--print', '%(webpage_url)s\n%(url)s',
+          '-f', 'bestaudio[ext=m4a]/bestaudio',
+          'ytsearch1:' + ((artist ? artist + ' - ' : '') + title).trim() + ' audio'
+        ], 10000);
+        const lines = rawYt.trim().split(String.fromCharCode(10)).map(l => l.trim()).filter(Boolean);
+        if (lines.length >= 2) {
+          shareWebUrl = lines[0];
+          streamUrl = lines[1];
+        } else if (lines.length === 1) {
+          if (lines[0].startsWith('http') && (lines[0].includes('youtube.com') || lines[0].includes('youtu.be'))) {
+            shareWebUrl = lines[0];
+          } else if (lines[0].startsWith('http')) {
+            streamUrl = lines[0];
+          }
+        }
+      } catch (e) {}
+    }
+    if (forShare && !shareWebUrl) {
+      if (trackUrl && (trackUrl.includes('youtube.com') || trackUrl.includes('youtu.be'))) {
+        shareWebUrl = trackUrl;
+      } else if (cleanId && isYt) {
+        shareWebUrl = `https://www.youtube.com/watch?v=${cleanId}`;
+      }
+    }
 
 		resolveInflight(streamUrl);
 	} catch (e) {
@@ -2816,11 +2979,11 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
 		}));
 	}
 
-	if (!streamUrl) {
-		try { logger.error('Stream resolve failed: ' + (title || trackUrl)); } catch (_) { }
-		res.writeHead(500, { 'Content-Type': 'application/json' });
-		return res.end(JSON.stringify({ success: false, needAuth: needYtAuth, error: needYtAuth ? 'YouTube sign-in required for this track' : 'could not extract audio stream' }));
-	}
+  if (!streamUrl && !res.writableEnded) {
+    try { logger.error('Stream resolve failed: ' + (title || trackUrl)); } catch (_) {}
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ success: false, needAuth: needYtAuth, error: needYtAuth ? 'YouTube sign-in required for this track' : 'could not extract audio stream' }));
+  }
 
 	const isHls = streamUrl.includes('.m3u8');
 	const proxied = 'http://127.0.0.1:' + PORT + '/api/audio-proxy?url=' + encodeURIComponent(streamUrl);
@@ -2833,12 +2996,13 @@ async function handleStreamInfo(req, res, trackUrl, trackId, platform = 'youtube
 		isHls: isHls
 	};
 
-	if (cacheKey) streamUrlCache.set(cacheKey, { timestamp: Date.now(), data });
-	if (cleanId && cleanId !== cacheKey) streamUrlCache.set(cleanId, { timestamp: Date.now(), data });
-	if (cleanId) setTimeout(() => downloadTrackToDisk(trackUrl, cleanId, platform, meta), 45000);
+  if (cacheKey) streamUrlCache.set(cacheKey, { timestamp: Date.now(), data });
+  if (cleanId && cleanId !== cacheKey) streamUrlCache.set(cleanId, { timestamp: Date.now(), data });
+  if (canUseLocalAudio && cleanId) setTimeout(() => downloadTrackToDisk(trackUrl, cleanId, platform, meta), 45000);
 
-	res.writeHead(200, { 'Content-Type': 'application/json' });
-	res.end(JSON.stringify(data));
+  if (res.writableEnded) return;
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(data));
 }
 
 function upgradeArtworkUrl(u) {
@@ -3507,31 +3671,35 @@ async function handleAudioProxy(req, res, targetUrl, redirectsLeft = 5, origUrl 
 			if (req.headers[key] !== undefined) forward[key] = req.headers[key];
 		}
 
-		if (hostLower.endsWith('googlevideo.com')) {
-			if (!forward['range']) {
-				forward['range'] = 'bytes=0-';
-			}
-			const cParam = (parsed.searchParams.get('c') || '').toUpperCase();
-			if (cParam === 'IOS') {
-				forward['user-agent'] = 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)';
-			} else if (cParam === 'ANDROID_VR') {
-				forward['user-agent'] = 'com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip';
-			} else if (cParam === 'ANDROID_MUSIC') {
-				forward['user-agent'] = 'com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14; en_US; sdk_gphone64_x86_64 Build/UE1A.230829.036) gzip';
-			} else if (cParam === 'ANDROID_TESTSUITE') {
-				forward['user-agent'] = 'com.google.android.youtube/1.9 (Linux; U; Android 11; en_US) gzip';
-			} else if (cParam.startsWith('ANDROID')) {
-				forward['user-agent'] = 'com.google.android.youtube/19.44.38 (Linux; U; Android 14; en_US; sdk_gphone64_x86_64 Build/UE1A.230829.036) gzip';
-			} else {
-				forward['user-agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-			}
-			if ((cParam === 'WEB' || cParam === 'WEB_REMIX' || cParam === 'TVHTML5') && fs.existsSync(YT_COOKIES_FILE)) {
-				const authHdrs = getYtAuthHeaders();
-				if (authHdrs && authHdrs.Cookie) forward['cookie'] = authHdrs.Cookie;
-			}
-		} else {
-			forward['user-agent'] = req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-		}
+    if (hostLower.endsWith('googlevideo.com')) {
+      if (!forward['range']) {
+        forward['range'] = 'bytes=0-';
+      }
+      // googlevideo rejects requests without a YouTube origin/referer pair
+      // (403 with an empty body), which surfaced as playback failures.
+      forward['origin'] = 'https://www.youtube.com';
+      forward['referer'] = 'https://www.youtube.com/';
+      const cParam = (parsed.searchParams.get('c') || '').toUpperCase();
+      if (cParam === 'IOS') {
+        forward['user-agent'] = 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)';
+      } else if (cParam === 'ANDROID_VR') {
+        forward['user-agent'] = 'com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip';
+      } else if (cParam === 'ANDROID_MUSIC') {
+        forward['user-agent'] = 'com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14; en_US; sdk_gphone64_x86_64 Build/UE1A.230829.036) gzip';
+      } else if (cParam === 'ANDROID_TESTSUITE') {
+        forward['user-agent'] = 'com.google.android.youtube/1.9 (Linux; U; Android 11; en_US) gzip';
+      } else if (cParam.startsWith('ANDROID')) {
+        forward['user-agent'] = 'com.google.android.youtube/19.44.38 (Linux; U; Android 14; en_US; sdk_gphone64_x86_64 Build/UE1A.230829.036) gzip';
+      } else {
+        forward['user-agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36';
+      }
+      if ((cParam === 'WEB' || cParam === 'WEB_REMIX' || cParam === 'TVHTML5') && hasYtLoginCookies()) {
+        const authHdrs = getYtAuthHeaders();
+        if (authHdrs && authHdrs.Cookie) forward['cookie'] = authHdrs.Cookie;
+      }
+    } else {
+      forward['user-agent'] = req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+    }
 
 		const proxyReq = client.request(targetUrl, {
 			method: req.method,
@@ -3605,7 +3773,7 @@ async function handleAudioProxy(req, res, targetUrl, redirectsLeft = 5, origUrl 
 }
 
 function defaultDownloadsDir() {
-	try { return require('electron').app.getPath('downloads'); } catch (e) { return path.join(os.homedir(), 'Downloads'); }
+  return defaultDownloadDir();
 }
 
 function getDownloadsDir() {
@@ -3652,18 +3820,13 @@ async function findDownloadedFile(title, artist) {
   if (!downloadsIndex || Date.now() - downloadsIndexBuiltAt > DOWNLOADS_INDEX_TTL) {
     await buildDownloadsIndex();
   }
+  return findDownloadedFileName(downloadsIndex, title, artist);
+}
+
+function findDownloadedFileName(index, title, artist) {
+  if (!title && !artist) return null;
   const key = `${sanitizeFilename(artist || 'unknown artist')} - ${sanitizeFilename(title || 'untitled')}`.toLowerCase();
-  let found = downloadsIndex.get(key);
-  if (!found && (title || artist)) {
-    const sTitle = sanitizeFilename(title || '').toLowerCase();
-    for (const [k, v] of downloadsIndex.entries()) {
-      if (sTitle && (k.includes(sTitle) || sTitle.includes(k))) {
-        found = v;
-        break;
-      }
-    }
-  }
-  return found || null;
+  return index.get(key) || null;
 }
 
 async function cleanupDownloadArtifacts(dir, beforeSet, baseName, videoId, chosenExt, keepSuccessFile) {
@@ -4290,69 +4453,79 @@ function logNetworkFailure(targetUrl) {
 	} catch (_) { }
 }
 
+function decodeUtf8Chunks(chunks) {
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function hasBrokenLyricText(text) {
+  return typeof text === 'string' && text.includes('\uFFFD');
+}
+
 function fetchLyricsDirect(title, artist) {
 	return new Promise((resolve) => {
 		const { cleanTitle, cleanArtist } = sanitizeForLyrics(title, artist);
 		const apiUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(cleanTitle)}&artist_name=${encodeURIComponent(cleanArtist)}`;
 
-		const req1 = https.get(apiUrl, { headers: { 'User-Agent': 'devsize/2.0' }, timeout: 8000 }, (res) => {
-			let data = '';
-			const dec = new StringDecoder('utf8');
-			res.on('data', c => data += dec.write(c));
-			res.on('end', () => {
-				try {
-					if (res.statusCode === 200) {
-						const parsed = JSON.parse(data);
-						if (parsed.instrumental) {
-							return resolve({ instrumental: true, syncedLyrics: '', plainLyrics: '' });
-						}
-						if (parsed.syncedLyrics || parsed.plainLyrics) {
-							return resolve(parsed.syncedLyrics || parsed.plainLyrics);
-						}
-					}
-				} catch (e) { }
+    const req1 = https.get(apiUrl, { headers: { 'User-Agent': 'devsize/2.0' }, timeout: 8000 }, (res) => {
+      let data = '';
+      const dec = new StringDecoder('utf8');
+      res.on('data', c => data += dec.write(c));
+      res.on('end', () => {
+        data += dec.end();
+        try {
+          if (res.statusCode === 200) {
+            const parsed = JSON.parse(data);
+            if (parsed.instrumental) {
+              return resolve({ instrumental: true, syncedLyrics: '', plainLyrics: '' });
+            }
+            if (parsed.syncedLyrics || parsed.plainLyrics) {
+              return resolve(parsed.syncedLyrics || parsed.plainLyrics);
+            }
+          }
+        } catch (e) {}
 
-				const query = `${cleanArtist} ${cleanTitle}`.trim();
-				const searchUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(query)}`;
-				const req2 = https.get(searchUrl, { headers: { 'User-Agent': 'devsize/2.0' }, timeout: 8000 }, (res2) => {
-					let data2 = '';
-					res2.on('data', c => data2 += c);
-					res2.on('end', () => {
-						try {
-							const list = JSON.parse(data2);
-							if (Array.isArray(list) && list.length > 0) {
-								if (list[0].instrumental) {
-									return resolve({ instrumental: true, syncedLyrics: '', plainLyrics: '' });
-								}
-								const withSynced = list.find(item => item.syncedLyrics);
-								if (withSynced) return resolve(withSynced.syncedLyrics);
-								return resolve(list[0].syncedLyrics || list[0].plainLyrics || null);
-							}
-						} catch (e) { }
-						resolve(null);
-					});
-				});
-				req2.on('timeout', () => {
-					req2.destroy();
-					logNetworkFailure(searchUrl);
-					resolve(null);
-				});
-				req2.on('error', () => {
-					logNetworkFailure(searchUrl);
-					resolve(null);
-				});
-			});
-		});
-		req1.on('timeout', () => {
-			req1.destroy();
-			logNetworkFailure(apiUrl);
-			resolve(null);
-		});
-		req1.on('error', () => {
-			logNetworkFailure(apiUrl);
-			resolve(null);
-		});
-	});
+        const query = `${cleanArtist} ${cleanTitle}`.trim();
+        const searchUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(query)}`;
+        const req2 = https.get(searchUrl, { headers: { 'User-Agent': 'devsize/2.0' }, timeout: 8000 }, (res2) => {
+          const chunks = [];
+          res2.on('data', chunk => chunks.push(chunk));
+          res2.on('end', () => {
+            const data2 = decodeUtf8Chunks(chunks);
+            try {
+              const list = JSON.parse(data2);
+              if (Array.isArray(list) && list.length > 0) {
+                if (list[0].instrumental) {
+                  return resolve({ instrumental: true, syncedLyrics: '', plainLyrics: '' });
+                }
+                const withSynced = list.find(item => item.syncedLyrics);
+                if (withSynced) return resolve(withSynced.syncedLyrics);
+                return resolve(list[0].syncedLyrics || list[0].plainLyrics || null);
+              }
+            } catch (e) {}
+            resolve(null);
+          });
+        });
+        req2.on('timeout', () => {
+          req2.destroy();
+          logNetworkFailure(searchUrl);
+          resolve(null);
+        });
+        req2.on('error', () => {
+          logNetworkFailure(searchUrl);
+          resolve(null);
+        });
+      });
+    });
+    req1.on('timeout', () => {
+      req1.destroy();
+      logNetworkFailure(apiUrl);
+      resolve(null);
+    });
+    req1.on('error', () => {
+      logNetworkFailure(apiUrl);
+      resolve(null);
+    });
+  });
 }
 
 function extractGeniusLyrics(html) {
@@ -4425,24 +4598,25 @@ function fetchGeniusLyrics(title, artist) {
 			.replace(/\s+/g, ' ')
 			.trim();
 
-		const searchUrl = `https://genius.com/api/search/song?q=${encodeURIComponent(query)}`;
-		const req = https.get(searchUrl, {
-			headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-			timeout: 8000
-		}, (res) => {
-			let data = '';
-			res.on('data', c => data += c);
-			res.on('end', () => {
-				if (res.statusCode !== 200) {
-					logNetworkFailure(searchUrl);
-					return resolve(null);
-				}
-				let hits = [];
-				try {
-					const json = JSON.parse(data);
-					hits = (json.response && json.response.sections && json.response.sections[0] && json.response.sections[0].hits) || [];
-				} catch (_) { }
-				if (hits.length === 0) return resolve(null);
+    const searchUrl = `https://genius.com/api/search/song?q=${encodeURIComponent(query)}`;
+    const req = https.get(searchUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+      timeout: 8000
+    }, (res) => {
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
+      res.on('end', () => {
+        const data = decodeUtf8Chunks(chunks);
+        if (res.statusCode !== 200) {
+          logNetworkFailure(searchUrl);
+          return resolve(null);
+        }
+        let hits = [];
+        try {
+          const json = JSON.parse(data);
+          hits = (json.response && json.response.sections && json.response.sections[0] && json.response.sections[0].hits) || [];
+        } catch (_) {}
+        if (hits.length === 0) return resolve(null);
 
 				const normSimple = s => (s || '').toLowerCase().replace(/[^a-z0-9]/gi, '');
 				const nTitle = normSimple(title);
@@ -4465,45 +4639,46 @@ function fetchGeniusLyrics(title, artist) {
 				const songUrl = bestHit && bestHit.result && bestHit.result.url;
 				if (!songUrl) return resolve(null);
 
-				const pageReq = https.get(songUrl, {
-					headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-					timeout: 8000
-				}, (pageRes) => {
-					let html = '';
-					pageRes.on('data', c => html += c);
-					pageRes.on('end', () => {
-						if (pageRes.statusCode !== 200) {
-							logNetworkFailure(songUrl);
-							return resolve(null);
-						}
-						try {
-							const lyrics = extractGeniusLyrics(html);
-							if (lyrics && lyrics.length > 0) return resolve(lyrics);
-						} catch (_) { }
-						resolve(null);
-					});
-				});
-				pageReq.on('timeout', () => {
-					pageReq.destroy();
-					logNetworkFailure(songUrl);
-					resolve(null);
-				});
-				pageReq.on('error', () => {
-					logNetworkFailure(songUrl);
-					resolve(null);
-				});
-			});
-		});
-		req.on('timeout', () => {
-			req.destroy();
-			logNetworkFailure(searchUrl);
-			resolve(null);
-		});
-		req.on('error', () => {
-			logNetworkFailure(searchUrl);
-			resolve(null);
-		});
-	});
+        const pageReq = https.get(songUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+          timeout: 8000
+        }, (pageRes) => {
+          const chunks = [];
+          pageRes.on('data', chunk => chunks.push(chunk));
+          pageRes.on('end', () => {
+            const html = decodeUtf8Chunks(chunks);
+            if (pageRes.statusCode !== 200) {
+              logNetworkFailure(songUrl);
+              return resolve(null);
+            }
+            try {
+              const lyrics = extractGeniusLyrics(html);
+              if (lyrics && lyrics.length > 0) return resolve(lyrics);
+            } catch (_) {}
+            resolve(null);
+          });
+        });
+        pageReq.on('timeout', () => {
+          pageReq.destroy();
+          logNetworkFailure(songUrl);
+          resolve(null);
+        });
+        pageReq.on('error', () => {
+          logNetworkFailure(songUrl);
+          resolve(null);
+        });
+      });
+    });
+    req.on('timeout', () => {
+      req.destroy();
+      logNetworkFailure(searchUrl);
+      resolve(null);
+    });
+    req.on('error', () => {
+      logNetworkFailure(searchUrl);
+      resolve(null);
+    });
+  });
 }
 
 function parseYrcWords(rest) {
@@ -4738,68 +4913,70 @@ function fetchNeteaseLyrics(title, artist, targetDuration) {
 			.replace(/\s+/g, ' ')
 			.trim();
 
-		const fetchLyric = (songId) => {
-			const lyricUrl = `http://music.163.com/api/song/lyric?id=${songId}&lv=1&kv=1&tv=-1`;
-			const lReq = http.get(lyricUrl, {
-				headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://music.163.com' },
-				timeout: 8000
-			}, res => {
-				let d = '';
-				res.on('data', c => d += c);
-				res.on('end', () => {
-					if (res.statusCode !== 200) return resolve(null);
-					try {
-						const j = JSON.parse(d);
-						const lrc = j.lrc && j.lrc.lyric;
-						if (lrc && /\[\d{2}:\d{2}/.test(lrc)) {
-							return resolve({ syncedLyrics: lrc, plainLyrics: '' });
-						} else if (lrc) {
-							return resolve({ syncedLyrics: '', plainLyrics: lrc });
-						}
-					} catch (_) { }
-					resolve(null);
-				});
-			});
-			lReq.on('timeout', () => { lReq.destroy(); resolve(null); });
-			lReq.on('error', () => resolve(null));
-		};
+    const fetchLyric = (songId) => {
+      const lyricUrl = `http://music.163.com/api/song/lyric?id=${songId}&lv=1&kv=1&tv=-1`;
+      const lReq = http.get(lyricUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://music.163.com' },
+        timeout: 8000
+      }, res => {
+        const chunks = [];
+        res.on('data', chunk => chunks.push(chunk));
+        res.on('end', () => {
+          const d = decodeUtf8Chunks(chunks);
+          if (res.statusCode !== 200) return resolve(null);
+          try {
+            const j = JSON.parse(d);
+            const lrc = j.lrc && j.lrc.lyric;
+            if (lrc && /\[\d{2}:\d{2}/.test(lrc)) {
+              return resolve({ syncedLyrics: lrc, plainLyrics: '' });
+            } else if (lrc) {
+              return resolve({ syncedLyrics: '', plainLyrics: lrc });
+            }
+          } catch (_) {}
+          resolve(null);
+        });
+      });
+      lReq.on('timeout', () => { lReq.destroy(); resolve(null); });
+      lReq.on('error', () => resolve(null));
+    };
 
-		const searchUrl = `http://music.163.com/api/search/get/web?s=${encodeURIComponent(cleanQuery)}&type=1&limit=5`;
-		const u = new URL(searchUrl);
-		const sReq = http.get({
-			hostname: u.hostname,
-			path: u.pathname + u.search,
-			headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://music.163.com' },
-			timeout: 8000
-		}, res => {
-			let d = '';
-			res.on('data', c => d += c);
-			res.on('end', () => {
-				if (res.statusCode !== 200) return resolve(null);
-				try {
-					const j = JSON.parse(d);
-					const songs = (j.result && j.result.songs) || [];
-					const validSongs = songs.filter(s =>
-						s && isStrictLyricMatch(title, artist, s.name, (s.artists || s.ar || []).map(a => a.name).join(' '))
-					);
-					if (!validSongs.length) return resolve(null);
-					const matched = validSongs.find(song => {
-						if (targetDuration && targetDuration > 0) {
-							const songDur = (song.dt || song.duration || 0) / 1000;
-							if (Math.abs(songDur - targetDuration) > 4) return false;
-						}
-						return true;
-					}) || validSongs[0];
-					if (matched && matched.id) {
-						return fetchLyric(matched.id);
-					}
-				} catch (_) { }
-				resolve(null);
-			});
-		});
-		sReq.on('timeout', () => { sReq.destroy(); resolve(null); });
-		sReq.on('error', () => resolve(null));
-	});
+    const searchUrl = `http://music.163.com/api/search/get/web?s=${encodeURIComponent(cleanQuery)}&type=1&limit=5`;
+    const u = new URL(searchUrl);
+    const sReq = http.get({
+      hostname: u.hostname,
+      path: u.pathname + u.search,
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://music.163.com' },
+      timeout: 8000
+    }, res => {
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
+      res.on('end', () => {
+        const d = decodeUtf8Chunks(chunks);
+        if (res.statusCode !== 200) return resolve(null);
+        try {
+          const j = JSON.parse(d);
+          const songs = (j.result && j.result.songs) || [];
+          const validSongs = songs.filter(s =>
+            s && isStrictLyricMatch(title, artist, s.name, (s.artists || s.ar || []).map(a => a.name).join(' '))
+          );
+          if (!validSongs.length) return resolve(null);
+          const matched = validSongs.find(song => {
+            if (targetDuration && targetDuration > 0) {
+              const songDur = (song.dt || song.duration || 0) / 1000;
+              if (Math.abs(songDur - targetDuration) > 4) return false;
+            }
+            return true;
+          }) || validSongs[0];
+          if (matched && matched.id) {
+            return fetchLyric(matched.id);
+          }
+        } catch (_) {}
+        resolve(null);
+      });
+    });
+    sReq.on('timeout', () => { sReq.destroy(); resolve(null); });
+    sReq.on('error', () => resolve(null));
+  });
 }
 
 function fetchNetEaseWords(title, artist, targetDuration) {
@@ -4816,105 +4993,107 @@ function fetchNetEaseWords(title, artist, targetDuration) {
 			.replace(/\s+/g, ' ')
 			.trim();
 
-		const fetchLyric = (songId) => {
-			const lyricUrl = `http://music.163.com/api/song/lyric?id=${songId}&lv=1&kv=1&tv=-1&yv=1`;
-			const lReq = http.get(lyricUrl, {
-				headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://music.163.com' },
-				timeout: 8000
-			}, res => {
-				let d = '';
-				res.on('data', c => d += c);
-				res.on('end', () => {
-					if (res.statusCode !== 200) {
-						logNetworkFailure(lyricUrl);
-						return resolve(null);
-					}
-					try {
-						const j = JSON.parse(d);
-						if (j.yrc && j.yrc.lyric) {
-							const lines = parseYrc(j.yrc.lyric);
-							if (lines.length > 0) return resolve(lines);
-						}
-					} catch (_) { }
-					resolve(null);
-				});
-			});
-			lReq.on('timeout', () => {
-				lReq.destroy();
-				logNetworkFailure(lyricUrl);
-				resolve(null);
-			});
-			lReq.on('error', () => {
-				logNetworkFailure(lyricUrl);
-				resolve(null);
-			});
-		};
+    const fetchLyric = (songId) => {
+      const lyricUrl = `http://music.163.com/api/song/lyric?id=${songId}&lv=1&kv=1&tv=-1&yv=1`;
+      const lReq = http.get(lyricUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://music.163.com' },
+        timeout: 8000
+      }, res => {
+        const chunks = [];
+        res.on('data', chunk => chunks.push(chunk));
+        res.on('end', () => {
+          const d = decodeUtf8Chunks(chunks);
+          if (res.statusCode !== 200) {
+            logNetworkFailure(lyricUrl);
+            return resolve(null);
+          }
+          try {
+            const j = JSON.parse(d);
+            if (j.yrc && j.yrc.lyric) {
+              const lines = parseYrc(j.yrc.lyric);
+              if (lines.length > 0) return resolve(lines);
+            }
+          } catch (_) {}
+          resolve(null);
+        });
+      });
+      lReq.on('timeout', () => {
+        lReq.destroy();
+        logNetworkFailure(lyricUrl);
+        resolve(null);
+      });
+      lReq.on('error', () => {
+        logNetworkFailure(lyricUrl);
+        resolve(null);
+      });
+    };
 
-		const trySearch = (searchUrl, isWeb) => {
-			const u = new URL(searchUrl);
-			const sReq = http.get({
-				hostname: u.hostname,
-				path: u.pathname + u.search,
-				headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://music.163.com' },
-				timeout: 8000
-			}, res => {
-				let d = '';
-				res.on('data', c => d += c);
-				res.on('end', () => {
-					if (res.statusCode !== 200) {
-						logNetworkFailure(searchUrl);
-						if (isWeb) {
-							return trySearch(`http://music.163.com/api/search/get?s=${encodeURIComponent(cleanQuery)}&type=1&limit=5`, false);
-						}
-						return resolve(null);
-					}
-					try {
-						const j = JSON.parse(d);
-						const songs = (j.result && j.result.songs) || [];
-						if (songs.length > 0) {
-							const matched = songs.find(song => {
-								if (targetDuration && targetDuration > 0) {
-									const songDur = (song.dt || song.duration || 0) / 1000;
-									if (Math.abs(songDur - targetDuration) > 3) return false;
-								}
-								const normTargetTitle = normSimple(title);
-								const normCandTitle = normSimple(song.name);
-								if (!normTargetTitle || !normCandTitle || (!normTargetTitle.includes(normCandTitle) && !normCandTitle.includes(normTargetTitle))) return false;
-								const targetArtists = artist.split(/[,&\/\+]/).map(normSimple).filter(Boolean);
-								const candArtists = (song.artists || []).map(a => normSimple(a.name)).filter(Boolean);
-								if (targetArtists.length > 0 && !candArtists.some(ca => targetArtists.some(ta => ca.includes(ta) || ta.includes(ca)))) return false;
-								return true;
-							});
-							if (matched) {
-								return fetchLyric(matched.id);
-							}
-						}
-					} catch (_) { }
-					if (isWeb) {
-						trySearch(`http://music.163.com/api/search/get?s=${encodeURIComponent(cleanQuery)}&type=1&limit=5`, false);
-					} else {
-						resolve(null);
-					}
-				});
-			});
-			sReq.on('timeout', () => {
-				sReq.destroy();
-				logNetworkFailure(searchUrl);
-				if (isWeb) {
-					trySearch(`http://music.163.com/api/search/get?s=${encodeURIComponent(cleanQuery)}&type=1&limit=5`, false);
-				} else {
-					resolve(null);
-				}
-			});
-			sReq.on('error', () => {
-				logNetworkFailure(searchUrl);
-				if (isWeb) {
-					trySearch(`http://music.163.com/api/search/get?s=${encodeURIComponent(cleanQuery)}&type=1&limit=5`, false);
-				} else {
-					resolve(null);
-				}
-			});
-		};
+    const trySearch = (searchUrl, isWeb) => {
+      const u = new URL(searchUrl);
+      const sReq = http.get({
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://music.163.com' },
+        timeout: 8000
+      }, res => {
+        const chunks = [];
+        res.on('data', chunk => chunks.push(chunk));
+        res.on('end', () => {
+          const d = decodeUtf8Chunks(chunks);
+          if (res.statusCode !== 200) {
+            logNetworkFailure(searchUrl);
+            if (isWeb) {
+              return trySearch(`http://music.163.com/api/search/get?s=${encodeURIComponent(cleanQuery)}&type=1&limit=5`, false);
+            }
+            return resolve(null);
+          }
+          try {
+            const j = JSON.parse(d);
+            const songs = (j.result && j.result.songs) || [];
+            if (songs.length > 0) {
+              const matched = songs.find(song => {
+                if (targetDuration && targetDuration > 0) {
+                  const songDur = (song.dt || song.duration || 0) / 1000;
+                  if (Math.abs(songDur - targetDuration) > 3) return false;
+                }
+                const normTargetTitle = normSimple(title);
+                const normCandTitle = normSimple(song.name);
+                if (!normTargetTitle || !normCandTitle || (!normTargetTitle.includes(normCandTitle) && !normCandTitle.includes(normTargetTitle))) return false;
+                const targetArtists = artist.split(/[,&\/\+]/).map(normSimple).filter(Boolean);
+                const candArtists = (song.artists || []).map(a => normSimple(a.name)).filter(Boolean);
+                if (targetArtists.length > 0 && !candArtists.some(ca => targetArtists.some(ta => ca.includes(ta) || ta.includes(ca)))) return false;
+                return true;
+              });
+              if (matched) {
+                return fetchLyric(matched.id);
+              }
+            }
+          } catch (_) {}
+          if (isWeb) {
+            trySearch(`http://music.163.com/api/search/get?s=${encodeURIComponent(cleanQuery)}&type=1&limit=5`, false);
+          } else {
+            resolve(null);
+          }
+        });
+      });
+      sReq.on('timeout', () => {
+        sReq.destroy();
+        logNetworkFailure(searchUrl);
+        if (isWeb) {
+          trySearch(`http://music.163.com/api/search/get?s=${encodeURIComponent(cleanQuery)}&type=1&limit=5`, false);
+        } else {
+          resolve(null);
+        }
+      });
+      sReq.on('error', () => {
+        logNetworkFailure(searchUrl);
+        if (isWeb) {
+          trySearch(`http://music.163.com/api/search/get?s=${encodeURIComponent(cleanQuery)}&type=1&limit=5`, false);
+        } else {
+          resolve(null);
+        }
+      });
+    };
 
 		trySearch(`http://music.163.com/api/search/get/web?s=${encodeURIComponent(cleanQuery)}&type=1&limit=5`, true);
 	});
@@ -5001,22 +5180,29 @@ function isLyricsExplicit(lyrics) {
 }
 
 async function handleLyrics(req, res, title, artist, allowOnline = true, source = 'lrclib', duration = 0) {
-	const normSource = source || 'lrclib';
-	const cacheKey = `${artist}:${title}:${normSource}`;
-	const cached = lyricsCache.get(cacheKey);
-	if (cached?.promise) {
-		const outcome = await cached.promise;
-		res.writeHead(200, { 'Content-Type': 'application/json' });
-		return res.end(JSON.stringify(outcome));
-	}
-	if (cached) {
-		if (cached.instrumental) {
-			res.writeHead(200, { 'Content-Type': 'application/json' });
-			return res.end(JSON.stringify({ success: true, instrumental: true, syncedLyrics: '', plainLyrics: '' }));
-		}
-		res.writeHead(200, { 'Content-Type': 'application/json' });
-		return res.end(JSON.stringify({ success: true, lyrics: cached.text, isCustom: cached.isCustom || false, isExplicit: isLyricsExplicit(cached.text) }));
-	}
+  const normSource = source || 'lrclib';
+  const cacheKey = `${artist}:${title}:${normSource}`;
+  let cached = lyricsCache.get(cacheKey);
+  if (cached?.promise) {
+    const outcome = await cached.promise;
+    if (!hasBrokenLyricText(outcome.lyrics)) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(outcome));
+    }
+    if (lyricsCache.get(cacheKey) === cached) lyricsCache.delete(cacheKey);
+    cached = null;
+  }
+  if (cached) {
+    if (cached.instrumental) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, instrumental: true, syncedLyrics: '', plainLyrics: '' }));
+    }
+    if (!hasBrokenLyricText(cached.text)) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, lyrics: cached.text, isCustom: cached.isCustom || false, isExplicit: isLyricsExplicit(cached.text) }));
+    }
+    lyricsCache.delete(cacheKey);
+  }
 
 	let resolveLyrics;
 	const lyricsPromise = new Promise(resolve => { resolveLyrics = resolve; });
@@ -5070,15 +5256,19 @@ async function handleLyrics(req, res, title, artist, allowOnline = true, source 
 			}
 		}
 
-		if (normSource !== 'genius' && fs.existsSync(fetchedLyricsPath)) {
-			try {
-				const diskLyrics = await fs.promises.readFile(fetchedLyricsPath, 'utf-8');
-				if (lyricsCache.get(cacheKey) === inFlightEntry) {
-					lyricsCache.set(cacheKey, { text: diskLyrics, isCustom: false });
-				}
-				return sendLyrics(diskLyrics);
-			} catch (e) { }
-		}
+    if (normSource !== 'genius' && fs.existsSync(fetchedLyricsPath)) {
+      try {
+        const diskLyrics = await fs.promises.readFile(fetchedLyricsPath, 'utf-8');
+        if (hasBrokenLyricText(diskLyrics)) {
+          await fs.promises.unlink(fetchedLyricsPath);
+        } else {
+          if (lyricsCache.get(cacheKey) === inFlightEntry) {
+            lyricsCache.set(cacheKey, { text: diskLyrics, isCustom: false });
+          }
+          return sendLyrics(diskLyrics);
+        }
+      } catch (e) {}
+    }
 
 		if (!allowOnline) {
 			return sendLyrics('');
@@ -5145,6 +5335,19 @@ async function handleLyrics(req, res, title, artist, allowOnline = true, source 
 				}
 
 
+      if (hasBrokenLyricText(rawLyrics)) rawLyrics = '';
+
+      if (rawLyrics && rawLyrics.trim().length > 0) {
+        if (successfulBackend && successfulBackend !== 'genius') {
+          try {
+            await fs.promises.writeFile(fetchedLyricsPath, rawLyrics, 'utf-8');
+          } catch (e) {}
+        }
+        if (lyricsCache.get(cacheKey) === inFlightEntry) {
+          lyricsCache.set(cacheKey, { text: rawLyrics, isCustom: false });
+        }
+        return sendLyrics(rawLyrics);
+      }
 
 				if (!rawLyrics) {
 					const ne = await fetchNeteaseLyrics(title, artist, duration);
@@ -5272,74 +5475,95 @@ function pathfinderRequest(accessToken, variables) {
 	});
 }
 
+function spotifyTrackId(track) {
+  const id = typeof track?.id === 'string' ? track.id : '';
+  if (/^[A-Za-z0-9]{22}$/.test(id)) return id;
+  const uri = typeof track?.uri === 'string' ? track.uri : '';
+  const match = uri.match(/^spotify:track:([A-Za-z0-9]{22})$/);
+  return match ? match[1] : '';
+}
+
 async function fetchFullSpotifyPlaylist(playlistId, accessToken) {
-	const uri = `spotify:playlist:${playlistId}`;
-	const first = await pathfinderRequest(accessToken, { uri, offset: 0, limit: 100, enableWatchFeedEntrypoint: true });
-	const content = first?.data?.playlistV2?.content;
-	if (!content || !Array.isArray(content.items)) return null;
-	const total = content.totalCount || content.items.length;
-	const items = content.items.slice();
-	let offset = items.length;
-	let guard = 0;
-	while (offset < total && guard++ < 100) {
-		const page = await pathfinderRequest(accessToken, { uri, offset, limit: 100, enableWatchFeedEntrypoint: true });
-		const pageItems = page?.data?.playlistV2?.content?.items;
-		if (!Array.isArray(pageItems) || pageItems.length === 0) throw new Error('Incomplete Pathfinder playlist');
-		items.push(...pageItems);
-		offset += pageItems.length;
-	}
-	if (offset < total) throw new Error('Incomplete Pathfinder playlist');
-	const tracks = items.map(it => {
-		const t = it?.itemV2?.data || it?.item?.data || {};
-		const artists = (t.albumOfTrack?.artists?.items || []).map(a => a.profile?.name).filter(Boolean);
-		const durationMs = t.trackDuration?.totalMilliseconds || t.duration?.totalMilliseconds || t.duration_ms;
-		const duration = typeof durationMs === 'number' ? Math.round(durationMs / 1000) : 0;
-		const sources = t.albumOfTrack?.coverArt?.sources || [];
-		const cover = sources.length ? sources[sources.length - 1].url : '';
-		return { title: (t.name || '').trim(), artist: artists.join(', '), duration, cover, thumbnail: cover };
-	}).filter(t => t.title);
-	return { tracks, total };
+  const uri = `spotify:playlist:${playlistId}`;
+  const first = await pathfinderRequest(accessToken, { uri, offset: 0, limit: 100, enableWatchFeedEntrypoint: true });
+  const content = first?.data?.playlistV2?.content;
+  if (!content || !Array.isArray(content.items)) return null;
+  const total = content.totalCount || content.items.length;
+  const items = content.items.slice();
+  let offset = items.length;
+  let guard = 0;
+  while (offset < total && guard++ < 100) {
+    const page = await pathfinderRequest(accessToken, { uri, offset, limit: 100, enableWatchFeedEntrypoint: true });
+    const pageItems = page?.data?.playlistV2?.content?.items;
+    if (!Array.isArray(pageItems) || pageItems.length === 0) throw new Error('Incomplete Pathfinder playlist');
+    items.push(...pageItems);
+    offset += pageItems.length;
+  }
+  if (offset < total) throw new Error('Incomplete Pathfinder playlist');
+  const tracks = items.map(it => {
+    const t = it?.itemV2?.data || it?.item?.data || {};
+    const artists = (t.albumOfTrack?.artists?.items || []).map(a => a.profile?.name).filter(Boolean);
+    const durationMs = t.trackDuration?.totalMilliseconds || t.duration?.totalMilliseconds || t.duration_ms;
+    const duration = typeof durationMs === 'number' ? Math.round(durationMs / 1000) : 0;
+    const sources = t.albumOfTrack?.coverArt?.sources || [];
+    const cover = sources.length ? sources[sources.length - 1].url : '';
+    const spotifyId = spotifyTrackId(t);
+    return {
+      id: spotifyId,
+      spotifyId,
+      spotifyUrl: spotifyId ? `https://open.spotify.com/track/${spotifyId}` : '',
+      title: (t.name || '').trim(),
+      artist: artists.join(', '),
+      duration,
+      cover,
+      thumbnail: cover
+    };
+  }).filter(t => t.title);
+  return { tracks, total };
 }
 
 async function trySpotifyWebApi(playlistId) {
-	loadSpotifyAuth();
-	if (!spotifyAuth.token && !spotifyAuth.refreshToken) return null;
-	try {
-		const resp = await spotifyGetWithRetry(`https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}`);
-		if (resp.status >= 200 && resp.status < 300) {
-			const d = JSON.parse(resp.body);
-			const name = d.name || 'Spotify Playlist';
-			const cover = (d.images && Array.isArray(d.images) && d.images[0] && d.images[0].url) ? d.images[0].url : '';
-			const playlistItems = d.items || d.tracks;
-			if (!Array.isArray(playlistItems?.items)) return null;
-			let items = playlistItems.items.slice();
-			let nextUrl = playlistItems?.next;
-			let guard = 0;
-			while (nextUrl && guard++ < 100) {
-				const nextResp = await spotifyGetWithRetry(nextUrl);
-				if (nextResp.status < 200 || nextResp.status >= 300) return null;
-				const nextData = JSON.parse(nextResp.body);
-				if (!Array.isArray(nextData.items) || !nextData.items.length) return null;
-				items.push(...nextData.items);
-				nextUrl = nextData.next;
-			}
-			if (nextUrl || (Number.isInteger(playlistItems.total) && items.length < playlistItems.total)) return null;
-			const tracks = items.map(it => {
-				const t = it?.item || it?.track || it || {};
-				const imgs = t.album?.images || [];
-				const cover = imgs.length ? imgs[0].url : '';
-				return {
-					title: t.name || '',
-					artist: Array.isArray(t.artists) ? t.artists.map(a => a.name).join(', ') : '',
-					duration: t.duration_ms ? Math.round(t.duration_ms / 1000) : undefined,
-					cover,
-					thumbnail: cover
-				};
-			}).filter(t => t.title);
-			return { success: true, name, cover, tracks, total: tracks.length };
-		}
-	} catch (e) { }
-	return null;
+  loadSpotifyAuth();
+  if (!spotifyAuth.token && !spotifyAuth.refreshToken) return null;
+  try {
+    const resp = await spotifyGetWithRetry(`https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}`);
+    if (resp.status >= 200 && resp.status < 300) {
+      const d = JSON.parse(resp.body);
+      const name = d.name || 'Spotify Playlist';
+      const cover = (d.images && Array.isArray(d.images) && d.images[0] && d.images[0].url) ? d.images[0].url : '';
+      const playlistItems = d.items || d.tracks;
+      if (!Array.isArray(playlistItems?.items)) return null;
+      let items = playlistItems.items.slice();
+      let nextUrl = playlistItems?.next;
+      let guard = 0;
+      while (nextUrl && guard++ < 100) {
+        const nextResp = await spotifyGetWithRetry(nextUrl);
+        if (nextResp.status < 200 || nextResp.status >= 300) return null;
+        const nextData = JSON.parse(nextResp.body);
+        if (!Array.isArray(nextData.items) || !nextData.items.length) return null;
+        items.push(...nextData.items);
+        nextUrl = nextData.next;
+      }
+      if (nextUrl || (Number.isInteger(playlistItems.total) && items.length < playlistItems.total)) return null;
+      const tracks = items.map(it => {
+        const t = it?.item || it?.track || it || {};
+        const imgs = t.album?.images || [];
+        const cover = imgs.length ? imgs[0].url : '';
+        return {
+          id: spotifyTrackId(t),
+          spotifyId: spotifyTrackId(t),
+          spotifyUrl: spotifyTrackId(t) ? `https://open.spotify.com/track/${spotifyTrackId(t)}` : '',
+          title: t.name || '',
+          artist: Array.isArray(t.artists) ? t.artists.map(a => a.name).join(', ') : '',
+          duration: t.duration_ms ? Math.round(t.duration_ms / 1000) : undefined,
+          cover,
+          thumbnail: cover
+        };
+      }).filter(t => t.title);
+      return { success: true, name, cover, tracks, total: tracks.length };
+    }
+  } catch (e) {}
+  return null;
 }
 
 function fetchSpotifyEmbed(playlistId, ua) {
@@ -5465,45 +5689,59 @@ async function handleSpotifyImport(req, res, inputUrl) {
 			limited = true;
 		}
 
-		if (!tracks.length) {
-			if (Array.isArray(entity?.trackList) && entity.trackList.length > 0) {
-				tracks = entity.trackList.slice(0, 100).map(t => {
-					const duration = typeof t.duration === 'number' ? Math.round(t.duration / 1000) : (typeof t.duration_ms === 'number' ? Math.round(t.duration_ms / 1000) : 0);
-					const trackCover = t.image || t.coverArt?.sources?.[0]?.url || '';
-					return {
-						title: (t.title || t.name || '').trim(),
-						artist: (t.subtitle || t.artist || '').trim(),
-						duration,
-						thumbnail: trackCover,
-						cover: trackCover
-					};
-				}).filter(t => t.title);
-			}
-			if (!tracks.length) {
-				const seen = new Set();
-				function walk(node) {
-					if (!node || typeof node !== 'object') return;
-					if (Array.isArray(node)) { for (const item of node) walk(item); return; }
-					const uri = typeof node.uri === 'string' ? node.uri : '';
-					const title = node.title || node.name;
-					const subtitle = node.subtitle || node.artist || (Array.isArray(node.artists) ? node.artists.map(a => typeof a === 'string' ? a : (a.name || a.profile?.name)).filter(Boolean).join(', ') : (node.albumOfTrack?.artists?.items || []).map(a => a.profile?.name).filter(Boolean).join(', '));
-					const duration = node.duration?.totalMilliseconds || node.trackDuration?.totalMilliseconds || node.duration_ms || (typeof node.duration === 'number' ? node.duration : 0);
-					if (title && typeof title === 'string' && (subtitle || uri.startsWith('spotify:track:')) && (uri.startsWith('spotify:track:') || node.entityType === 'track' || duration)) {
-						const key = `${title}__${subtitle || ''}`;
-						if (!seen.has(key)) {
-							seen.add(key);
-							const durSec = typeof duration === 'number' ? (duration > 1000 ? Math.round(duration / 1000) : Math.round(duration)) : 0;
-							const trackCover = node.image || node.coverArt?.sources?.[0]?.url || '';
-							tracks.push({ title: title.trim(), artist: typeof subtitle === 'string' ? subtitle.trim() : '', duration: durSec, thumbnail: trackCover, cover: trackCover });
-						}
-						return;
-					}
-					for (const k of Object.keys(node)) walk(node[k]);
-				}
-				walk(data);
-				tracks = tracks.slice(0, 100);
-			}
-		}
+    if (!tracks.length) {
+      if (Array.isArray(entity?.trackList) && entity.trackList.length > 0) {
+        tracks = entity.trackList.slice(0, 100).map(t => {
+          const duration = typeof t.duration === 'number' ? Math.round(t.duration / 1000) : (typeof t.duration_ms === 'number' ? Math.round(t.duration_ms / 1000) : 0);
+          const trackCover = t.image || t.coverArt?.sources?.[0]?.url || '';
+          const spotifyId = spotifyTrackId(t);
+          return {
+            id: spotifyId,
+            spotifyId,
+            spotifyUrl: spotifyId ? `https://open.spotify.com/track/${spotifyId}` : '',
+            title: (t.title || t.name || '').trim(),
+            artist: (t.subtitle || t.artist || '').trim(),
+            duration,
+            thumbnail: trackCover,
+            cover: trackCover
+          };
+        }).filter(t => t.title);
+      }
+      if (!tracks.length) {
+        const seen = new Set();
+        function walk(node) {
+          if (!node || typeof node !== 'object') return;
+          if (Array.isArray(node)) { for (const item of node) walk(item); return; }
+          const uri = typeof node.uri === 'string' ? node.uri : '';
+          const title = node.title || node.name;
+          const subtitle = node.subtitle || node.artist || (Array.isArray(node.artists) ? node.artists.map(a => typeof a === 'string' ? a : (a.name || a.profile?.name)).filter(Boolean).join(', ') : (node.albumOfTrack?.artists?.items || []).map(a => a.profile?.name).filter(Boolean).join(', '));
+          const duration = node.duration?.totalMilliseconds || node.trackDuration?.totalMilliseconds || node.duration_ms || (typeof node.duration === 'number' ? node.duration : 0);
+          if (title && typeof title === 'string' && (subtitle || uri.startsWith('spotify:track:')) && (uri.startsWith('spotify:track:') || node.entityType === 'track' || duration)) {
+            const key = `${title}__${subtitle || ''}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              const durSec = typeof duration === 'number' ? (duration > 1000 ? Math.round(duration / 1000) : Math.round(duration)) : 0;
+              const trackCover = node.image || node.coverArt?.sources?.[0]?.url || '';
+              const spotifyId = spotifyTrackId(node);
+              tracks.push({
+                id: spotifyId,
+                spotifyId,
+                spotifyUrl: spotifyId ? `https://open.spotify.com/track/${spotifyId}` : '',
+                title: title.trim(),
+                artist: typeof subtitle === 'string' ? subtitle.trim() : '',
+                duration: durSec,
+                thumbnail: trackCover,
+                cover: trackCover
+              });
+            }
+            return;
+          }
+          for (const k of Object.keys(node)) walk(node[k]);
+        }
+        walk(data);
+        tracks = tracks.slice(0, 100);
+      }
+    }
 
 		if (!total) {
 			total = entity?.totalCount || (Array.isArray(entity?.trackList) ? entity.trackList.length : 0) || tracks.length;
@@ -6076,12 +6314,12 @@ async function fetchYoutubePlaylistDirect(listId, platform) {
 }
 
 async function handlePlaylistImport(req, res, inputUrl) {
-	if (typeof inputUrl === 'string' && (inputUrl.includes('on.soundcloud.com') || inputUrl.includes('soundcloud.app.goo.gl'))) {
-		try {
-			const resp = await fetch(inputUrl, { redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0' } });
-			if (resp && resp.url) inputUrl = resp.url;
-		} catch (_) { }
-	}
+  if (typeof inputUrl === 'string' && (inputUrl.includes('on.soundcloud.com') || inputUrl.includes('soundcloud.app.goo.gl') || inputUrl.includes('link.deezer.com'))) {
+    try {
+      const resp = await fetch(inputUrl, { redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (resp && resp.url) inputUrl = resp.url;
+    } catch (_) {}
+  }
 
 	let parsed;
 	try {
@@ -6091,9 +6329,58 @@ async function handlePlaylistImport(req, res, inputUrl) {
 		return res.end(JSON.stringify({ success: false, error: 'Unsupported link' }));
 	}
 
-	const host = (parsed.hostname || '').toLowerCase();
-	const isSoundCloud = host === 'soundcloud.com' || host === 'www.soundcloud.com' || host.endsWith('.soundcloud.com');
-	const isYouTube = host === 'youtube.com' || host === 'music.youtube.com' || host === 'www.youtube.com' || host === 'youtu.be' || host.endsWith('.youtube.com');
+  const host = (parsed.hostname || '').toLowerCase();
+  const isSoundCloud = host === 'soundcloud.com' || host === 'www.soundcloud.com' || host.endsWith('.soundcloud.com');
+  const isYouTube = host === 'youtube.com' || host === 'music.youtube.com' || host === 'www.youtube.com' || host === 'youtu.be' || host.endsWith('.youtube.com');
+  const isDeezer = host === 'deezer.com' || host === 'www.deezer.com';
+
+  if (isDeezer) {
+    const playlistMatch = parsed.pathname.match(/^\/playlist\/(\d+)(?:\/|$)/i);
+    if (!playlistMatch) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'Unsupported Deezer link' }));
+    }
+
+    try {
+      const playlist = await fetchItunesJson(`https://api.deezer.com/playlist/${playlistMatch[1]}`);
+      if (!playlist || playlist.error || !playlist.id) throw new Error('Deezer playlist was not found');
+      const items = [];
+      let next = playlist.tracks && playlist.tracks.next;
+      if (playlist.tracks && Array.isArray(playlist.tracks.data)) items.push(...playlist.tracks.data);
+      let pages = 0;
+      while (next && pages < 100) {
+        const page = await fetchItunesJson(next);
+        if (page && Array.isArray(page.data)) items.push(...page.data);
+        next = page && page.next;
+        pages++;
+      }
+
+      const tracks = items.filter(track => track && track.id && track.title && track.artist && track.artist.name)
+        .map(track => ({
+          id: String(track.id),
+          title: String(track.title),
+          artist: String(track.artist.name),
+          duration: Number(track.duration) || 0,
+          thumbnail: track.album && (track.album.cover_xl || track.album.cover_big || track.album.cover) || '',
+          url: track.link || '',
+          platform: 'deezer',
+          isExplicit: Boolean(track.explicit_lyrics)
+        }));
+
+      if (!tracks.length) throw new Error('No tracks found in this Deezer playlist');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        success: true,
+        name: playlist.title || 'Deezer Playlist',
+        cover: playlist.picture_xl || playlist.picture_big || playlist.picture || '',
+        tracks
+      }));
+    } catch (error) {
+      try { logger.error('Deezer playlist import failed: ' + error.message); } catch (_) {}
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: error.message || 'Deezer playlist import failed' }));
+    }
+  }
 
 	if (!isSoundCloud && !isYouTube) {
 		res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -6615,27 +6902,30 @@ async function handleSpotifyLibrary(req, res, query) {
 	let playlists = [];
 	const skippedPlaylists = [];
 
-	try {
-		if (wantLikes) {
-			let nextUrl = 'https://api.spotify.com/v1/me/tracks?limit=50';
-			while (nextUrl && likes.length < 5000) {
-				const resp = await spotifyGetWithRetry(nextUrl);
-				if (resp.status < 200 || resp.status >= 300) throw spotifyApiFailure(resp, 'saved tracks');
-				const data = JSON.parse(resp.body);
-				if (!Array.isArray(data.items)) throw new Error('Invalid Spotify saved tracks response');
-				const items = data.items;
-				for (const it of items) {
-					const t = it?.item || it?.track;
-					if (!t || t.is_local || t.type === 'episode') continue;
-					const artist = (Array.isArray(t.artists) && t.artists[0]?.name) || '';
-					const title = t.name || '';
-					const duration = t.duration_ms ? Math.round(t.duration_ms / 1000) : undefined;
-					if (title) likes.push({ title, artist, duration });
-					if (likes.length >= 5000) break;
-				}
-				nextUrl = data.next || null;
-			}
-		}
+  try {
+    if (wantLikes) {
+      let nextUrl = 'https://api.spotify.com/v1/me/tracks?limit=50';
+      while (nextUrl && likes.length < 5000) {
+        const resp = await spotifyGetWithRetry(nextUrl);
+        if (resp.status < 200 || resp.status >= 300) throw spotifyApiFailure(resp, 'saved tracks');
+        const data = JSON.parse(resp.body);
+        if (!Array.isArray(data.items)) throw new Error('Invalid Spotify saved tracks response');
+        const items = data.items;
+        for (const it of items) {
+          const t = it?.item || it?.track;
+          if (!t || t.is_local || t.type === 'episode') continue;
+          const artist = (Array.isArray(t.artists) && t.artists[0]?.name) || '';
+          const title = t.name || '';
+          const duration = t.duration_ms ? Math.round(t.duration_ms / 1000) : undefined;
+          if (title) {
+            const spotifyId = spotifyTrackId(t);
+            likes.push({ id: spotifyId, spotifyId, spotifyUrl: spotifyId ? `https://open.spotify.com/track/${spotifyId}` : '', title, artist, duration });
+          }
+          if (likes.length >= 5000) break;
+        }
+        nextUrl = data.next || null;
+      }
+    }
 
 		if (wantPlaylists) {
 			let userPlaylists = [];
@@ -6669,41 +6959,47 @@ async function handleSpotifyLibrary(req, res, query) {
 				}
 				if (resp.status < 200 || resp.status >= 300) throw spotifyApiFailure(resp, `playlist items (${pl.name})`);
 
-				const pageData = JSON.parse(resp.body);
-				if (!Array.isArray(pageData.items)) throw new Error(`Invalid Spotify playlist items (${pl.name}) response`);
-				const pageItems = pageData.items;
-				for (const it of pageItems) {
-					const t = it?.item || it?.track;
-					if (!t || t.is_local || t.type === 'episode') continue;
-					const artist = (Array.isArray(t.artists) && t.artists[0]?.name) || '';
-					const title = t.name || '';
-					const duration = t.duration_ms ? Math.round(t.duration_ms / 1000) : undefined;
-					if (title) plTracks.push({ title, artist, duration });
-				}
-				let trackNext = pageData.next || null;
-				while (trackNext) {
-					const nextResp = await spotifyGetWithRetry(trackNext);
-					if (nextResp.status === 403) {
-						skippedPlaylists.push({ name: pl.name, error: spotifyApiFailure(nextResp, `playlist items (${pl.name})`).message });
-						continue playlistLoop;
-					}
-					if (nextResp.status < 200 || nextResp.status >= 300) throw spotifyApiFailure(nextResp, `playlist items (${pl.name})`);
-					const nextData = JSON.parse(nextResp.body);
-					if (!Array.isArray(nextData.items)) throw new Error(`Invalid Spotify playlist items (${pl.name}) response`);
-					const nextItems = nextData.items;
-					for (const it of nextItems) {
-						const t = it?.item || it?.track;
-						if (!t || t.is_local || t.type === 'episode') continue;
-						const artist = (Array.isArray(t.artists) && t.artists[0]?.name) || '';
-						const title = t.name || '';
-						const duration = t.duration_ms ? Math.round(t.duration_ms / 1000) : undefined;
-						if (title) plTracks.push({ title, artist, duration });
-					}
-					trackNext = nextData.next || null;
-				}
-				playlists.push({ name: pl.name, tracks: plTracks });
-			}
-		}
+        const pageData = JSON.parse(resp.body);
+        if (!Array.isArray(pageData.items)) throw new Error(`Invalid Spotify playlist items (${pl.name}) response`);
+        const pageItems = pageData.items;
+        for (const it of pageItems) {
+          const t = it?.item || it?.track;
+          if (!t || t.is_local || t.type === 'episode') continue;
+          const artist = (Array.isArray(t.artists) && t.artists[0]?.name) || '';
+          const title = t.name || '';
+          const duration = t.duration_ms ? Math.round(t.duration_ms / 1000) : undefined;
+          if (title) {
+            const spotifyId = spotifyTrackId(t);
+            plTracks.push({ id: spotifyId, spotifyId, spotifyUrl: spotifyId ? `https://open.spotify.com/track/${spotifyId}` : '', title, artist, duration });
+          }
+        }
+        let trackNext = pageData.next || null;
+        while (trackNext) {
+          const nextResp = await spotifyGetWithRetry(trackNext);
+          if (nextResp.status === 403) {
+            skippedPlaylists.push({ name: pl.name, error: spotifyApiFailure(nextResp, `playlist items (${pl.name})`).message });
+            continue playlistLoop;
+          }
+          if (nextResp.status < 200 || nextResp.status >= 300) throw spotifyApiFailure(nextResp, `playlist items (${pl.name})`);
+          const nextData = JSON.parse(nextResp.body);
+          if (!Array.isArray(nextData.items)) throw new Error(`Invalid Spotify playlist items (${pl.name}) response`);
+          const nextItems = nextData.items;
+          for (const it of nextItems) {
+            const t = it?.item || it?.track;
+            if (!t || t.is_local || t.type === 'episode') continue;
+            const artist = (Array.isArray(t.artists) && t.artists[0]?.name) || '';
+            const title = t.name || '';
+            const duration = t.duration_ms ? Math.round(t.duration_ms / 1000) : undefined;
+            if (title) {
+              const spotifyId = spotifyTrackId(t);
+              plTracks.push({ id: spotifyId, spotifyId, spotifyUrl: spotifyId ? `https://open.spotify.com/track/${spotifyId}` : '', title, artist, duration });
+            }
+          }
+          trackNext = nextData.next || null;
+        }
+        playlists.push({ name: pl.name, tracks: plTracks });
+      }
+    }
 
 		res.writeHead(200, { 'Content-Type': 'application/json' });
 		res.end(JSON.stringify({ success: true, partial: skippedPlaylists.length > 0, likes, playlists, skippedPlaylists }));
@@ -7434,33 +7730,33 @@ const server = http.createServer(async (req, res) => {
 		return;
 	}
 
-	if (parsedUrl.pathname === '/api/i18n-batch' && req.method === 'POST') {
-		let body = '';
-		req.on('data', chunk => {
-			if (res.writableEnded) return;
-			body += chunk;
-			if (body.length > MAX_BODY_BYTES) {
-				body = '';
-				req.removeAllListeners('data');
-				req.removeAllListeners('end');
-				res.writeHead(413, { 'Content-Type': 'application/json' });
-				res.end(JSON.stringify({ success: false, error: 'payload too large' }));
-				req.resume();
-			}
-		});
-		req.on('end', async () => {
-			const payload = safeJsonParse(body, {});
-			const target = payload.target || payload.targetLang || payload.to || 'en';
-			const texts = Array.isArray(payload.texts) ? payload.texts : [];
-			const safeLang = String(target || 'en').replace(/[^a-zA-Z0-9_-]/g, '');
-			const langFile = path.join(I18N_DIR, safeLang + '.json');
-			let dict = {};
-			try { dict = JSON.parse(fs.readFileSync(langFile, 'utf8')); } catch (_) { }
-			let dictDirty = false;
-			for (const k of Object.keys(dict)) {
-				if (i18nValueBroken(dict[k])) { delete dict[k]; dictDirty = true; }
-			}
-			Object.assign(dict, I18N_FIX[safeLang] || {});
+  if (parsedUrl.pathname === '/api/i18n-batch' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => {
+      if (res.writableEnded) return;
+      body += chunk;
+      if (body.length > MAX_BODY_BYTES) {
+        body = '';
+        req.removeAllListeners('data');
+        req.removeAllListeners('end');
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'payload too large' }));
+        req.resume();
+      }
+    });
+    req.on('end', async () => {
+      const payload = safeJsonParse(body, {});
+      const target = payload.target || payload.targetLang || payload.to || 'en';
+      const texts = Array.isArray(payload.texts) ? payload.texts : [];
+      const safeLang = String(target || 'en').replace(/[^a-zA-Z0-9_-]/g, '');
+      const langFile = path.join(I18N_DIR, safeLang + '.json');
+      let dict = {};
+      try { dict = JSON.parse(fs.readFileSync(langFile, 'utf8')); } catch (_) {}
+      let dictDirty = false;
+      for (const k of Object.keys(dict)) {
+        if (i18nValueBroken(k, dict[k])) { delete dict[k]; dictDirty = true; }
+      }
+      Object.assign(dict, I18N_FIX[safeLang] || {});
 
 			const missing = [];
 			for (const str of texts) {
@@ -7491,32 +7787,32 @@ const server = http.createServer(async (req, res) => {
 					}
 					if (curChunk.length > 0) chunks.push(curChunk);
 
-					for (const chunk of chunks) {
-						const joined = chunk.join('\n');
-						let chunkTrans = await callTranslate(joined, safeLang);
-						if (chunkTrans && chunkTrans.length === chunk.length) {
-							for (let i = 0; i < chunk.length; i++) {
-								if (i18nValueBroken(chunkTrans[i])) continue;
-								dict[chunk[i]] = chunkTrans[i];
-								changed = true;
-							}
-						} else {
-							for (const str of chunk) {
-								const single = await callTranslate(str, safeLang);
-								if (single && single[0] && !i18nValueBroken(single[0])) {
-									dict[str] = single[0];
-									changed = true;
-								}
-							}
-						}
-					}
-				}
-				if (changed || dictDirty) {
-					try {
-						fs.writeFileSync(langFile, JSON.stringify(dict, null, 2), 'utf8');
-					} catch (_) { }
-				}
-			}
+          for (const chunk of chunks) {
+            const joined = chunk.join('\n');
+            let chunkTrans = await callTranslate(joined, safeLang);
+            if (chunkTrans && chunkTrans.length === chunk.length) {
+              for (let i = 0; i < chunk.length; i++) {
+                if (i18nValueBroken(chunk[i], chunkTrans[i])) continue;
+                dict[chunk[i]] = chunkTrans[i];
+                changed = true;
+              }
+            } else {
+              for (const str of chunk) {
+                const single = await callTranslate(str, safeLang);
+                if (single && single[0] && !i18nValueBroken(str, single[0])) {
+                  dict[str] = single[0];
+                  changed = true;
+                }
+              }
+            }
+          }
+        }
+        if (changed || dictDirty) {
+          try {
+            fs.writeFileSync(langFile, JSON.stringify(dict, null, 2), 'utf8');
+          } catch (_) {}
+        }
+      }
 
 			res.writeHead(200, { 'Content-Type': 'application/json' });
 			res.end(JSON.stringify({ success: true, translations: texts.map(s => dict[s] || s) }));
@@ -7813,18 +8109,18 @@ const server = http.createServer(async (req, res) => {
 		return res.end(JSON.stringify({ started: true }));
 	}
 
-	if (parsedUrl.pathname === '/api/stream-info') {
-		const trackUrl = parsedUrl.query.url || '';
-		const trackId = parsedUrl.query.id || '';
-		const platform = parsedUrl.query.platform || 'ytmusic';
-		const title = parsedUrl.query.title || '';
-		const artist = parsedUrl.query.artist || '';
-		const duration = parsedUrl.query.duration || 0;
-		const thumbnail = parsedUrl.query.thumbnail || '';
-		const rawTimeout = parseInt(parsedUrl.query.timeout, 10);
-		const timeoutSec = isNaN(rawTimeout) ? 12 : Math.max(5, Math.min(30, rawTimeout));
-		return handleStreamInfo(req, res, trackUrl, trackId, platform, title, artist, duration, thumbnail, timeoutSec);
-	}
+  if (parsedUrl.pathname === '/api/stream-info') {
+    const trackUrl = parsedUrl.query.url || '';
+    const trackId = parsedUrl.query.id || '';
+    const platform = parsedUrl.query.platform || 'ytmusic';
+    const title = parsedUrl.query.title || '';
+    const artist = parsedUrl.query.artist || '';
+    const duration = parsedUrl.query.duration || 0;
+    const thumbnail = parsedUrl.query.thumbnail || '';
+    const rawTimeout = parseInt(parsedUrl.query.timeout, 10);
+    const timeoutSec = isNaN(rawTimeout) ? 20 : Math.max(5, Math.min(30, rawTimeout));
+    return handleStreamInfo(req, res, trackUrl, trackId, platform, title, artist, duration, thumbnail, timeoutSec);
+  }
 
 	if (parsedUrl.pathname === '/api/local-track') {
 		const trackId = parsedUrl.query.id || '';
@@ -8194,7 +8490,17 @@ function startServer(port = PORT) {
 	});
 }
 
-module.exports = { startServer, PORT, getServerToken, fetchLyricsDirect, fetchLrcLib, fetchGeniusLyrics, fetchNetEaseWords, fetchKugouLyrics, fetchMusixmatchLyrics, fetchNeteaseLyrics, fetchSoundCloudSearch, ytmusicSearch, parseYrc };
+function stopServer() {
+  if (!server.listening) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+}
+
+module.exports = { startServer, stopServer, PORT, getServerToken, fetchLyricsDirect, fetchLrcLib, fetchGeniusLyrics, fetchNetEaseWords, fetchKugouLyrics, fetchMusixmatchLyrics, fetchNeteaseLyrics, fetchSoundCloudSearch, ytmusicSearch, parseYrc, cleanSearchResults, scoreImportedCandidate, findDownloadedFileName, decodeUtf8Chunks, hasBrokenLyricText };
 
 if (require.main === module) {
 	startServer();

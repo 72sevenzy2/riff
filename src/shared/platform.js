@@ -55,6 +55,17 @@ function resolveDownloadDir() {
   return null;
 }
 
+function defaultDownloadDir() {
+  if (IS_WIN) {
+    const drive = 'D:\\';
+    try {
+      fs.accessSync(drive, fs.constants.W_OK);
+      return path.join(drive, 'Downloads');
+    } catch (e) {}
+  }
+  try { return require('electron').app.getPath('downloads'); } catch (e) { return path.join(os.homedir(), 'Downloads'); }
+}
+
 function setDownloadDir(dir) {
   const cfg = readConfig();
   if (dir && String(dir).trim()) cfg.downloadDir = path.resolve(String(dir).trim());
@@ -85,10 +96,19 @@ function writeStartupConfig(patch) {
     return true;
   } catch (e) { return false; }
 }
-function tutorialDone() { return fs.existsSync(TUTORIAL_MARKER) || fs.existsSync(TUTORIAL_MARKER_FALLBACK); }
+const APP_VERSION = (() => { try { return require('../../package.json').version || '0'; } catch (e) { return '0'; } })();
+function tutorialDone() {
+  for (const file of [TUTORIAL_MARKER, TUTORIAL_MARKER_FALLBACK]) {
+    try {
+      if (!fs.existsSync(file)) continue;
+      if (fs.readFileSync(file, 'utf8').trim() === APP_VERSION) return true;
+    } catch (e) {}
+  }
+  return false;
+}
 function markTutorialDone() {
   for (const file of [TUTORIAL_MARKER, TUTORIAL_MARKER_FALLBACK]) {
-    try { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, '1'); return true; } catch (e) {}
+    try { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, APP_VERSION); return true; } catch (e) {}
   }
   return false;
 }
@@ -145,7 +165,14 @@ function findInPath(name, env = process.env, platform = process.platform) {
 const binaryCache = {};
 
 function resolveBinary(name) {
-  if (name in binaryCache) return binaryCache[name];
+  if (name in binaryCache) {
+    const cached = binaryCache[name];
+    // Re-validate cached paths: a managed binary can be removed or replaced
+    // (e.g. by a failed self-update), which would otherwise keep spawning a
+    // path that no longer exists until the app restarts.
+    if (cached === null || isExecutableFile(cached)) return cached;
+    delete binaryCache[name];
+  }
   const exe = IS_WIN ? `${name}.exe` : name;
   const envKey = `RIFF_${name.replace(/[^a-z0-9]/gi, '').toUpperCase()}`;
   const candidates = [
@@ -177,12 +204,38 @@ function clearBinaryCache() {
   Object.keys(binaryCache).forEach((k) => delete binaryCache[k]);
 }
 
+// Returns true only for a real YouTube login inside a Netscape cookie jar.
+// Browser exports that merely contain Google analytics/consent cookies (e.g.
+// Vivaldi's __Secure-3PAPISID/__Secure-3PSID) must not count, otherwise
+// yt-dlp fails with "The page needs to be reloaded.".
+function cookieJarHasYtLogin(text) {
+  try {
+    let hasLoginInfo = false;
+    let hasSapisid = false;
+    let hasSid = false;
+    for (const line of String(text || '').split(/\r?\n/)) {
+      if (!line || line.startsWith('#')) continue;
+      const parts = line.split('\t');
+      if (parts.length < 7) continue;
+      const domain = String(parts[0] || '').toLowerCase().replace(/^\./, '');
+      if (domain !== 'youtube.com' && !domain.endsWith('.youtube.com')) continue;
+      const name = parts[5];
+      if (name === 'LOGIN_INFO') hasLoginInfo = true;
+      else if (name === 'SAPISID') hasSapisid = true;
+      else if (name === 'SID') hasSid = true;
+    }
+    return hasLoginInfo || (hasSapisid && hasSid);
+  } catch (_) {
+    return false;
+  }
+}
+
 module.exports = {
   clearBinaryCache,
   IS_WIN, DATA_DIR, DEFAULT_DATA_DIR, CONFIG_PATH, BIN_DIR, CACHE_DIR, CUSTOM_LYRICS_DIR, LYRICS_DIR, THUMBNAILS_DIR, METADATA_PATH,
   LIBRARY_DIR, LIBRARY_PATH, STARTUP_PATH,
-  findInPath, resolveBinary, ytDlpCommand,
+  findInPath, resolveBinary, ytDlpCommand, cookieJarHasYtLogin,
   tutorialDone, markTutorialDone,
   readStartupConfig, writeStartupConfig,
-  readConfig, resolveDataDir, setDataDir, resolveDownloadDir, setDownloadDir, copyDirContents, removeDirContents
+  readConfig, resolveDataDir, setDataDir, resolveDownloadDir, defaultDownloadDir, setDownloadDir, copyDirContents, removeDirContents
 };
